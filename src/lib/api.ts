@@ -328,6 +328,8 @@ export const api = {
   msLoginStart: () => call<MsLoginStart>("ms_login_start"),
   msLoginFinish: (flowId: number) => call<Account>("ms_login_finish", { flowId }),
   msLoginCancel: (flowId: number) => call<void>("ms_login_cancel", { flowId }),
+  msBrowserStart: () => call<{ flowId: number; url: string }>("ms_browser_start"),
+  msBrowserFinish: (flowId: number) => call<Account>("ms_browser_finish", { flowId }),
   msRefreshAccount: (id: string) => call<Account>("ms_refresh_account", { id }),
 
   contentSearch: (platform: Platform, query: SearchQuery) =>

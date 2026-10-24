@@ -247,6 +247,204 @@ pub async fn refresh(http: &reqwest::Client, client_id: &str, refresh_token: &st
     login_with_ms_token(http, token).await
 }
 
+/// 浏览器登录（授权码 + PKCE）：启动器在本机临时监听一个端口，
+/// 用户在浏览器中确认后，微软把授权码跳转回 `http://localhost:<端口>`。
+///
+/// Azure 应用需要在「身份验证 → 移动和桌面应用程序」中添加重定向 URI `http://localhost`（端口任意）。
+pub struct BrowserLogin {
+    /// 需要在浏览器中打开的地址
+    pub url: String,
+    listener: tokio::net::TcpListener,
+    redirect_uri: String,
+    verifier: String,
+    state: String,
+}
+
+fn random_token(bytes: usize) -> Result<String> {
+    use base64::Engine;
+    let mut buf = vec![0u8; bytes];
+    getrandom::fill(&mut buf).map_err(|e| CoreError::InvalidData(format!("无法生成随机数：{e}")))?;
+    Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(buf))
+}
+
+fn pkce_challenge(verifier: &str) -> String {
+    use base64::Engine;
+    use sha2::Digest;
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(sha2::Sha256::digest(verifier.as_bytes()))
+}
+
+fn url_encode(s: &str) -> String {
+    let mut out = String::new();
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
+fn url_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'%' if i + 2 < bytes.len() => {
+                match u8::from_str_radix(&s[i + 1..i + 3], 16) {
+                    Ok(b) => out.push(b),
+                    Err(_) => out.extend_from_slice(&bytes[i..i + 3]),
+                }
+                i += 3;
+            }
+            b'+' => {
+                out.push(b' ');
+                i += 1;
+            }
+            b => {
+                out.push(b);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// 解析 `GET /?a=b&c=d HTTP/1.1` 请求行中的查询参数。
+fn parse_request_query(request_line: &str) -> Option<std::collections::HashMap<String, String>> {
+    let target = request_line.split_whitespace().nth(1)?;
+    let (path, query) = target.split_once('?').unwrap_or((target, ""));
+    if path != "/" {
+        return None;
+    }
+    Some(
+        query
+            .split('&')
+            .filter_map(|kv| kv.split_once('='))
+            .map(|(k, v)| (url_decode(k), url_decode(v)))
+            .collect(),
+    )
+}
+
+const LOGIN_PAGE: &str = "<!doctype html><html lang=\"zh-CN\"><meta charset=\"utf-8\"><title>Red Craft</title>\
+<body style=\"margin:0;height:100vh;display:grid;place-items:center;background:#f4efe6;color:#1b1a17;font-family:serif\">\
+<div style=\"text-align:center\"><div style=\"width:14px;height:14px;background:#e8590c;box-shadow:3px 3px 0 #1b1a17;margin:0 auto 18px\"></div>\
+<h1 style=\"margin:0 0 8px\">{TITLE}</h1><p style=\"color:#7a7266;font-family:sans-serif\">{BODY}</p></div></body></html>";
+
+/// 第一步：准备浏览器登录，返回需要打开的地址。
+pub async fn start_browser_login(client_id: &str) -> Result<BrowserLogin> {
+    require_client_id(client_id)?;
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .map_err(|e| CoreError::auth(format!("无法在本机打开登录回调端口：{e}"), "请检查防火墙设置，或改用验证码登录。"))?;
+    let port = listener
+        .local_addr()
+        .map_err(|e| CoreError::auth(e.to_string(), ""))?
+        .port();
+    let redirect_uri = format!("http://localhost:{port}");
+    let verifier = random_token(48)?;
+    let state = random_token(16)?;
+    let url = format!(
+        "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize?client_id={}&response_type=code&redirect_uri={}&scope={}&code_challenge={}&code_challenge_method=S256&state={}&prompt=select_account",
+        url_encode(client_id),
+        url_encode(&redirect_uri),
+        url_encode(SCOPE),
+        pkce_challenge(&verifier),
+        state
+    );
+    Ok(BrowserLogin {
+        url,
+        listener,
+        redirect_uri,
+        verifier,
+        state,
+    })
+}
+
+/// 第二步：等待浏览器跳转回来，用授权码换取令牌并完成后续登录。
+pub async fn finish_browser_login(
+    http: &reqwest::Client,
+    client_id: &str,
+    login: BrowserLogin,
+    cancel: &CancelToken,
+) -> Result<MsSession> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let deadline = now() + 600;
+    let params = loop {
+        if now() > deadline {
+            return Err(CoreError::auth("等待浏览器登录超时", "请重新点击「微软登录」。"));
+        }
+        let accepted = tokio::select! {
+            r = login.listener.accept() => r.ok(),
+            _ = tokio::time::sleep(Duration::from_millis(300)) => None,
+        };
+        cancel.check()?;
+        let Some((mut stream, _)) = accepted else { continue };
+        let mut buf = vec![0u8; 8192];
+        let n = tokio::time::timeout(Duration::from_secs(5), stream.read(&mut buf))
+            .await
+            .ok()
+            .and_then(|r| r.ok())
+            .unwrap_or(0);
+        let request = String::from_utf8_lossy(&buf[..n]).to_string();
+        let first_line = request.lines().next().unwrap_or_default();
+        let Some(params) = parse_request_query(first_line) else {
+            // favicon 等其它请求
+            let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await;
+            continue;
+        };
+        let ok = params.contains_key("code") && params.get("state") == Some(&login.state);
+        let (title, body) = if ok {
+            ("登录成功", "可以关闭这个页面，回到 Red Craft 了。")
+        } else {
+            ("登录未完成", "请回到 Red Craft 查看原因。")
+        };
+        let html = LOGIN_PAGE.replace("{TITLE}", title).replace("{BODY}", body);
+        let resp = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{html}",
+            html.len()
+        );
+        let _ = stream.write_all(resp.as_bytes()).await;
+        let _ = stream.shutdown().await;
+        break params;
+    };
+
+    if let Some(err) = params.get("error") {
+        let desc = params.get("error_description").cloned().unwrap_or_default();
+        return Err(oauth_error(&OAuthError {
+            error: err.clone(),
+            error_description: desc,
+        }));
+    }
+    if params.get("state") != Some(&login.state) {
+        return Err(CoreError::auth("登录回调校验失败", "请重新登录。"));
+    }
+    let code = params
+        .get("code")
+        .ok_or_else(|| CoreError::auth("浏览器没有返回授权码", "请重新登录。"))?;
+
+    let resp = http
+        .post(MS_TOKEN)
+        .form(&[
+            ("grant_type", "authorization_code"),
+            ("client_id", client_id),
+            ("code", code.as_str()),
+            ("redirect_uri", login.redirect_uri.as_str()),
+            ("code_verifier", login.verifier.as_str()),
+            ("scope", SCOPE),
+        ])
+        .send()
+        .await
+        .map_err(|e| CoreError::network(MS_TOKEN, e))?;
+    if !resp.status().is_success() {
+        let err: OAuthError = read_json(resp, "微软登录响应").await?;
+        return Err(oauth_error(&err));
+    }
+    let token: OAuthToken = read_json(resp, "微软令牌").await?;
+    login_with_ms_token(http, token).await
+}
+
 async fn login_with_ms_token(http: &reqwest::Client, token: OAuthToken) -> Result<MsSession> {
     let refresh_token = token.refresh_token.clone().unwrap_or_default();
 
@@ -409,6 +607,12 @@ fn oauth_error(err: &OAuthError) -> CoreError {
             "请确认 Client ID 填写正确，并在 Azure 应用的「验证」页面开启「允许公共客户端流」。",
         ),
         "invalid_grant" => CoreError::auth("登录凭据已失效", "请重新登录这个微软账号。"),
+        "invalid_request" if err.error_description.contains("redirect_uri") || err.error_description.contains("AADSTS50011") => {
+            CoreError::auth(
+                "Azure 应用没有配置浏览器登录的重定向地址",
+                "请在 Azure 应用的「身份验证」中添加平台「移动和桌面应用程序」，重定向 URI 填 http://localhost；或者改用验证码登录。",
+            )
+        }
         _ => CoreError::auth(
             format!("微软登录失败：{}", err.error),
             if err.error_description.is_empty() {
@@ -494,6 +698,47 @@ mod tests {
         let e = oauth_error(&OAuthError { error: "invalid_client".into(), error_description: String::new() });
         assert!(e.hint().contains("公共客户端"));
         assert!(require_client_id(" ").is_err());
+    }
+
+    #[test]
+    fn pkce_and_query() {
+        // 期望值由 Python 独立计算：base64url(sha256(verifier))，去掉末尾的 =
+        assert_eq!(
+            pkce_challenge("dBjftJeZ4CVP-mJ92RfP2zfsFz0CnGuFz2ZsQfVnzMk"),
+            "TJBX0P5afeK2uq-LPCcgjzGHhU55Be9ooJfXIIXc_yI"
+        );
+        let q = parse_request_query("GET /?code=M.C5_a%2Fb&state=xyz HTTP/1.1").unwrap();
+        assert_eq!(q["code"], "M.C5_a/b");
+        assert_eq!(q["state"], "xyz");
+        assert!(parse_request_query("GET /favicon.ico HTTP/1.1").is_none());
+        assert_eq!(url_encode("http://localhost:1"), "http%3A%2F%2Flocalhost%3A1");
+        assert_ne!(random_token(16).unwrap(), random_token(16).unwrap());
+    }
+
+    #[tokio::test]
+    async fn browser_callback_roundtrip() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let login = start_browser_login("00000000-0000-0000-0000-000000000000").await.unwrap();
+        assert!(login.url.contains("code_challenge_method=S256"));
+        let port = login.listener.local_addr().unwrap().port();
+        let state = login.state.clone();
+        // 模拟浏览器：先请求 favicon，再带着错误跳回
+        let browser = tokio::spawn(async move {
+            let mut s = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+            s.write_all(b"GET /favicon.ico HTTP/1.1\r\n\r\n").await.unwrap();
+            let mut v = Vec::new();
+            s.read_to_end(&mut v).await.unwrap();
+            let mut s = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+            s.write_all(format!("GET /?error=access_denied&state={state} HTTP/1.1\r\n\r\n").as_bytes()).await.unwrap();
+            let mut v = Vec::new();
+            s.read_to_end(&mut v).await.unwrap();
+            String::from_utf8_lossy(&v).to_string()
+        });
+        let err = finish_browser_login(&reqwest::Client::new(), "x", login, &CancelToken::new())
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("拒绝"));
+        assert!(browser.await.unwrap().contains("登录未完成"));
     }
 
     #[test]

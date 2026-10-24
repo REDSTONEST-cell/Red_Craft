@@ -61,6 +61,56 @@ pub fn ms_login_cancel(state: State<'_, AppState>, flow_id: u64) {
     if let Some((t, _)) = state.ms_flows.lock().ok().and_then(|mut f| f.remove(&flow_id)) {
         t.cancel();
     }
+    if let Some((t, _)) = state.ms_browser.lock().ok().and_then(|mut f| f.remove(&flow_id)) {
+        t.cancel();
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserStart {
+    flow_id: u64,
+    url: String,
+}
+
+/// 浏览器登录第一步：在本机打开回调端口，并用系统浏览器打开微软登录页。
+#[tauri::command]
+pub async fn ms_browser_start(app: tauri::AppHandle, state: State<'_, AppState>) -> AppResult<BrowserStart> {
+    use tauri_plugin_opener::OpenerExt;
+    let client_id = state.settings().effective_client_id();
+    let login = microsoft::start_browser_login(&client_id).await?;
+    let url = login.url.clone();
+    let flow_id = NEXT_FLOW.fetch_add(1, Ordering::Relaxed);
+    if let Ok(mut f) = state.ms_browser.lock() {
+        f.insert(flow_id, (CancelToken::new(), Some(login)));
+    }
+    if let Err(e) = app.opener().open_url(&url, None::<&str>) {
+        log::warn!("无法打开浏览器：{e}");
+    }
+    Ok(BrowserStart { flow_id, url })
+}
+
+/// 浏览器登录第二步：等待浏览器跳转回来并完成登录。
+#[tauri::command]
+pub async fn ms_browser_finish(state: State<'_, AppState>, flow_id: u64) -> AppResult<Account> {
+    let (cancel, login) = state
+        .ms_browser
+        .lock()
+        .ok()
+        .and_then(|mut f| f.get_mut(&flow_id).map(|(c, l)| (c.clone(), l.take())))
+        .ok_or_else(|| AppError::msg("登录流程已失效", "请重新点击「微软登录」。"))?;
+    let login = login.ok_or_else(|| AppError::msg("登录流程已在进行中", ""))?;
+    let client_id = state.settings().effective_client_id();
+    let http = state.http()?;
+    let result = microsoft::finish_browser_login(http.raw(), &client_id, login, &cancel).await;
+    if let Ok(mut f) = state.ms_browser.lock() {
+        f.remove(&flow_id);
+    }
+    let session = result?;
+    let account = save_session(&state, &session)?;
+    state.update_settings(|s| s.selected_account = Some(account.id.clone()))?;
+    log::info!("微软账号 {} 登录成功（浏览器）", account.name);
+    Ok(account)
 }
 
 /// 保存令牌到密钥库，并新增或更新账号列表中的条目（角色名、皮肤可能变化）。

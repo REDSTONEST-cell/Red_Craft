@@ -68,6 +68,8 @@ pub fn run() {
             auth::ms_login_start,
             auth::ms_login_finish,
             auth::ms_login_cancel,
+            auth::ms_browser_start,
+            auth::ms_browser_finish,
             auth::ms_refresh_account,
             content::content_search,
             content::content_instance,
