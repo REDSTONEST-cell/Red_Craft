@@ -87,6 +87,59 @@ body {
 
 #app {
   height: 100%;
+  isolation: isolate;
+  --control-ink: var(--ink);
+  --control-ink-2: var(--ink-2);
+  --control-muted: var(--muted);
+  --control-rule: var(--rule);
+  --control-rule-strong: var(--rule-strong);
+}
+
+/* With a selected background, text and navigation sit directly over media.
+   Only interactive controls keep their original solid surfaces. */
+:root.has-background :is(.titlebar, .sidebar, .card) {
+  background: transparent;
+}
+
+/* Bright foreground plus a dark edge remains legible over changing video frames. */
+:root.has-background .shell {
+  --ink: #ffffff;
+  --ink-2: #f4f6fa;
+  --muted: #e0e6ef;
+  color: var(--ink);
+  text-shadow: -1px 0 1px #000, 1px 0 1px #000, 0 -1px 1px #000,
+    0 1px 1px #000, 0 2px 4px rgba(0, 0, 0, 0.9);
+}
+
+/* Remove decorative separators and transparent frames, keeping real controls. */
+.shell { --rule: transparent; --rule-strong: transparent; }
+.shell :is(.rule, .rule-double) { display: none; }
+#app .shell :is(.chip, .avatar-empty) { border-color: transparent; }
+
+/* Solid controls keep the selected theme's foreground and their own button colors. */
+:root.has-background .shell :is(.btn:not(.ghost), .input, select, textarea, .seg,
+  .java, .asset-grid article, .background-picker .status,
+  .background-picker .error, .background-picker .empty, .toggle .track) {
+  --ink: var(--control-ink);
+  --ink-2: var(--control-ink-2);
+  --muted: var(--control-muted);
+  --rule: var(--control-rule);
+  --rule-strong: var(--control-rule-strong);
+  text-shadow: none;
+}
+:root.has-background .shell :is(.input, select, textarea, .java, .asset-grid article,
+  .background-picker .status, .background-picker .empty) {
+  color: var(--ink);
+}
+:root.has-background .shell > .titlebar .ctl:not(.close):hover {
+  color: var(--control-ink);
+  text-shadow: none;
+}
+:root.has-background .shell .kicker {
+  color: color-mix(in srgb, var(--accent) 65%, white);
+}
+:root.has-background .sidebar svg {
+  filter: drop-shadow(0 1px 1px #000);
 }
 
 ::selection {

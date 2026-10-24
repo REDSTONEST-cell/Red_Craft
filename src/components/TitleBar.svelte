@@ -20,8 +20,6 @@
 
 <header class="titlebar" data-tauri-drag-region>
   <div class="brand" data-tauri-drag-region>
-    <span class="pixel"></span>
-    <span class="name" data-tauri-drag-region>Red Craft</span>
     {#if app.info?.portable}<span class="tag">便携</span>{/if}
     {#if running > 0}
       <span class="tag accent">{running} 个任务进行中</span>
@@ -63,12 +61,6 @@
     padding-left: 14px;
     height: 100%;
     flex: 1;
-  }
-  .name {
-    font-family: var(--serif);
-    font-weight: 700;
-    font-size: 14px;
-    letter-spacing: 0.04em;
   }
   .controls {
     display: flex;

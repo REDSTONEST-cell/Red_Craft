@@ -1,6 +1,7 @@
 //! Tauri 外壳：把 launcher-core 包装成 commands 与 events。
 
 mod auth;
+mod background;
 mod commands;
 mod content;
 mod error;
@@ -14,6 +15,7 @@ mod tasks;
 mod ygg;
 
 use state::AppState;
+use tauri::Manager;
 
 pub fn run() {
     let state = AppState::load();
@@ -25,6 +27,7 @@ pub fn run() {
         state.paths.portable
     );
     tauri::Builder::default()
+        .on_window_event(|window, _| background::window_changed(window.app_handle()))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(state)
@@ -47,6 +50,14 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            background::background_list,
+            background::background_resolve,
+            background::background_thumbnail,
+            background::background_apply,
+            background::background_import,
+            background::background_scan,
+            background::background_remove,
+            background::background_window_state,
             commands::app_info,
             commands::app_ready,
             commands::get_settings,

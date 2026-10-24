@@ -14,7 +14,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 launcher-core.workspace = true
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 tokio.workspace = true
@@ -24,9 +24,13 @@ thiserror.workspace = true
 log.workspace = true
 dirs = "6"
 reqwest.workspace = true
+tempfile = "3"
+uuid = { version = "1", features = ["v4", "v5"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 
 [target.'cfg(windows)'.dependencies]
 keyring = { version = "3", features = ["windows-native"] }
+windows-sys = { version = "0.61", features = ["Win32_System_Registry", "Win32_Foundation"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3", features = ["apple-native"] }

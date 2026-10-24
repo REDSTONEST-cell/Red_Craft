@@ -240,6 +240,7 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
                     let _ = w.show();
                     let _ = w.unminimize();
                     let _ = w.set_focus();
+                    crate::background::window_changed(&app3);
                 }
             }
             let _ = app3.emit(GAME_EVENT, GameEvent::Exit { instance: id, exit });
@@ -408,6 +409,7 @@ fn after_started(app: &AppHandle) {
         AfterLaunch::Hide => {
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.hide();
+                crate::background::window_changed(app);
             }
         }
         AfterLaunch::Close => {

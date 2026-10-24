@@ -15,6 +15,8 @@ use crate::settings::{read_json, write_json, AccountStore, AppPaths, Settings};
 use crate::tasks::Tasks;
 
 pub struct AppState {
+    pub backgrounds: Mutex<crate::background::model::Library>,
+    pub background_scan: tokio::sync::Mutex<()>,
     pub paths: AppPaths,
     pub settings: RwLock<Settings>,
     pub accounts: RwLock<AccountStore>,
@@ -41,6 +43,8 @@ impl AppState {
         let settings: Settings = read_json(&paths.settings_file()).unwrap_or_default();
         let accounts: AccountStore = read_json(&paths.accounts_file()).unwrap_or_default();
         AppState {
+            backgrounds: Mutex::new(crate::background::load(&paths.config_dir)),
+            background_scan: tokio::sync::Mutex::new(()),
             secrets: Secrets::new(&paths.config_dir),
             ms_flows: Mutex::new(HashMap::new()),
             ms_browser: Mutex::new(HashMap::new()),
