@@ -74,6 +74,29 @@ impl Account {
     }
 }
 
+/// 下载皮肤图片并转为 data URL，保存在账号信息中，界面显示头像时不再访问外网。
+pub(crate) async fn png_data_url(http: &reqwest::Client, url: &str) -> Option<String> {
+    use base64::Engine;
+    let resp = http
+        .get(url)
+        .timeout(std::time::Duration::from_secs(15))
+        .send()
+        .await
+        .ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    let bytes = resp.bytes().await.ok()?;
+    // PNG 文件头校验，并限制大小
+    if bytes.len() > 512 * 1024 || !bytes.starts_with(b"\x89PNG") {
+        return None;
+    }
+    Some(format!(
+        "data:image/png;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(&bytes)
+    ))
+}
+
 /// 启动游戏时使用的登录凭据。
 #[derive(Debug, Clone)]
 pub struct LaunchAuth {

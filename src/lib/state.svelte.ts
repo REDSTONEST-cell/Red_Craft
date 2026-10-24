@@ -1,5 +1,6 @@
 // 全局响应式状态（Svelte 5 runes）。
 
+import { listen } from "@tauri-apps/api/event";
 import {
   api,
   onGame,
@@ -201,7 +202,11 @@ function markRunning(id: string, running: boolean) {
 }
 
 export async function init() {
-  await Promise.all([onTask(onTaskEvent), onGame(onGameEvent)]);
+  await Promise.all([
+    onTask(onTaskEvent),
+    onGame(onGameEvent),
+    listen("accounts-changed", () => refreshAccounts()),
+  ]);
   const [info, settings] = await Promise.all([api.appInfo(), api.getSettings()]);
   app.info = info;
   app.settings = settings;

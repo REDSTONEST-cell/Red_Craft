@@ -33,7 +33,8 @@ pub fn is_standard_name(name: &str) -> bool {
     (3..=16).contains(&name.len()) && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
-/// 查询同名正版账号的皮肤地址，用作离线账号的头像。查不到（没有同名正版账号或网络失败）时返回 `None`。
+/// 查询同名正版账号的皮肤，返回 PNG 的 data URL，用作离线账号的头像（界面无需再访问外网）。
+/// 查不到（没有同名正版账号或网络失败）时返回 `None`。
 pub async fn lookup_skin(http: &reqwest::Client, name: &str) -> Option<String> {
     use base64::Engine;
 
@@ -49,30 +50,47 @@ pub async fn lookup_skin(http: &reqwest::Client, name: &str) -> Option<String> {
         value: String,
     }
 
-    let timeout = std::time::Duration::from_secs(6);
-    let profile: Profile = http
-        .get(format!("https://api.mojang.com/users/profiles/minecraft/{name}"))
-        .timeout(timeout)
-        .send()
-        .await
-        .ok()
-        .filter(|r| r.status().is_success())?
-        .json()
-        .await
-        .ok()?;
-    let full: Profile = http
-        .get(format!("https://sessionserver.mojang.com/session/minecraft/profile/{}", profile.id))
-        .timeout(timeout)
-        .send()
-        .await
-        .ok()
-        .filter(|r| r.status().is_success())?
-        .json()
-        .await
-        .ok()?;
+    let timeout = std::time::Duration::from_secs(10);
+    let get_profile = |url: String| async move {
+        let r = http.get(&url).timeout(timeout).send().await.ok()?;
+        if !r.status().is_success() {
+            return None;
+        }
+        r.json::<Profile>().await.ok()
+    };
+    // 两个查询接口同时请求，取先成功的（国内网络下 api.mojang.com 经常超时）
+    let a = get_profile(format!("https://api.mojang.com/users/profiles/minecraft/{name}"));
+    let b = get_profile(format!("https://api.minecraftservices.com/minecraft/profile/lookup/name/{name}"));
+    let profile = first_some(a, b).await;
+    let Some(profile) = profile else {
+        log::info!("没有查到名为 {name} 的正版账号（或网络不可用）");
+        return None;
+    };
+    let full = get_profile(format!(
+        "https://sessionserver.mojang.com/session/minecraft/profile/{}",
+        profile.id
+    ))
+    .await?;
     let textures = full.properties.into_iter().find(|p| p.name == "textures")?;
     let decoded = base64::engine::general_purpose::STANDARD.decode(textures.value).ok()?;
-    skin_url_from_textures(&decoded)
+    let url = skin_url_from_textures(&decoded)?;
+    super::png_data_url(http, &url).await
+}
+
+/// 两个 future 同时执行，返回先得到的 `Some`；都为 `None` 时返回 `None`。
+async fn first_some<T>(
+    a: impl std::future::Future<Output = Option<T>>,
+    b: impl std::future::Future<Output = Option<T>>,
+) -> Option<T> {
+    tokio::pin!(a, b);
+    let (mut a_done, mut b_done) = (false, false);
+    loop {
+        tokio::select! {
+            r = &mut a, if !a_done => { if r.is_some() { return r; } a_done = true; }
+            r = &mut b, if !b_done => { if r.is_some() { return r; } b_done = true; }
+            else => return None,
+        }
+    }
 }
 
 fn skin_url_from_textures(json: &[u8]) -> Option<String> {
@@ -83,6 +101,16 @@ fn skin_url_from_textures(json: &[u8]) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    /// 联网测试：`cargo test -p launcher-core -- --ignored lookup_real_skin`
+    #[tokio::test]
+    #[ignore]
+    async fn lookup_real_skin() {
+        let http = reqwest::Client::new();
+        let skin = super::lookup_skin(&http, "REDSTONE_RT").await.expect("应查到皮肤");
+        assert!(skin.starts_with("data:image/png;base64,"));
+        assert!(super::lookup_skin(&http, "zz_no_such_player_zz").await.is_none());
+    }
+
     #[test]
     fn textures_payload() {
         let json = br#"{"timestamp":1,"profileId":"x","profileName":"Notch","textures":{"SKIN":{"url":"http://textures.minecraft.net/texture/abc"}}}"#;

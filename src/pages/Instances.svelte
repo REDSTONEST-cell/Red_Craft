@@ -102,7 +102,7 @@
   <div>
     <div class="kicker">INSTANCES</div>
     <h1>游戏实例</h1>
-    <div class="sub">共 {app.instances.length} 个 · 游戏目录 <span class="mono">{app.info?.gameDir}</span></div>
+    <div class="sub" title={app.info?.gameDir}>共 {app.instances.length} 个 · 游戏目录 <span class="mono">{app.info?.gameDir}</span></div>
   </div>
   <div class="tools">
     <button class="btn" onclick={() => api.openGameDir().catch((e) => showError(e))}><Icon name="folder" size={14} /> 打开目录</button>

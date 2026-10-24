@@ -38,6 +38,11 @@ pub fn run() {
                     }
                 }
             });
+            // 后台补全离线账号的同名正版皮肤（添加账号时可能因网络问题没有查到）
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                commands::refresh_missing_skins(&handle).await;
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

@@ -15,8 +15,10 @@
   --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
   --danger: #b42318;
   --ok: #2f7d32;
-  --shadow: 3px 3px 0 var(--ink);
-  --shadow-sm: 2px 2px 0 var(--ink);
+  /* 硬阴影颜色：浅色主题用墨色，深色主题用暖灰（纯黑在深色背景上看不见） */
+  --shade: var(--ink);
+  --shadow: 3px 3px 0 var(--shade);
+  --shadow-sm: 2px 2px 0 var(--shade);
 
   --serif: "Noto Serif SC", "Noto Serif CJK SC", "Source Han Serif SC", "Source Han Serif CN", "Songti SC", "STSong", "SimSun", Georgia, serif;
   --sans: "Inter", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
@@ -45,8 +47,7 @@
   --rule: rgba(237, 230, 216, 0.14);
   --rule-strong: #ede6d8;
   --accent-ink: #1b1209;
-  --shadow: 3px 3px 0 #000;
-  --shadow-sm: 2px 2px 0 #000;
+  --shade: #4d453b;
   color-scheme: dark;
 }
 
@@ -200,6 +201,10 @@ textarea {
   color: var(--muted);
   font-size: 12px;
   margin-top: 4px;
+  max-width: 60ch;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* ─── 按钮 ───
@@ -243,12 +248,9 @@ textarea {
 }
 .btn::after {
   z-index: -2;
-  background: var(--ink);
+  background: var(--shade);
   transform: translate(calc(2px - var(--lift)), calc(2px - var(--lift)));
   transition: transform var(--t-fast) var(--ease);
-}
-:root[data-theme="dark"] .btn::after {
-  background: #000;
 }
 .btn:hover {
   --lift: -1px;
@@ -378,7 +380,7 @@ textarea.input {
   width: 8px;
   height: 8px;
   background: var(--accent);
-  box-shadow: 2px 2px 0 var(--ink);
+  box-shadow: 2px 2px 0 var(--shade);
   flex: none;
 }
 

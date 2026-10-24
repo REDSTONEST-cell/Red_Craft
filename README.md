@@ -11,10 +11,10 @@
 | 1 | 项目骨架：Tauri 2 + Svelte 5 + launcher-core 工作区，command / event 打通 | ✅ |
 | 2 | 版本列表、原版下载与校验、离线登录、启动原版 | ✅ |
 | 3 | Java 检测与自动下载（Mojang Java runtime） | ✅ |
-| 4 | 微软正版登录 ✅、外置登录（authlib-injector）⏳ | 进行中 |
+| 4 | 微软正版登录、外置登录（authlib-injector） | ✅ |
 | 5 | Fabric / Quilt / Forge / NeoForge | ✅ |
 | 6 | Mod / 材质包 / 光影包 / 整合包下载（Modrinth、CurseForge）、前置依赖解析、已安装 Mod 管理 | ✅ |
-| 7 | 界面打磨与动效 | 进行中 |
+| 7 | 界面打磨与动效（含深色主题） | ✅ |
 | 8 | 打包（NSIS / MSI） | CI 已配置 |
 
 已实现的功能：
@@ -34,6 +34,7 @@
 - **默认中文**：实例第一次启动时自动把游戏语言设为简体中文（可在设置中关闭）。
 - **离线登录**：UUID 为 `OfflinePlayer:<name>` 的 MD5（UUID v3），与服务端一致。
 - **微软正版登录**：点击后自动打开浏览器，确认后自动完成（授权码 + PKCE，本机回调）；也可改用验证码登录。之后依次 Xbox Live → XSTS → Minecraft，检查是否拥有游戏并获取档案；未成年需家长同意、没有 Xbox 档案、没买游戏、应用未通过审核等情况都有中文提示；令牌存系统密钥库，过期自动刷新；显示正版皮肤头像。
+- **外置登录**：支持 LittleSkin 等 authlib-injector 认证服务器。输入服务器地址自动识别（ALI），账号密码只用于登录、不保存；多角色时可选择角色；令牌保存在系统密钥库，启动前校验并自动刷新；启动时自动下载并校验 authlib-injector（BMCLAPI 镜像），注入 `-javaagent` 与预取的服务器元数据。
 - **启动**：同时支持新版 `arguments` 与旧版 `minecraftArguments`；处理 `legacy` / `pre-1.6` 旧版资源；启动前快速补全缺失文件（资源只比较大小，约 150ms）；自动进入服务器（1.20+ 用 Quick Play，旧版用 `--server/--port`）；内存自动分配；日志实时推送；崩溃时分析常见原因并给出中文解决办法；启动后可隐藏 / 保持 / 关闭启动器。
 - **界面**：无边框窗口 + 自定义标题栏；深色 / 浅色 / 跟随系统；主题色可自定义；动效只使用 transform / opacity，并尊重系统「减少动态效果」设置。
 

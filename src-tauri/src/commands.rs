@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use launcher_core::auth::{is_standard_name, validate_offline_name, Account};
+use launcher_core::auth::{is_standard_name, validate_offline_name, Account, AccountKind};
 use launcher_core::install::{validate_instance_name, Verify};
 use launcher_core::instance::{scan_instances, InstanceSummary, LoaderKind};
 use launcher_core::loader::{self, LoaderChoice, LoaderVersion};
@@ -416,6 +416,44 @@ pub async fn add_offline_account(state: State<'_, AppState>, name: String) -> Ap
     Ok(AddedAccount { account, warning })
 }
 
+/// 启动时为还没有头像（或旧版本保存的是网络地址）的离线账号查询同名正版皮肤，完成后通知前端刷新。
+pub async fn refresh_missing_skins(app: &tauri::AppHandle) {
+    use tauri::Emitter;
+    let state = app.state::<AppState>();
+    let pending: Vec<Account> = state
+        .accounts
+        .read()
+        .map(|s| {
+            s.accounts
+                .iter()
+                .filter(|a| {
+                    matches!(a.kind, AccountKind::Offline)
+                        && !a.skin.as_deref().is_some_and(|s| s.starts_with("data:"))
+                })
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default();
+    if pending.is_empty() {
+        return;
+    }
+    let Ok(http) = state.http() else { return };
+    let mut changed = false;
+    for acc in pending {
+        if let Some(skin) = launcher_core::auth::lookup_skin(http.raw(), &acc.name).await {
+            if let Ok(mut store) = state.accounts.write() {
+                if let Some(a) = store.accounts.iter_mut().find(|a| a.id == acc.id) {
+                    a.skin = Some(skin);
+                    changed = true;
+                }
+            }
+        }
+    }
+    if changed && state.save_accounts().is_ok() {
+        let _ = app.emit("accounts-changed", ());
+    }
+}
+
 /// 重新查询离线账号同名正版账号的皮肤。
 #[tauri::command]
 pub async fn refresh_offline_skin(state: State<'_, AppState>, id: String) -> AppResult<Account> {
@@ -427,7 +465,10 @@ pub async fn refresh_offline_skin(state: State<'_, AppState>, id: String) -> App
         .ok_or_else(|| AppError::msg("账号不存在", "请刷新账号列表。"))?;
     let skin = launcher_core::auth::lookup_skin(state.http()?.raw(), &account.name).await;
     let mut updated = account.clone();
-    updated.skin = skin;
+    // 查询失败时保留原来的头像
+    if skin.is_some() || account.skin.is_none() {
+        updated.skin = skin;
+    }
     if let Ok(mut store) = state.accounts.write() {
         if let Some(a) = store.accounts.iter_mut().find(|a| a.id == id) {
             *a = updated.clone();

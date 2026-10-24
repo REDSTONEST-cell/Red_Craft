@@ -315,14 +315,7 @@ pub async fn skin_data_url(http: &reqwest::Client, server: &YggServer, profile_i
     let decoded = base64::engine::general_purpose::STANDARD.decode(textures).ok()?;
     let t: Value = serde_json::from_slice(&decoded).ok()?;
     let skin = t.pointer("/textures/SKIN/url")?.as_str()?;
-    let bytes = http.get(skin).timeout(TIMEOUT).send().await.ok()?.bytes().await.ok()?;
-    if bytes.len() > 512 * 1024 {
-        return None;
-    }
-    Some(format!(
-        "data:image/png;base64,{}",
-        base64::engine::general_purpose::STANDARD.encode(&bytes)
-    ))
+    super::png_data_url(http, skin).await
 }
 
 #[derive(Deserialize)]

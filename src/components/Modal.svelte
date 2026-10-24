@@ -77,10 +77,7 @@
     flex-direction: column;
     background: var(--card);
     border: 1.5px solid var(--ink);
-    box-shadow: 6px 6px 0 var(--ink);
-  }
-  :global(:root[data-theme="dark"]) .modal {
-    box-shadow: 6px 6px 0 #000;
+    box-shadow: 6px 6px 0 var(--shade);
   }
   header {
     display: flex;
