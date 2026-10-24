@@ -63,9 +63,6 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
         .selected
         .and_then(|sel| accounts.accounts.into_iter().find(|a| a.id == sel))
         .ok_or_else(|| AppError::msg("还没有选择账号", "请先在「账号」页面添加并选择一个账号。"))?;
-    if matches!(account.kind, AccountKind::Yggdrasil { .. }) {
-        return Err(AppError::msg("暂不支持外置登录账号", "外置登录将在后续版本中提供。"));
-    }
 
     let installer = state.installer()?;
     let game = installer.game.clone();
@@ -111,7 +108,11 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
                 reporter.stage("验证微软账号");
                 crate::auth::microsoft_launch_auth(&state, &account).await?
             }
-            _ => LaunchAuth::offline(&account.name),
+            AccountKind::Yggdrasil { server_name, .. } => {
+                reporter.stage(&format!("验证外置账号（{server_name}）"));
+                crate::ygg::yggdrasil_launch_auth(&state, &account, &reporter, &cancel).await?
+            }
+            AccountKind::Offline => LaunchAuth::offline(&account.name),
         };
         cancel.check()?;
 

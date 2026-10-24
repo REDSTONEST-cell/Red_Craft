@@ -52,9 +52,12 @@
 
   // 报头期号：今年的第几天
   const issue = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000);
-  const accountLabel = $derived(
-    account?.kind.type === "offline" ? "离线账号" : account?.kind.type === "microsoft" ? "微软账号" : "外置登录",
-  );
+  const accountLabel = $derived.by(() => {
+    const k = account?.kind;
+    if (k?.type === "offline") return "离线账号";
+    if (k?.type === "microsoft") return "微软账号";
+    return k?.type === "yggdrasil" && k.serverName ? `外置 · ${k.serverName}` : "外置登录";
+  });
 </script>
 
 <div class="front">

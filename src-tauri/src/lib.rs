@@ -10,6 +10,7 @@ mod secrets;
 mod settings;
 mod state;
 mod tasks;
+mod ygg;
 
 use state::AppState;
 
@@ -71,6 +72,11 @@ pub fn run() {
             auth::ms_browser_start,
             auth::ms_browser_finish,
             auth::ms_refresh_account,
+            ygg::ygg_resolve,
+            ygg::ygg_login,
+            ygg::ygg_select,
+            ygg::ygg_cancel,
+            ygg::ygg_refresh_account,
             content::content_search,
             content::content_instance,
             content::content_versions,

@@ -4,20 +4,24 @@
   import Avatar from "../components/Avatar.svelte";
   import Icon from "../components/Icon.svelte";
   import MsLogin from "../components/MsLogin.svelte";
+  import YggLogin from "../components/YggLogin.svelte";
+  import type { Account } from "../lib/api";
 
   let msOpen = $state(false);
+  let yggOpen = $state(false);
   let refreshing = $state<string | null>(null);
 
-  async function refreshMs(id: string, offline = false) {
+  async function refresh(acc: Account) {
+    const id = acc.id;
     refreshing = id;
     try {
-      if (offline) {
+      if (acc.kind.type === "offline") {
         const a = await api.refreshOfflineSkin(id);
         await refreshAccounts();
         toast("ok", a.skin ? `已使用正版账号 ${a.name} 的皮肤` : `没有找到名为 ${a.name} 的正版账号，使用默认头像`);
         return;
       }
-      const a = await api.msRefreshAccount(id);
+      const a = acc.kind.type === "yggdrasil" ? await api.yggRefreshAccount(id) : await api.msRefreshAccount(id);
       await refreshAccounts();
       toast("ok", `账号 ${a.name} 登录状态正常`);
     } catch (e) {
@@ -58,7 +62,12 @@
     }
   }
 
-  const kindLabel = (t: string) => (t === "offline" ? "离线" : t === "microsoft" ? "微软正版" : "外置登录");
+  const kindLabel = (a: Account) =>
+    a.kind.type === "offline"
+      ? "离线"
+      : a.kind.type === "microsoft"
+        ? "微软正版"
+        : `外置 · ${a.kind.serverName || "认证服务器"}`;
 </script>
 
 <div class="page-head">
@@ -82,20 +91,18 @@
               <Avatar uuid={a.uuid} skin={a.skin} size={42} />
               <div class="info">
                 <strong>{a.name}</strong>
-                <span class="muted">{kindLabel(a.kind.type)} · <span class="mono">{a.uuid.slice(0, 8)}…</span></span>
+                <span class="muted">{kindLabel(a)} · <span class="mono">{a.uuid.slice(0, 8)}…</span></span>
               </div>
               {#if app.selectedAccount === a.id}<span class="tag accent"><Icon name="check" size={10} /> 使用中</span>{/if}
             </button>
-            {#if a.kind.type === "microsoft" || a.kind.type === "offline"}
-              <button
-                class="btn ghost icon sm"
-                title={a.kind.type === "offline" ? "重新获取同名正版皮肤" : "刷新登录状态"}
-                disabled={refreshing === a.id}
-                onclick={() => refreshMs(a.id, a.kind.type === "offline")}
-              >
-                <span class:spin={refreshing === a.id}><Icon name="refresh" size={14} /></span>
-              </button>
-            {/if}
+            <button
+              class="btn ghost icon sm"
+              title={a.kind.type === "offline" ? "重新获取同名正版皮肤" : "刷新登录状态"}
+              disabled={refreshing === a.id}
+              onclick={() => refresh(a)}
+            >
+              <span class:spin={refreshing === a.id}><Icon name="refresh" size={14} /></span>
+            </button>
             <button class="btn ghost icon sm" title="删除账号" onclick={() => remove(a.id)}><Icon name="trash" size={14} /></button>
           </div>
         {/each}
@@ -124,14 +131,16 @@
       <p class="muted small">在浏览器中登录购买了 Minecraft 的微软账号，启动器不会接触你的密码。令牌保存在系统密钥库中。</p>
       <button class="btn primary" onclick={() => (msOpen = true)}>使用微软账号登录</button>
     </div>
-    <div class="box disabled">
+    <div class="box">
       <div class="kicker">外置登录</div>
-      <p class="muted small">即将推出：支持 LittleSkin 等 authlib-injector 认证服务器。</p>
+      <p class="muted small">使用 LittleSkin 等 authlib-injector 认证服务器的账号，皮肤在支持外置登录的服务器中可见。</p>
+      <button class="btn" onclick={() => (yggOpen = true)}>添加外置账号</button>
     </div>
   </aside>
 </div>
 
 <MsLogin bind:open={msOpen} />
+<YggLogin bind:open={yggOpen} />
 
 <style>
   .grid {
@@ -194,9 +203,6 @@
     padding: 14px;
     border: 1px solid var(--rule);
     background: var(--card);
-  }
-  .box.disabled {
-    opacity: 0.6;
   }
   .small {
     font-size: 12px;

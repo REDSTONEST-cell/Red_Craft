@@ -227,6 +227,21 @@ export interface Account {
   skin?: string | null;
 }
 
+export interface YggProfile {
+  id: string;
+  name: string;
+}
+
+export interface YggServerInfo {
+  apiRoot: string;
+  name: string;
+  registerUrl: string | null;
+}
+
+export type YggLoginResult =
+  | { type: "done"; account: Account }
+  | { type: "choose"; flowId: number; serverName: string; profiles: YggProfile[] };
+
 export interface MsLoginStart {
   flowId: number;
   userCode: string;
@@ -352,6 +367,12 @@ export const api = {
   msBrowserStart: () => call<{ flowId: number; url: string }>("ms_browser_start"),
   msBrowserFinish: (flowId: number) => call<Account>("ms_browser_finish", { flowId }),
   msRefreshAccount: (id: string) => call<Account>("ms_refresh_account", { id }),
+  yggResolve: (server: string) => call<YggServerInfo>("ygg_resolve", { server }),
+  yggLogin: (server: string, username: string, password: string) =>
+    call<YggLoginResult>("ygg_login", { server, username, password }),
+  yggSelect: (flowId: number, profileId: string) => call<Account>("ygg_select", { flowId, profileId }),
+  yggCancel: (flowId: number) => call<void>("ygg_cancel", { flowId }),
+  yggRefreshAccount: (id: string) => call<Account>("ygg_refresh_account", { id }),
 
   contentSearch: (platform: Platform, query: SearchQuery) =>
     call<{ hits: ProjectHit[]; total: number }>("content_search", { platform, query }),

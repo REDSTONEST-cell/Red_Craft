@@ -31,6 +31,8 @@ pub struct AppState {
     pub ms_flows: Mutex<HashMap<u64, (launcher_core::download::CancelToken, launcher_core::auth::microsoft::DeviceCode)>>,
     /// 进行中的微软浏览器登录（等待浏览器跳转回来）
     pub ms_browser: Mutex<HashMap<u64, (launcher_core::download::CancelToken, Option<launcher_core::auth::microsoft::BrowserLogin>)>>,
+    /// 外置登录：等待选择角色的登录结果
+    pub ygg_flows: Mutex<HashMap<u64, (launcher_core::auth::yggdrasil::YggServer, launcher_core::auth::yggdrasil::YggLogin)>>,
 }
 
 impl AppState {
@@ -42,6 +44,7 @@ impl AppState {
             secrets: Secrets::new(&paths.config_dir),
             ms_flows: Mutex::new(HashMap::new()),
             ms_browser: Mutex::new(HashMap::new()),
+            ygg_flows: Mutex::new(HashMap::new()),
             paths,
             settings: RwLock::new(settings),
             accounts: RwLock::new(accounts),
