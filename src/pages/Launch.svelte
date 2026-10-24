@@ -81,6 +81,7 @@
           Minecraft {inst.mcVersion}
           · {KIND_LABEL[inst.kind] ?? inst.kind}
           {#if inst.loader}· {LOADER_LABEL[inst.loader.kind]} {inst.loader.version}{/if}
+          {#if inst.optifine}· OptiFine {inst.optifine.replaceAll("_", " ")}{/if}
           · {inst.isolated ? "版本隔离" : "共用游戏目录"}
         </p>
         <p class="byline">上次游玩：{relative(inst.lastPlayed)}</p>

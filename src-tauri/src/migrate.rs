@@ -102,7 +102,7 @@ pub async fn import_instances(app: AppHandle, state: State<'_, AppState>, items:
                 ),
                 None => None,
             };
-            create_instance(&state, &installer, &entry, choice.as_ref(), &name, Some(true), &reporter, &cancel).await?;
+            create_instance(&state, &installer, &entry, choice.as_ref(), None, &name, Some(true), &reporter, &cancel).await?;
 
             reporter.stage("复制 Mod、存档与配置");
             let to = installer.game.instance_game_dir(&name, true);

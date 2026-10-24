@@ -124,8 +124,8 @@
   <div class="list stagger">
     {#each app.instances as inst, i (inst.id)}
       <article class="row" class:current={current?.id === inst.id} style:--i={i}>
-        <div class="badge" data-loader={inst.loader?.kind ?? "vanilla"}>
-          <span>{inst.loader ? LOADER_LABEL[inst.loader.kind][0] : "V"}</span>
+        <div class="badge" data-loader={inst.loader?.kind ?? (inst.optifine ? "optifine" : "vanilla")}>
+          <span>{inst.loader ? LOADER_LABEL[inst.loader.kind][0] : inst.optifine ? "O" : "V"}</span>
         </div>
         <div class="main">
           <h3>
@@ -139,6 +139,7 @@
             <p class="muted">
               Minecraft {inst.mcVersion} · {KIND_LABEL[inst.kind] ?? inst.kind}
               {#if inst.loader}· {LOADER_LABEL[inst.loader.kind]} {inst.loader.version}{/if}
+              {#if inst.optifine}· OptiFine {inst.optifine.replaceAll("_", " ")}{/if}
               · {inst.isolated ? "版本隔离" : "共用目录"} · {relative(inst.lastPlayed)}
             </p>
           {/if}
@@ -266,6 +267,10 @@
   }
   .badge[data-loader="neoforge"] {
     background: #d6812b;
+    color: #fff;
+  }
+  .badge[data-loader="optifine"] {
+    background: #a3262a;
     color: #fff;
   }
   .badge[data-loader="quilt"] {

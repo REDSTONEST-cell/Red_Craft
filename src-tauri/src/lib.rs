@@ -54,6 +54,8 @@ pub fn run() {
             commands::version_list,
             commands::list_instances,
             commands::loader_versions,
+            commands::optifine_versions,
+            content::shader_mod_for,
             commands::install_instance,
             commands::repair_instance,
             commands::delete_instance,

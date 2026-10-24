@@ -4,6 +4,7 @@
 
 mod fabric;
 mod forge;
+pub mod optifine;
 
 use std::path::Path;
 

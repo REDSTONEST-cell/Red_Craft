@@ -70,12 +70,22 @@ export interface InstanceInfo {
   mcVersion: string;
   kind: string;
   loader: { kind: LoaderKind; version: string } | null;
+  optifine: string | null;
   releaseTime: string;
   error: string | null;
   isolated: boolean;
   gameDir: string;
   lastPlayed: number | null;
   running: boolean;
+}
+
+export interface OptiFineVersion {
+  mcVersion: string;
+  type: string;
+  patch: string;
+  filename: string;
+  forge: string | null;
+  preview: boolean;
 }
 
 export interface LoaderVersion {
@@ -369,7 +379,12 @@ export const api = {
     name: string,
     loader: { kind: LoaderKind; version: string } | null,
     withApi = true,
-  ) => call<number>("install_instance", { version, name, loader, withApi }),
+    optifine: OptiFineVersion | null = null,
+    shaderMod = false,
+  ) => call<number>("install_instance", { version, name, loader, withApi, optifine, shaderMod }),
+  optifineVersions: (mc: string) => call<OptiFineVersion[]>("optifine_versions", { mc }),
+  shaderModFor: (mc: string, loader: LoaderKind | null) =>
+    call<{ name: string; version: string } | null>("shader_mod_for", { mc, loader }),
   repairInstance: (id: string) => call<number>("repair_instance", { id }),
   deleteInstance: (id: string) => call<void>("delete_instance", { id }),
   getInstanceConfig: (id: string) => call<InstanceConfig>("get_instance_config", { id }),

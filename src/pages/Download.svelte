@@ -1,5 +1,12 @@
 <script lang="ts">
-  import { api, type LoaderKind, type LoaderVersion, type VersionItem, type VersionList } from "../lib/api";
+  import {
+    api,
+    type LoaderKind,
+    type LoaderVersion,
+    type OptiFineVersion,
+    type VersionItem,
+    type VersionList,
+  } from "../lib/api";
   import { app, refreshInstances, selectInstance, showError, waitTask } from "../lib/state.svelte";
   import { date, KIND_LABEL, LOADER_LABEL } from "../lib/format";
   import VirtualList from "../components/VirtualList.svelte";
@@ -63,8 +70,72 @@
   let loaderVersion = $state("");
   let withApi = $state(true);
 
+  // 光影与优化：OptiFine（原版 / Forge）或光影 Mod（Iris / Oculus，需要加载器）
+  type Shader = "none" | "optifine" | "mod";
+  let shader = $state<Shader>("none");
+  let optifineList = $state<OptiFineVersion[] | null | undefined>(undefined);
+  let optifineFile = $state("");
+  let shaderInfo = $state<{ name: string; version: string } | null | undefined>(undefined);
+
+  // OptiFine 只能装在原版或 Forge 上；Forge 只列出标明兼容 Forge 的版本
+  const optifineChoices = $derived(
+    choice === "vanilla" ? (optifineList ?? []) : choice === "forge" ? (optifineList ?? []).filter((o) => o.forge) : [],
+  );
+  const optifinePicked = $derived(optifineChoices.find((o) => o.filename === optifineFile) ?? null);
+
+  // OptiFine 标明的推荐 Forge（「Forge 47.2.18」或旧版的「Forge #2847」构建号）在版本列表中的对应项。
+  // 较新的 Forge 常与 OptiFine 不兼容（例如 Forge 47.3+ 搭配 OptiFine I6 会崩溃），所以默认改用推荐版本。
+  const recommendedForge = $derived.by(() => {
+    const tag = optifinePicked?.forge?.replace(/^Forge\s*/, "").trim();
+    if (!tag || choice !== "forge") return null;
+    const list = loaderLists.forge ?? [];
+    const build = tag.startsWith("#") ? tag.slice(1) : null;
+    return (
+      list.find((v) =>
+        build ? v.display.endsWith(`.${build}`) : v.display === tag || v.version.endsWith(`-${tag}`),
+      ) ?? null
+    );
+  });
+  $effect(() => {
+    const rec = recommendedForge;
+    if (shader === "optifine" && rec) loaderVersion = rec.version;
+  });
+
+  // 加载器变化时查询可用的光影 Mod
+  let shaderGen = 0;
+  $effect(() => {
+    const t = target;
+    const c = choice;
+    if (!t || !dialog) return;
+    const g = ++shaderGen;
+    shaderInfo = c === "vanilla" ? null : undefined;
+    if (c === "vanilla") return;
+    api
+      .shaderModFor(t.id, c)
+      .then((r) => g === shaderGen && (shaderInfo = r))
+      .catch(() => g === shaderGen && (shaderInfo = null));
+  });
+
+  // 选项不再可用时退回「不安装」
+  $effect(() => {
+    if (
+      (shader === "optifine" && optifineList !== undefined && optifineChoices.length === 0) ||
+      (shader === "mod" && shaderInfo === null)
+    )
+      setShader("none");
+  });
+
+  function setShader(s: Shader) {
+    shader = s;
+    if (s === "optifine" && !optifineChoices.some((o) => o.filename === optifineFile)) {
+      optifineFile = optifineChoices[0]?.filename ?? "";
+    }
+    if (target && !nameTouched) name = defaultName(target, choice);
+  }
+
   function defaultName(v: VersionItem, c: Choice) {
-    const base = c === "vanilla" ? v.id : `${v.id}-${LOADER_LABEL[c]}`;
+    let base = c === "vanilla" ? v.id : `${v.id}-${LOADER_LABEL[c]}`;
+    if (shader === "optifine") base += "-OptiFine";
     const ids = new Set(app.instances.map((x) => x.id));
     let n = base;
     let i = 2;
@@ -79,7 +150,14 @@
     name = defaultName(v, "vanilla");
     loaderLists = {};
     loaderVersion = "";
+    shader = "none";
+    optifineList = undefined;
+    optifineFile = "";
     dialog = true;
+    api
+      .optifineVersions(v.id)
+      .then((l) => (optifineList = l))
+      .catch(() => (optifineList = null));
     for (const k of LOADERS) {
       api
         .loaderVersions(k, v.id)
@@ -103,7 +181,8 @@
     try {
       const loader = choice === "vanilla" ? null : { kind: choice, version: loaderVersion };
       const instName = name.trim();
-      const id = await api.installInstance(target.id, instName, loader, withApi);
+      const optifine = shader === "optifine" ? optifinePicked : null;
+      const id = await api.installInstance(target.id, instName, loader, withApi, optifine, shader === "mod");
       dialog = false;
       const t = await waitTask(id);
       if (t.state === "done") {
@@ -238,12 +317,69 @@
         />
       {/if}
     {/if}
+    <div class="field">
+      <span class="label">光影与优化</span>
+      <div class="loaders three">
+        <button class="loader" class:active={shader === "none"} onclick={() => setShader("none")}>
+          <strong>不安装</strong><span>之后可在「资源」页面安装</span>
+        </button>
+        <button
+          class="loader"
+          class:active={shader === "optifine"}
+          disabled={optifineChoices.length === 0}
+          onclick={() => setShader("optifine")}
+        >
+          <strong>OptiFine</strong>
+          <span>
+            {#if optifineList === undefined}查询中…{:else if optifineList === null}获取失败{:else if choice !== "vanilla" && choice !== "forge"}只支持原版与 Forge{:else if optifineChoices.length === 0}不支持此版本{:else}{optifineChoices.length} 个版本{/if}
+          </span>
+        </button>
+        <button class="loader" class:active={shader === "mod"} disabled={!shaderInfo} onclick={() => setShader("mod")}>
+          <strong>{shaderInfo?.name ?? (choice === "forge" ? "Oculus" : "Iris / Oculus")}</strong>
+          <span>
+            {#if choice === "vanilla"}需要先选择加载器{:else if shaderInfo === undefined}查询中…{:else if shaderInfo === null}不支持此版本{:else}{shaderInfo.version}{/if}
+          </span>
+        </button>
+      </div>
+    </div>
+    {#if shader === "optifine"}
+      <div class="field">
+        <label for="of-ver">OptiFine 版本</label>
+        <select id="of-ver" class="input" bind:value={optifineFile}>
+          {#each optifineChoices as o (o.filename)}
+            <option value={o.filename}>{o.type.replaceAll("_", " ")} {o.patch}{o.preview ? "（预览版）" : ""}</option>
+          {/each}
+        </select>
+        <span class="help">
+          {#if choice === "forge"}
+            OptiFine 会作为 Mod 放进 mods 文件夹。
+            {#if recommendedForge && loaderVersion !== recommendedForge.version}
+              <span style="color:var(--danger)">这个 OptiFine 推荐搭配 Forge {recommendedForge.display}，其他 Forge 版本可能导致游戏崩溃。</span>
+            {:else if recommendedForge}
+              已自动选择 OptiFine 推荐的 Forge {recommendedForge.display}。
+            {:else if optifinePicked?.forge}
+              这个 OptiFine 推荐搭配 {optifinePicked.forge}，列表中没有这个版本，可能无法启动。
+            {/if}
+          {:else}
+            通过 OptiFine 自带的补丁程序安装，与 HMCL / PCL 的方式相同。
+          {/if}
+        </span>
+      </div>
+    {:else if shader === "mod" && shaderInfo}
+      <span class="help">
+        会安装 {shaderInfo.name} 及其前置（{shaderInfo.name === "Oculus" ? "Embeddium / Rubidium" : "Sodium"}），自动选择兼容的最新版本。
+      </span>
+    {/if}
   </div>
   {#snippet actions()}
     <button class="btn" onclick={() => (dialog = false)}>取消</button>
     <button
       class="btn primary"
-      disabled={installing || !name.trim() || nameExists || (choice !== "vanilla" && !loaderVersion)}
+      disabled={installing ||
+        !name.trim() ||
+        nameExists ||
+        (choice !== "vanilla" && !loaderVersion) ||
+        (shader === "optifine" && !optifinePicked)}
       onclick={install}>开始安装</button
     >
   {/snippet}
@@ -321,6 +457,9 @@
     display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 8px;
+  }
+  .loaders.three {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
   .loader {
     display: flex;

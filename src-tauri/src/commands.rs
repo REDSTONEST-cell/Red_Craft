@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use launcher_core::auth::{is_standard_name, validate_offline_name, Account, AccountKind};
 use launcher_core::install::{validate_instance_name, Verify};
 use launcher_core::instance::{is_hidden_base, scan_instances, InstanceSummary, LoaderKind};
+use launcher_core::loader::optifine::{self, OptiFineVersion};
 use launcher_core::loader::{self, LoaderChoice, LoaderVersion};
 use launcher_core::java::{self, JavaInstall};
 use launcher_core::system::{self, MemoryInfo};
@@ -171,14 +172,21 @@ pub struct LoaderArg {
     version: String,
 }
 
+/// 列出游戏版本可用的 OptiFine（正式版在前）。
+#[tauri::command]
+pub async fn optifine_versions(state: State<'_, AppState>, mc: String) -> AppResult<Vec<OptiFineVersion>> {
+    Ok(optifine::list(&state.http()?, &mc).await?)
+}
+
 /// 列出与游戏版本兼容的加载器版本。
 #[tauri::command]
 pub async fn loader_versions(state: State<'_, AppState>, kind: LoaderKind, mc: String) -> AppResult<Vec<LoaderVersion>> {
     Ok(loader::list_versions(&state.http()?, kind, &mc).await?)
 }
 
-/// 新建实例：原版，或原版 + 加载器。
+/// 新建实例：原版，或原版 + 加载器；可同时安装 OptiFine（原版 / Forge）与光影 Mod（Iris / Oculus）。
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn install_instance(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -186,12 +194,14 @@ pub async fn install_instance(
     name: String,
     loader: Option<LoaderArg>,
     with_api: Option<bool>,
+    optifine: Option<OptiFineVersion>,
+    shader_mod: Option<bool>,
 ) -> AppResult<u64> {
     let name = name.trim().to_string();
     validate_instance_name(&name)?;
     let game = state.game_dir();
     // 已作为某个加载器实例的父版本自动安装过：补全文件并让它作为独立实例显示
-    if loader.is_none() && name == version && game.version_json(&name).is_file() && !game.version_dir(&name).join(INSTANCE_CONFIG).exists() {
+    if loader.is_none() && optifine.is_none() && name == version && game.version_json(&name).is_file() && !game.version_dir(&name).join(INSTANCE_CONFIG).exists() {
         let installer = state.installer()?;
         InstanceConfig {
             mc_version: Some(version.clone()),
@@ -215,19 +225,51 @@ pub async fn install_instance(
         .ok_or_else(|| AppError::msg(format!("版本列表中没有 {version}"), "请刷新版本列表后重试。"))?;
     let installer = state.installer()?;
     let choice = loader.map(|l| LoaderChoice { kind: l.kind, version: l.version });
-    let title = match &choice {
-        Some(c) => format!("安装 {name}（{}）", c.kind.display_name()),
-        None => format!("安装 {name}"),
+    if let Some(c) = &choice {
+        if optifine.is_some() && c.kind != LoaderKind::Forge {
+            return Err(AppError::msg(
+                format!("OptiFine 不能与 {} 一起安装", c.kind.display_name()),
+                "OptiFine 只支持原版与 Forge；Fabric / Quilt / NeoForge 请改用 Iris 或 Oculus。",
+            ));
+        }
+    }
+    let mut extras: Vec<&str> = choice.iter().map(|c| c.kind.display_name()).collect();
+    if optifine.is_some() {
+        extras.push("OptiFine");
+    }
+    let title = match extras.is_empty() {
+        true => format!("安装 {name}"),
+        false => format!("安装 {name}（{}）", extras.join(" + ")),
     };
+    // 装了 OptiFine 或光影的实例总是版本隔离
+    let isolation = (optifine.is_some() || shader_mod.unwrap_or(false)).then_some(true);
     let app2 = app.clone();
     let id = state.tasks.spawn(&app, title, move |reporter, cancel| async move {
         let state = app2.state::<AppState>();
-        create_instance(&state, &installer, &entry, choice.as_ref(), &name, None, &reporter, &cancel).await?;
-        // Fabric / Quilt 自动安装 Fabric API / QSL；失败时实例本身仍然保留
+        create_instance(&state, &installer, &entry, choice.as_ref(), optifine.as_ref(), &name, isolation, &reporter, &cancel).await?;
+        // 以下附加内容失败时实例本身仍然保留
+        let extra = |what: &str, e: AppError| {
+            AppError::msg(format!("实例已安装完成，但{what}失败：{}", e.info().message), e.info().hint)
+        };
+        // Forge + OptiFine：OptiFine 作为 Mod 放进 mods 文件夹
+        if let (Some(of), true) = (&optifine, choice.is_some()) {
+            let ctx = crate::content::instance_context(&state, &name)?;
+            let dest = ctx.game_dir.join("mods").join(&of.filename);
+            optifine::download(&installer, of, &dest, &reporter, &cancel)
+                .await
+                .map_err(|e| extra("安装 OptiFine ", e.into()))?;
+        }
+        // Fabric / Quilt 自动安装 Fabric API / QSL
         if with_api.unwrap_or(true) && choice.as_ref().is_some_and(|c| matches!(c.kind, LoaderKind::Fabric | LoaderKind::Quilt)) {
-            if let Err(e) = crate::content::install_loader_api(&state, &name, &reporter, &cancel).await {
-                return Err(AppError::msg(format!("实例已安装完成，但自动安装 API 失败：{}", e.info().message), e.info().hint));
-            }
+            crate::content::install_loader_api(&state, &name, &reporter, &cancel)
+                .await
+                .map_err(|e| extra("自动安装 API ", e))?;
+        }
+        // 光影 Mod（含 Sodium / Embeddium 等前置）
+        if shader_mod.unwrap_or(false) {
+            crate::content::install_shader_mod(&state, &name, &reporter, &cancel)
+                .await
+                .map_err(|e| extra("安装光影加载器", e))?;
         }
         Ok(())
     });
@@ -241,15 +283,19 @@ pub async fn create_instance(
     installer: &launcher_core::install::Installer,
     entry: &launcher_core::version::ManifestEntry,
     choice: Option<&LoaderChoice>,
+    optifine: Option<&OptiFineVersion>,
     name: &str,
     isolation: Option<bool>,
     reporter: &launcher_core::install::Reporter,
     cancel: &launcher_core::download::CancelToken,
 ) -> AppResult<()> {
+    // 原版 + OptiFine 生成的是独立版本；Forge + OptiFine 由调用方放进 mods
+    let vanilla_optifine = optifine.filter(|_| choice.is_none());
     let result: AppResult<()> = async {
-        // Forge / NeoForge 的安装器需要 Java，版本与原版要求的一致
-        let java = match choice {
-            Some(c) if matches!(c.kind, LoaderKind::Forge | LoaderKind::NeoForge) => {
+        // Forge / NeoForge 的安装器、OptiFine 的补丁程序需要 Java，版本与原版要求的一致
+        let needs_java = vanilla_optifine.is_some() || choice.is_some_and(|c| matches!(c.kind, LoaderKind::Forge | LoaderKind::NeoForge));
+        let java = match needs_java {
+            true => {
                 if !installer.game.version_json(&entry.id).exists() {
                     reporter.stage("下载原版版本信息");
                     installer.save_version_json(entry, &entry.id).await?;
@@ -262,7 +308,23 @@ pub async fn create_instance(
             }
             _ => None,
         };
-        loader::install_instance(installer, entry, choice, name, java.as_deref(), reporter, cancel).await?;
+        match vanilla_optifine {
+            Some(of) => {
+                if name == entry.id {
+                    return Err(AppError::msg(
+                        format!("安装了 OptiFine 的实例不能命名为「{}」", entry.id),
+                        "这个名称要留给原版，请换一个实例名称。",
+                    ));
+                }
+                validate_instance_name(name)?;
+                if !installer.game.version_json(&entry.id).exists() {
+                    installer.save_version_json(entry, &entry.id).await?;
+                }
+                let java = java.as_deref().ok_or_else(|| AppError::msg("安装 OptiFine 需要 Java", ""))?;
+                optifine::install_vanilla(installer, of, &entry.id, name, java, reporter, cancel).await?;
+            }
+            None => loader::install_instance(installer, entry, choice, name, java.as_deref(), reporter, cancel).await?,
+        }
         InstanceConfig {
             mc_version: Some(entry.id.clone()),
             isolation,

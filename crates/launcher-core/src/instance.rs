@@ -126,6 +126,8 @@ pub struct InstanceSummary {
     pub release_time: String,
     /// 版本文件无法解析时的原因
     pub error: Option<String>,
+    /// 原版 + OptiFine 实例的 OptiFine 版本，例如 `HD_U_I6`
+    pub optifine: Option<String>,
     /// 继承的父版本（由近到远），例如 Fabric 实例的原版
     #[serde(skip)]
     pub parents: Vec<String>,
@@ -156,6 +158,7 @@ pub fn scan_instances(game: &GameDir) -> Vec<InstanceSummary> {
                 loader: detect_loader(&r),
                 release_time: r.json.release_time.clone(),
                 error: None,
+                optifine: detect_optifine(&r),
                 parents: r.chain.iter().skip(1).cloned().collect(),
                 id,
             },
@@ -165,6 +168,7 @@ pub fn scan_instances(game: &GameDir) -> Vec<InstanceSummary> {
                 loader: None,
                 release_time: String::new(),
                 error: Some(e.to_string()),
+                optifine: None,
                 parents: Vec::new(),
                 id,
             },
@@ -172,6 +176,15 @@ pub fn scan_instances(game: &GameDir) -> Vec<InstanceSummary> {
         .collect();
     out.sort_by(|a, b| b.release_time.cmp(&a.release_time).then_with(|| a.id.cmp(&b.id)));
     out
+}
+
+/// 识别以 LaunchWrapper 方式安装的 OptiFine（库 `optifine:OptiFine:<mc>_<版本>`）。
+pub fn detect_optifine(resolved: &ResolvedVersion) -> Option<String> {
+    resolved.json.libraries.iter().find_map(|l| {
+        let c = l.coord()?;
+        (c.group == "optifine" && c.artifact == "OptiFine")
+            .then(|| c.version.split_once('_').map(|x| x.1).unwrap_or(c.version).to_string())
+    })
 }
 
 /// 安装加载器时作为父版本自动装上的原版：被其他实例继承，且没有 Red Craft 的实例配置（用户没有单独安装或启动过它）。

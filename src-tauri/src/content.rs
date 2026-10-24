@@ -197,23 +197,100 @@ pub async fn install_loader_api(
     cancel: &CancelToken,
 ) -> AppResult<()> {
     let ctx = instance_context(state, instance)?;
-    let project = match ctx.loader {
-        Some(LoaderKind::Fabric) => FABRIC_API,
-        Some(LoaderKind::Quilt) => QSL,
+    let (project, name) = match ctx.loader {
+        Some(LoaderKind::Fabric) => (FABRIC_API, "Fabric API"),
+        Some(LoaderKind::Quilt) => (QSL, "QSL"),
         _ => return Ok(()),
     };
-    let name = if project == FABRIC_API { "Fabric API" } else { "QSL" };
+    install_best(state, &ctx, project, name, reporter, cancel).await
+}
+
+pub const IRIS: &str = "YL57xq9U";
+pub const OCULUS: &str = "GchcoXML";
+
+/// 按加载器排列的光影 Mod 候选：Iris 支持 Fabric / Quilt / NeoForge，Oculus 支持 Forge 与旧版 NeoForge。
+fn shader_candidates(loader: Option<LoaderKind>) -> &'static [(&'static str, &'static str)] {
+    match loader {
+        Some(LoaderKind::Fabric | LoaderKind::Quilt) => &[(IRIS, "Iris")],
+        Some(LoaderKind::NeoForge) => &[(IRIS, "Iris"), (OCULUS, "Oculus")],
+        Some(LoaderKind::Forge) => &[(OCULUS, "Oculus")],
+        None => &[],
+    }
+}
+
+/// 找到第一个有兼容版本的光影 Mod，返回（项目 id，名称，最佳版本）。
+async fn find_shader_mod(
+    state: &AppState,
+    mc: &str,
+    loader: Option<LoaderKind>,
+) -> AppResult<Option<(&'static str, &'static str, ContentVersion)>> {
+    let client = client(state, Platform::Modrinth)?;
+    let ctx = InstanceContext {
+        id: String::new(),
+        mc_version: mc.to_string(),
+        loader,
+        game_dir: PathBuf::new(),
+    };
+    let filter = filter_for(&ctx, ContentType::Mod);
+    for &(project, name) in shader_candidates(loader) {
+        if let Some(best) = best_of(client.versions(project, &filter).await?) {
+            return Ok(Some((project, name, best)));
+        }
+    }
+    Ok(None)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShaderModInfo {
+    name: String,
+    version: String,
+}
+
+/// 新建实例时查询可用的光影 Mod（没有时返回 null）。
+#[tauri::command]
+pub async fn shader_mod_for(state: State<'_, AppState>, mc: String, loader: Option<LoaderKind>) -> AppResult<Option<ShaderModInfo>> {
+    Ok(find_shader_mod(&state, &mc, loader).await?.map(|(_, name, v)| ShaderModInfo {
+        name: name.to_string(),
+        version: v.version_number,
+    }))
+}
+
+/// 安装光影 Mod 及其前置（Sodium / Embeddium 等）。
+pub async fn install_shader_mod(state: &AppState, instance: &str, reporter: &Reporter, cancel: &CancelToken) -> AppResult<()> {
+    let ctx = instance_context(state, instance)?;
+    reporter.stage("选择光影加载器版本");
+    let Some((project, name, _)) = find_shader_mod(state, &ctx.mc_version, ctx.loader).await? else {
+        return Err(AppError::msg(
+            format!("没有适用于 Minecraft {} 的 Iris / Oculus", ctx.mc_version),
+            "实例已经可以启动；可以在「资源」页面手动安装其他光影 Mod。",
+        ));
+    };
+    install_best(state, &ctx, project, name, reporter, cancel).await
+}
+
+/// 安装某个 Modrinth 项目的最佳兼容版本，连同必需的前置。
+async fn install_best(
+    state: &AppState,
+    ctx: &InstanceContext,
+    project: &str,
+    name: &str,
+    reporter: &Reporter,
+    cancel: &CancelToken,
+) -> AppResult<()> {
     reporter.stage(&format!("选择 {name} 版本"));
     let client = client(state, Platform::Modrinth)?;
-    let filter = filter_for(&ctx, ContentType::Mod);
+    let filter = filter_for(ctx, ContentType::Mod);
     let Some(best) = best_of(client.versions(project, &filter).await?) else {
         return Err(AppError::msg(
             format!("{name} 还没有适用于 Minecraft {} 的版本", ctx.mc_version),
             "实例已经可以启动；需要时可以在「资源」页面手动安装。",
         ));
     };
+    // 已安装的项目（例如先装好的 Fabric API）不再重复安装
+    let installed = content::installed_projects(&ctx.game_dir.join("mods"), Platform::Modrinth, None).await;
     let src = FilteredClient { client: &client, filter };
-    let plan = content::resolve(&src, vec![best], &HashSet::new()).await?;
+    let plan = content::resolve(&src, vec![best], &installed).await?;
     let items: Vec<(ContentVersion, String)> = plan.items.into_iter().map(|i| (i.version, i.title)).collect();
     let installer = state.installer()?;
     reporter.stage(&format!("下载 {name}"));
@@ -351,7 +428,7 @@ pub async fn install_modpack(
             Some(l) => Some(loader_choice(&state, &info.mc_version, l).await?),
             None => None,
         };
-        crate::commands::create_instance(&state, &installer, &entry, choice.as_ref(), &name, Some(true), &reporter, &cancel)
+        crate::commands::create_instance(&state, &installer, &entry, choice.as_ref(), None, &name, Some(true), &reporter, &cancel)
             .await?;
 
         // 3. 文件与 overrides；失败时删除新建的实例
