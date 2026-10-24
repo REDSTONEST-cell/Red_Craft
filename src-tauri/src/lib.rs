@@ -6,6 +6,7 @@ mod content;
 mod error;
 mod launch;
 mod logger;
+mod migrate;
 mod secrets;
 mod settings;
 mod state;
@@ -77,6 +78,10 @@ pub fn run() {
             auth::ms_browser_start,
             auth::ms_browser_finish,
             auth::ms_refresh_account,
+            migrate::import_locations,
+            migrate::import_scan,
+            migrate::import_instances,
+            migrate::import_accounts,
             ygg::ygg_resolve,
             ygg::ygg_login,
             ygg::ygg_select,

@@ -193,6 +193,13 @@ textarea {
   border-bottom: 2px solid var(--rule-strong);
   margin-bottom: 18px;
 }
+/* 标题区可以收缩（副标题省略），右侧按钮保持完整 */
+.page-head > :first-child {
+  min-width: 0;
+}
+.page-head > :last-child:not(:first-child) {
+  flex: none;
+}
 .page-head h1 {
   font-size: 30px;
   line-height: 1.1;

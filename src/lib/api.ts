@@ -227,6 +227,33 @@ export interface Account {
   skin?: string | null;
 }
 
+export type LauncherKind = "official" | "hmcl" | "pcl" | "prism" | "multiMc" | "folder";
+
+export interface ImportLocation {
+  kind: LauncherKind;
+  label: string;
+  path: string;
+}
+
+export interface ImportInstance {
+  name: string;
+  mcVersion: string;
+  loader: { kind: LoaderKind; version: string } | null;
+  filesDir: string;
+  layout: "isolated" | "shared";
+  mods: number;
+  saves: number;
+  problem: string | null;
+}
+
+export interface ImportScan {
+  kind: LauncherKind;
+  label: string;
+  root: string;
+  instances: ImportInstance[];
+  offlineAccounts: string[];
+}
+
 export interface YggProfile {
   id: string;
   name: string;
@@ -367,6 +394,19 @@ export const api = {
   msBrowserStart: () => call<{ flowId: number; url: string }>("ms_browser_start"),
   msBrowserFinish: (flowId: number) => call<Account>("ms_browser_finish", { flowId }),
   msRefreshAccount: (id: string) => call<Account>("ms_refresh_account", { id }),
+  importLocations: () => call<ImportLocation[]>("import_locations"),
+  importScan: (path: string) => call<ImportScan>("import_scan", { path }),
+  importInstances: (items: ImportInstance[]) =>
+    call<number[]>("import_instances", {
+      items: items.map((i) => ({
+        sourceName: i.name,
+        mcVersion: i.mcVersion,
+        loader: i.loader,
+        filesDir: i.filesDir,
+        layout: i.layout,
+      })),
+    }),
+  importAccounts: (names: string[]) => call<number>("import_accounts", { names }),
   yggResolve: (server: string) => call<YggServerInfo>("ygg_resolve", { server }),
   yggLogin: (server: string, username: string, password: string) =>
     call<YggLoginResult>("ygg_login", { server, username, password }),

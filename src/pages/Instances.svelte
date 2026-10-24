@@ -6,10 +6,12 @@
   import Icon from "../components/Icon.svelte";
   import Segmented from "../components/Segmented.svelte";
   import ModpackInstall from "../components/ModpackInstall.svelte";
+  import ImportLauncher from "../components/ImportLauncher.svelte";
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
   import type { ModpackInfo, PackSource } from "../lib/api";
 
   let packOpen = $state(false);
+  let migrateOpen = $state(false);
   let packSource = $state<PackSource | null>(null);
   let packInfo = $state<ModpackInfo | null>(null);
 
@@ -105,8 +107,9 @@
     <div class="sub" title={app.info?.gameDir}>共 {app.instances.length} 个 · 游戏目录 <span class="mono">{app.info?.gameDir}</span></div>
   </div>
   <div class="tools">
-    <button class="btn" onclick={() => api.openGameDir().catch((e) => showError(e))}><Icon name="folder" size={14} /> 打开目录</button>
+    <button class="btn icon" title="打开游戏目录" aria-label="打开游戏目录" onclick={() => api.openGameDir().catch((e) => showError(e))}><Icon name="folder" size={14} /></button>
     <button class="btn" onclick={importPack}><Icon name="box" size={14} /> 导入整合包</button>
+    <button class="btn" onclick={() => (migrateOpen = true)}><Icon name="link" size={14} /> 从其他启动器导入</button>
     <button class="btn primary" onclick={() => (app.page = "download")}><Icon name="plus" size={14} /> 新建实例</button>
   </div>
 </div>
@@ -114,7 +117,8 @@
 {#if app.instancesLoaded && app.instances.length === 0}
   <div class="empty">
     <h3>这里还空着</h3>
-    <p>在「下载」页面安装一个版本，它就会出现在这里。</p>
+    <p>在「下载」页面安装一个版本，或者从其他启动器导入已有的实例。</p>
+    <button class="btn" style="margin-top:14px" onclick={() => (migrateOpen = true)}>从其他启动器导入</button>
   </div>
 {:else}
   <div class="list stagger">
@@ -216,6 +220,8 @@
     <button class="btn primary" onclick={saveConfig}>保存</button>
   {/snippet}
 </Modal>
+
+<ImportLauncher bind:open={migrateOpen} />
 
 <style>
   .tools {

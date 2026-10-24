@@ -265,7 +265,7 @@ fn instance_name_for(state: &AppState, wanted: &str) -> String {
 }
 
 /// 整合包写的加载器版本可能是简写（如 Forge 的 47.2.0），这里换成安装用的完整版本号。
-async fn loader_choice(
+pub(crate) async fn loader_choice(
     state: &AppState,
     mc: &str,
     loader: &content::PackLoader,

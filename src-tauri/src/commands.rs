@@ -17,7 +17,7 @@ use crate::error::{AppError, AppResult};
 use crate::settings::{InstanceConfig, Settings};
 use crate::state::AppState;
 
-async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> AppResult<T> {
+pub(crate) async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> AppResult<T> {
     tauri::async_runtime::spawn_blocking(f)
         .await
         .map_err(|e| AppError::msg(format!("后台任务异常：{e}"), "请重试"))
@@ -84,7 +84,7 @@ pub struct VersionList {
     versions: Vec<VersionItem>,
 }
 
-async fn manifest(state: &AppState, refresh: bool) -> AppResult<VersionManifest> {
+pub(crate) async fn manifest(state: &AppState, refresh: bool) -> AppResult<VersionManifest> {
     let mut guard = state.manifest.lock().await;
     if !refresh {
         if let Some(m) = guard.as_ref() {
