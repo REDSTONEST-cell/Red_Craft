@@ -4,7 +4,7 @@ mod args;
 mod natives;
 mod process;
 
-pub use args::{build_command, split_args, substitute, LaunchCommand, LaunchOptions, ServerAddress};
+pub use args::{build_command, split_args, substitute, GcMode, LaunchCommand, LaunchOptions, ServerAddress};
 pub use natives::extract_natives;
 pub use process::{analyze, kill_pid, spawn, CrashCause, GameExit, LogFn, LogLine, RunningGame};
 

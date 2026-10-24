@@ -89,6 +89,7 @@ async fn install_and_launch_1_20_1() {
         max_memory_mb: 2048,
         min_memory_mb: 512,
         java_major: info.major,
+        gc: launch::GcMode::Auto,
         extra_jvm_args: vec![],
         extra_game_args: vec![],
         resolution: Some((854, 480)),

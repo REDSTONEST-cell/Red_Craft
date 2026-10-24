@@ -98,6 +98,7 @@ async fn launch_with(installer: &Installer, name: &str, marker: &str, java_compo
         max_memory_mb: 3072,
         min_memory_mb: 512,
         java_major: 17,
+        gc: launch::GcMode::Auto,
         extra_jvm_args: vec![],
         extra_game_args: vec![],
         resolution: None,

@@ -5,11 +5,13 @@
   import Segmented from "../components/Segmented.svelte";
   import Toggle from "../components/Toggle.svelte";
   import Icon from "../components/Icon.svelte";
+  import { page } from "../lib/motion";
 
   // 本地副本：文本框编辑时不立即写盘，失焦后保存
   let s = $state<Settings>(structuredClone($state.snapshot(app.settings!)));
   let javas = $state<JavaInstall[] | null>(null);
   let scanning = $state(false);
+  let advanced = $state(false);
 
   function save(patch: Partial<Settings>) {
     Object.assign(s, patch);
@@ -218,14 +220,6 @@
 
   <section>
     <h3>游戏</h3>
-    <div class="row col">
-      <div class="desc"><strong>额外 JVM 参数</strong><span class="help">例如 -XX:+UseZGC，多个参数用空格分隔，含空格的参数用双引号括起来。</span></div>
-      <input class="input mono wide" bind:value={s.jvmArgs} onchange={() => save({ jvmArgs: s.jvmArgs })} placeholder="（无）" />
-    </div>
-    <div class="row col">
-      <div class="desc"><strong>额外游戏参数</strong></div>
-      <input class="input mono wide" bind:value={s.gameArgs} onchange={() => save({ gameArgs: s.gameArgs })} placeholder="（无）" />
-    </div>
     <div class="row">
       <div class="desc">
         <strong>启动后进入服务器</strong>
@@ -296,6 +290,62 @@
         placeholder="使用 MCIM 镜像"
       />
     </div>
+  </section>
+
+  <section>
+    <button class="fold" onclick={() => (advanced = !advanced)} aria-expanded={advanced}>
+      <h3>高级选项</h3>
+      <span class="chev" class:open={advanced}><Icon name="chevron" size={14} /></span>
+    </button>
+    {#if advanced}
+      <div class="adv" transition:page={{ y: -6, duration: 180 }}>
+        <div class="row col">
+          <div class="desc">
+            <strong>Java 虚拟机参数</strong>
+            <span class="help">追加在启动器默认参数之后。多个参数用空格分隔，含空格的参数用双引号括起来；指定了 GC 参数时会忽略下面的内存回收器设置。</span>
+          </div>
+          <textarea class="input wide" rows="3" bind:value={s.jvmArgs} onchange={() => save({ jvmArgs: s.jvmArgs })} placeholder="（无）"></textarea>
+        </div>
+        <div class="row col">
+          <div class="desc"><strong>游戏参数</strong><span class="help">追加在游戏启动参数末尾。</span></div>
+          <input class="input mono wide" bind:value={s.gameArgs} onchange={() => save({ gameArgs: s.gameArgs })} placeholder="（无）" />
+        </div>
+        <div class="row col">
+          <div class="desc">
+            <strong>启动前执行命令</strong>
+            <span class="help">
+              在游戏目录中执行，可使用占位符 <span class="mono">{"{instance}"}</span> 实例名、<span class="mono">{"{mc}"}</span> 游戏版本、<span class="mono">{"{game_dir}"}</span> 游戏目录、<span class="mono">{"{java}"}</span> Java 路径。
+            </span>
+          </div>
+          <input
+            class="input mono wide"
+            bind:value={s.preLaunchCommand}
+            onchange={() => save({ preLaunchCommand: s.preLaunchCommand })}
+            placeholder="（无）"
+          />
+          <Toggle checked={s.preLaunchWait} onchange={(v) => save({ preLaunchWait: v })} label="等待命令执行完成后再启动游戏（失败时取消启动）" />
+        </div>
+        <div class="row">
+          <div class="desc">
+            <strong>内存回收器</strong>
+            <span class="help">分代 ZGC 停顿更短，适合大型整合包，需要 Java 21 及以上，不满足时自动使用 G1。</span>
+          </div>
+          <select class="input" value={s.gc} onchange={(e) => save({ gc: e.currentTarget.value as Settings["gc"] })}>
+            <option value="auto">自动（G1）</option>
+            <option value="g1">G1</option>
+            <option value="zgc">尽量使用分代 ZGC</option>
+            <option value="none">不指定（由 Java 决定）</option>
+          </select>
+        </div>
+        <div class="row">
+          <div class="desc">
+            <strong>使用高性能显卡</strong>
+            <span class="help">仅 Windows：在系统「图形设置」中把游戏使用的 Java 设为高性能，双显卡笔记本可以避免用核显运行。</span>
+          </div>
+          <Toggle checked={s.highPerformanceGpu} onchange={(v) => save({ highPerformanceGpu: v })} />
+        </div>
+      </div>
+    {/if}
   </section>
 
   <section>
@@ -469,6 +519,28 @@
   .swatch.active {
     transform: translateY(-2px);
     box-shadow: 0 4px 0 -1px var(--ink);
+  }
+  .fold {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border: 0;
+    border-bottom: 1px solid var(--rule-strong);
+    background: transparent;
+    padding: 0;
+    cursor: pointer;
+    text-align: left;
+  }
+  .fold h3 {
+    border: 0;
+  }
+  .chev {
+    transform: rotate(90deg);
+    transition: transform var(--t-mid) var(--ease-out);
+  }
+  .chev.open {
+    transform: rotate(-90deg);
   }
   .picker {
     width: 30px;

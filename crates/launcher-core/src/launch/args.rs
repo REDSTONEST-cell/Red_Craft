@@ -43,6 +43,31 @@ impl ServerAddress {
     }
 }
 
+/// 内存回收器（GC）选择。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum GcMode {
+    /// 使用 G1（适合绝大多数情况）
+    #[default]
+    Auto,
+    G1,
+    /// 分代 ZGC：停顿更短，需要 Java 21+，不满足时退回 G1
+    Zgc,
+    /// 不添加 GC 参数，由 Java 决定
+    None,
+}
+
+impl GcMode {
+    pub fn args(self, java_major: u32) -> Vec<&'static str> {
+        match self {
+            GcMode::None => vec![],
+            GcMode::Zgc if java_major >= 23 => vec!["-XX:+UseZGC"],
+            GcMode::Zgc if java_major >= 21 => vec!["-XX:+UseZGC", "-XX:+ZGenerational"],
+            _ => vec!["-XX:+UseG1GC", "-XX:-UseAdaptiveSizePolicy"],
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct LaunchOptions {
     pub java: PathBuf,
@@ -52,6 +77,7 @@ pub struct LaunchOptions {
     pub max_memory_mb: u32,
     pub min_memory_mb: u32,
     pub java_major: u32,
+    pub gc: GcMode,
     /// 用户额外的 JVM 参数
     pub extra_jvm_args: Vec<String>,
     /// 用户额外的游戏参数
@@ -238,8 +264,7 @@ pub fn build_command(
     }
     let user_sets_gc = opts.extra_jvm_args.iter().any(|a| a.starts_with("-XX:+Use") && a.ends_with("GC"));
     if !user_sets_gc {
-        args.push("-XX:+UseG1GC".into());
-        args.push("-XX:-UseAdaptiveSizePolicy".into());
+        args.extend(opts.gc.args(opts.java_major).into_iter().map(String::from));
     }
     args.push("-XX:-OmitStackTraceInFastThrow".into());
     args.push("-Dfml.ignoreInvalidMinecraftCertificates=true".into());
@@ -388,6 +413,7 @@ mod tests {
             max_memory_mb: 4096,
             min_memory_mb: 1024,
             java_major: 17,
+            gc: GcMode::Auto,
             extra_jvm_args: vec!["-Dfoo=bar".into()],
             extra_game_args: vec![],
             resolution: None,
@@ -561,6 +587,15 @@ mod tests {
         let cmd = build_command(&game, &r, &env(), &opts(dir.path())).unwrap();
         assert!(cmd.args.contains(&"-DignoreList=fmlcore,forge-,1.20.1.jar".to_string()), "{:?}", cmd.args);
         assert_eq!(value_after(&cmd.args, "--version"), "my-forge");
+    }
+
+    #[test]
+    fn gc_modes() {
+        assert_eq!(GcMode::Auto.args(17), vec!["-XX:+UseG1GC", "-XX:-UseAdaptiveSizePolicy"]);
+        assert_eq!(GcMode::Zgc.args(17), vec!["-XX:+UseG1GC", "-XX:-UseAdaptiveSizePolicy"]);
+        assert_eq!(GcMode::Zgc.args(21), vec!["-XX:+UseZGC", "-XX:+ZGenerational"]);
+        assert_eq!(GcMode::Zgc.args(25), vec!["-XX:+UseZGC"]);
+        assert!(GcMode::None.args(21).is_empty());
     }
 
     #[test]

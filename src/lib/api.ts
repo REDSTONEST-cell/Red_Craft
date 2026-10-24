@@ -33,6 +33,10 @@ export interface Settings {
   msClientId: string;
   defaultChinese: boolean;
   curseforgeApiKey: string;
+  gc: "auto" | "g1" | "zgc" | "none";
+  preLaunchCommand: string;
+  preLaunchWait: boolean;
+  highPerformanceGpu: boolean;
 }
 
 export interface AppInfo {

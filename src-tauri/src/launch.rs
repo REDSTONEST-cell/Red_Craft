@@ -84,6 +84,10 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
     let game_dir = game.instance_game_dir(&id, isolated);
     let (required, component) = required_java(&resolved.json);
     let release_time = resolved.json.release_time.clone();
+    let resolved_mc = config
+        .mc_version
+        .clone()
+        .unwrap_or_else(|| resolved.chain.last().cloned().unwrap_or_default());
     let java_override = config.java_path.clone().or(settings.java_path.clone());
 
     let memory = system::memory();
@@ -123,6 +127,7 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
             max_memory_mb,
             min_memory_mb: settings.min_memory_mb.min(max_memory_mb),
             java_major,
+            gc: settings.gc,
             extra_jvm_args: split_args(&jvm_args),
             extra_game_args: split_args(&settings.game_args),
             resolution: settings
@@ -134,6 +139,15 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
             launcher_version: launcher_core::LAUNCHER_VERSION.into(),
         };
 
+        if settings.high_performance_gpu {
+            prefer_high_performance_gpu(&opts.java);
+        }
+        if !settings.pre_launch_command.trim().is_empty() {
+            reporter.stage("执行启动前命令");
+            let mc = resolved_mc.clone();
+            run_pre_launch(&settings.pre_launch_command, settings.pre_launch_wait, &id, &mc, &game_dir, &opts.java).await?;
+            cancel.check()?;
+        }
         if settings.default_chinese {
             launch::ensure_chinese(&game_dir, &release_time)?;
         }
@@ -283,6 +297,93 @@ pub async fn select_java(
     Ok((p, required))
 }
 
+/// 执行用户设置的启动前命令。`wait` 为真时等待命令结束，退出码非 0 则中止启动。
+async fn run_pre_launch(
+    template: &str,
+    wait: bool,
+    instance: &str,
+    mc: &str,
+    game_dir: &std::path::Path,
+    java: &std::path::Path,
+) -> AppResult<()> {
+    let command = template
+        .replace("{instance}", instance)
+        .replace("{mc}", mc)
+        .replace("{game_dir}", &game_dir.display().to_string())
+        .replace("{java}", &java.display().to_string());
+    log::info!("启动前命令：{command}");
+    #[cfg(windows)]
+    let mut cmd = {
+        let mut c = tokio::process::Command::new("cmd");
+        c.arg("/C").arg(&command);
+        c.creation_flags(0x0800_0000);
+        c
+    };
+    #[cfg(not(windows))]
+    let mut cmd = {
+        let mut c = tokio::process::Command::new("sh");
+        c.arg("-c").arg(&command);
+        c
+    };
+    cmd.current_dir(game_dir);
+    let _ = std::fs::create_dir_all(game_dir);
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| AppError::msg(format!("无法执行启动前命令：{e}"), "请检查「设置 → 高级选项」中的命令是否正确。"))?;
+    if !wait {
+        return Ok(());
+    }
+    let status = child
+        .wait()
+        .await
+        .map_err(|e| AppError::msg(format!("启动前命令执行出错：{e}"), ""))?;
+    if !status.success() {
+        return Err(AppError::msg(
+            format!(
+                "启动前命令执行失败（退出码 {}）",
+                status.code().map(|c| c.to_string()).unwrap_or_else(|| "未知".into())
+            ),
+            "请检查「设置 → 高级选项」中的启动前命令；不需要时可以清空。",
+        ));
+    }
+    Ok(())
+}
+
+/// Windows：在「图形设置」中把 Java 设为高性能（独立显卡）。其它系统不做处理。
+fn prefer_high_performance_gpu(java: &std::path::Path) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let path = java.display().to_string();
+        let mut targets = vec![path.clone()];
+        // 游戏实际使用 java.exe，同时为 javaw.exe 设置，方便其它启动方式
+        if let Some(w) = path.strip_suffix("java.exe") {
+            targets.push(format!("{w}javaw.exe"));
+        }
+        for t in targets {
+            let r = std::process::Command::new("reg")
+                .args([
+                    "add",
+                    r"HKCU\Software\Microsoft\DirectX\UserGpuPreferences",
+                    "/v",
+                    &t,
+                    "/t",
+                    "REG_SZ",
+                    "/d",
+                    "GpuPreference=2;",
+                    "/f",
+                ])
+                .creation_flags(0x0800_0000)
+                .status();
+            if let Err(e) = r {
+                log::warn!("设置高性能显卡失败：{e}");
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = java;
+}
+
 fn flush(app: &AppHandle, id: &str, buffer: &Mutex<Vec<LogLine>>) {
     let lines = match buffer.lock() {
         Ok(mut b) if !b.is_empty() => std::mem::take(&mut *b),
@@ -334,6 +435,21 @@ pub fn kill_game(state: State<'_, AppState>, id: String) -> AppResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn pre_launch_command() {
+        let dir = tempfile::tempdir().unwrap();
+        let java = std::path::Path::new("/usr/bin/java");
+        run_pre_launch("echo {instance} {mc} > out.txt", true, "inst", "1.20.1", dir.path(), java)
+            .await
+            .unwrap();
+        assert_eq!(std::fs::read_to_string(dir.path().join("out.txt")).unwrap().trim(), "inst 1.20.1");
+        let err = run_pre_launch("exit 3", true, "i", "m", dir.path(), java).await.unwrap_err();
+        assert!(err.info().message.contains("退出码 3"));
+        // 不等待时不检查退出码
+        run_pre_launch("exit 3", false, "i", "m", dir.path(), java).await.unwrap();
+    }
 
     #[test]
     fn java_requirements() {

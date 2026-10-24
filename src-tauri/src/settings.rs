@@ -85,6 +85,14 @@ pub struct Settings {
     pub default_chinese: bool,
     /// CurseForge 官方 API Key；为空时通过 MCIM 镜像访问
     pub curseforge_api_key: String,
+    /// 内存回收器
+    pub gc: launcher_core::launch::GcMode,
+    /// 启动前执行的命令（可使用 {instance} {mc} {game_dir} {java} 占位符）
+    pub pre_launch_command: String,
+    /// 启动前等待命令结束
+    pub pre_launch_wait: bool,
+    /// Windows：让 Java 使用高性能显卡
+    pub high_performance_gpu: bool,
 }
 
 impl Settings {
@@ -125,6 +133,10 @@ impl Default for Settings {
             ms_client_id: String::new(),
             default_chinese: true,
             curseforge_api_key: String::new(),
+            gc: launcher_core::launch::GcMode::Auto,
+            pre_launch_command: String::new(),
+            pre_launch_wait: true,
+            high_performance_gpu: true,
         }
     }
 }
