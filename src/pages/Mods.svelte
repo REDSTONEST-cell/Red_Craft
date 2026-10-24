@@ -5,6 +5,7 @@
     type ContentType,
     type ContentVersion,
     type InstanceContext,
+    type PackSource,
     type Platform,
     type ProjectHit,
     type SortBy,
@@ -15,6 +16,7 @@
   import VirtualList from "../components/VirtualList.svelte";
   import ContentDetail from "../components/ContentDetail.svelte";
   import InstallPlan from "../components/InstallPlan.svelte";
+  import ModpackInstall from "../components/ModpackInstall.svelte";
   import Icon from "../components/Icon.svelte";
   import Toggle from "../components/Toggle.svelte";
 
@@ -106,6 +108,8 @@
   let current = $state<ProjectHit | null>(null);
   let planOpen = $state(false);
   let planVersion = $state<ContentVersion | null>(null);
+  let packOpen = $state(false);
+  let packSource = $state<PackSource | null>(null);
 
   function openDetail(h: ProjectHit) {
     current = h;
@@ -115,7 +119,9 @@
   function onInstall(v: ContentVersion) {
     if (!current) return;
     if (current.contentType === "modpack") {
-      toast("info", "整合包安装", "整合包会创建新的实例，这个功能马上就来。");
+      packSource = { type: "online", platform: current.platform, projectId: v.projectId, versionId: v.id };
+      detailOpen = false;
+      packOpen = true;
       return;
     }
     if (!instanceId) {
@@ -229,6 +235,7 @@
   {compatibleOnly}
   oninstall={onInstall}
 />
+<ModpackInstall bind:open={packOpen} source={packSource} title={current?.title ?? ""} />
 {#if current && instanceId}
   <InstallPlan
     bind:open={planOpen}

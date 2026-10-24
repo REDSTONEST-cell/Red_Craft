@@ -204,36 +204,7 @@ pub async fn install_instance(
     let app2 = app.clone();
     let id = state.tasks.spawn(&app, title, move |reporter, cancel| async move {
         let state = app2.state::<AppState>();
-        let result: AppResult<()> = async {
-            // Forge / NeoForge 的安装器需要 Java，版本与原版要求的一致
-            let java = match &choice {
-                Some(c) if matches!(c.kind, LoaderKind::Forge | LoaderKind::NeoForge) => {
-                    if !installer.game.version_json(&entry.id).exists() {
-                        reporter.stage("下载原版版本信息");
-                        installer.save_version_json(&entry, &entry.id).await?;
-                    }
-                    let vanilla = installer.resolve(&entry.id)?;
-                    let (required, component) = crate::launch::required_java(&vanilla.json);
-                    reporter.stage("选择 Java");
-                    let java_override = state.settings().java_path;
-                    Some(crate::launch::select_java(&state, &installer, java_override, required, &component, &reporter, &cancel).await?.0)
-                }
-                _ => None,
-            };
-            loader::install_instance(&installer, &entry, choice.as_ref(), &name, java.as_deref(), &reporter, &cancel).await?;
-            InstanceConfig {
-                mc_version: Some(entry.id.clone()),
-                ..Default::default()
-            }
-            .save(&installer.game, &name)?;
-            Ok(())
-        }
-        .await;
-        if result.is_err() {
-            // 安装失败时清理掉这次新建的实例目录，避免出现损坏的实例
-            let _ = std::fs::remove_dir_all(installer.game.version_dir(&name));
-            return result;
-        }
+        create_instance(&state, &installer, &entry, choice.as_ref(), &name, None, &reporter, &cancel).await?;
         // Fabric / Quilt 自动安装 Fabric API / QSL；失败时实例本身仍然保留
         if with_api.unwrap_or(true) && choice.as_ref().is_some_and(|c| matches!(c.kind, LoaderKind::Fabric | LoaderKind::Quilt)) {
             if let Err(e) = crate::content::install_loader_api(&state, &name, &reporter, &cancel).await {
@@ -243,6 +214,51 @@ pub async fn install_instance(
         Ok(())
     });
     Ok(id)
+}
+
+/// 安装原版与加载器并保存实例配置；失败时删除这次新建的实例目录。
+#[allow(clippy::too_many_arguments)]
+pub async fn create_instance(
+    state: &AppState,
+    installer: &launcher_core::install::Installer,
+    entry: &launcher_core::version::ManifestEntry,
+    choice: Option<&LoaderChoice>,
+    name: &str,
+    isolation: Option<bool>,
+    reporter: &launcher_core::install::Reporter,
+    cancel: &launcher_core::download::CancelToken,
+) -> AppResult<()> {
+    let result: AppResult<()> = async {
+        // Forge / NeoForge 的安装器需要 Java，版本与原版要求的一致
+        let java = match choice {
+            Some(c) if matches!(c.kind, LoaderKind::Forge | LoaderKind::NeoForge) => {
+                if !installer.game.version_json(&entry.id).exists() {
+                    reporter.stage("下载原版版本信息");
+                    installer.save_version_json(entry, &entry.id).await?;
+                }
+                let vanilla = installer.resolve(&entry.id)?;
+                let (required, component) = crate::launch::required_java(&vanilla.json);
+                reporter.stage("选择 Java");
+                let java_override = state.settings().java_path;
+                Some(crate::launch::select_java(state, installer, java_override, required, &component, reporter, cancel).await?.0)
+            }
+            _ => None,
+        };
+        loader::install_instance(installer, entry, choice, name, java.as_deref(), reporter, cancel).await?;
+        InstanceConfig {
+            mc_version: Some(entry.id.clone()),
+            isolation,
+            ..Default::default()
+        }
+        .save(&installer.game, name)?;
+        Ok(())
+    }
+    .await;
+    if result.is_err() {
+        // 安装失败时清理掉这次新建的实例目录，避免出现损坏的实例
+        let _ = std::fs::remove_dir_all(installer.game.version_dir(name));
+    }
+    result
 }
 
 /// 完整校验并补全实例文件。

@@ -92,21 +92,86 @@ pub fn spawn(cmd: &LaunchCommand, on_log: LogFn) -> Result<RunningGame> {
 async fn pump<R: AsyncRead + Unpin>(r: R, stderr: bool, on_log: LogFn, tail: Arc<Mutex<VecDeque<String>>>) {
     let mut reader = BufReader::new(r);
     let mut buf = Vec::new();
+    let mut xml = XmlLog::default();
     loop {
         buf.clear();
         match reader.read_until(b'\n', &mut buf).await {
             Ok(0) | Err(_) => break,
             Ok(_) => {
-                let text = String::from_utf8_lossy(&buf).trim_end_matches(['\r', '\n']).to_string();
-                if let Ok(mut t) = tail.lock() {
-                    if t.len() == TAIL_LINES {
-                        t.pop_front();
+                let raw = String::from_utf8_lossy(&buf).trim_end_matches(['\r', '\n']).to_string();
+                for text in xml.feed(&raw) {
+                    if let Ok(mut t) = tail.lock() {
+                        if t.len() == TAIL_LINES {
+                            t.pop_front();
+                        }
+                        t.push_back(text.clone());
                     }
-                    t.push_back(text.clone());
+                    on_log(LogLine { text, stderr });
                 }
-                on_log(LogLine { text, stderr });
             }
         }
+    }
+}
+
+/// 原版的日志配置让游戏以 log4j XML 格式输出（官方启动器会解析它），这里把 XML 事件还原成普通文本行。
+#[derive(Default)]
+struct XmlLog {
+    pending: Option<String>,
+}
+
+impl XmlLog {
+    fn feed(&mut self, line: &str) -> Vec<String> {
+        if let Some(buf) = self.pending.as_mut() {
+            buf.push('\n');
+            buf.push_str(line);
+            if line.contains("</log4j:Event>") {
+                let event = self.pending.take().unwrap_or_default();
+                return Self::render(&event);
+            }
+            return Vec::new();
+        }
+        if line.trim_start().starts_with("<log4j:Event") {
+            if line.contains("</log4j:Event>") {
+                return Self::render(line);
+            }
+            self.pending = Some(line.to_string());
+            return Vec::new();
+        }
+        vec![line.to_string()]
+    }
+
+    fn attr<'a>(event: &'a str, name: &str) -> &'a str {
+        let key = format!("{name}=\"");
+        event
+            .find(&key)
+            .and_then(|i| {
+                let rest = &event[i + key.len()..];
+                rest.find('"').map(|j| &rest[..j])
+            })
+            .unwrap_or("")
+    }
+
+    fn cdata<'a>(event: &'a str, tag: &str) -> Option<&'a str> {
+        let start = event.find(&format!("<log4j:{tag}>"))?;
+        let rest = &event[start..];
+        let a = rest.find("<![CDATA[")? + 9;
+        let b = rest[a..].find("]]>")?;
+        Some(&rest[a..a + b])
+    }
+
+    fn render(event: &str) -> Vec<String> {
+        let level = Self::attr(event, "level");
+        let thread = Self::attr(event, "thread");
+        let mut out = Vec::new();
+        let message = Self::cdata(event, "Message").unwrap_or("");
+        let mut lines = message.lines();
+        let first = lines.next().unwrap_or("");
+        out.push(format!("[{thread}/{level}]: {first}"));
+        out.extend(lines.map(str::to_string));
+        if let Some(t) = Self::cdata(event, "Throwable") {
+            out.extend(t.lines().map(str::to_string));
+        }
+        out
     }
 }
 
@@ -254,6 +319,25 @@ pub fn analyze(log: &str, report: &str) -> Vec<CrashCause> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn xml_log_events() {
+        let mut x = XmlLog::default();
+        assert_eq!(x.feed("plain line"), vec!["plain line"]);
+        assert!(x
+            .feed(r#"<log4j:Event logger="net.minecraft.client.Minecraft" timestamp="1" level="INFO" thread="Render thread">"#)
+            .is_empty());
+        assert!(x.feed("  <log4j:Message><![CDATA[Setting user: Steve]]></log4j:Message>").is_empty());
+        assert_eq!(x.feed("</log4j:Event>"), vec!["[Render thread/INFO]: Setting user: Steve"]);
+        let one = r#"<log4j:Event logger="a" level="ERROR" thread="main"><log4j:Message><![CDATA[boom
+second]]></log4j:Message><log4j:Throwable><![CDATA[java.lang.RuntimeException: x
+	at a.b]]></log4j:Throwable></log4j:Event>"#;
+        let mut out = Vec::new();
+        for l in one.lines() {
+            out.extend(x.feed(l));
+        }
+        assert_eq!(out, vec!["[main/ERROR]: boom", "second", "java.lang.RuntimeException: x", "\tat a.b"]);
+    }
 
     #[test]
     fn crash_analysis() {

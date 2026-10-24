@@ -220,3 +220,159 @@ pub async fn install_loader_api(
     install_files(&installer.downloader, &ctx.game_dir.join("mods"), &items, reporter, cancel).await?;
     Ok(())
 }
+
+/// 整合包来源：本地文件，或 Modrinth / CurseForge 上的整合包版本。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum PackSource {
+    File {
+        path: PathBuf,
+    },
+    #[serde(rename_all = "camelCase")]
+    Online {
+        platform: Platform,
+        project_id: String,
+        version_id: String,
+    },
+}
+
+/// 读取本地整合包信息（导入前预览）。
+#[tauri::command]
+pub async fn read_modpack_file(path: PathBuf) -> AppResult<content::ModpackInfo> {
+    tauri::async_runtime::spawn_blocking(move || content::read_modpack(&path))
+        .await
+        .map_err(|e| AppError::msg(e.to_string(), ""))?
+        .map_err(Into::into)
+}
+
+/// 把整合包名整理成可用的实例名，并避免与已有实例重名。
+fn instance_name_for(state: &AppState, wanted: &str) -> String {
+    let cleaned: String = wanted
+        .trim()
+        .chars()
+        .map(|c| if "/\\:*?\"<>|".contains(c) || c.is_control() { '_' } else { c })
+        .collect();
+    let base = cleaned.trim_matches(['.', ' ']).to_string();
+    let base = if base.is_empty() { "整合包".to_string() } else { base };
+    let game = state.game_dir();
+    let mut name = base.clone();
+    let mut i = 2;
+    while game.version_dir(&name).exists() {
+        name = format!("{base}-{i}");
+        i += 1;
+    }
+    name
+}
+
+/// 整合包写的加载器版本可能是简写（如 Forge 的 47.2.0），这里换成安装用的完整版本号。
+async fn loader_choice(
+    state: &AppState,
+    mc: &str,
+    loader: &content::PackLoader,
+) -> AppResult<launcher_core::loader::LoaderChoice> {
+    use launcher_core::loader::{list_versions, LoaderChoice};
+    if matches!(loader.kind, LoaderKind::Fabric | LoaderKind::Quilt) {
+        return Ok(LoaderChoice {
+            kind: loader.kind,
+            version: loader.version.clone(),
+        });
+    }
+    let list = list_versions(&state.http()?, loader.kind, mc).await?;
+    let want = loader.version.as_str();
+    let found = list
+        .iter()
+        .find(|v| v.version == want || v.display == want || v.version == format!("{mc}-{want}"))
+        .ok_or_else(|| {
+            AppError::msg(
+                format!("找不到整合包需要的 {} {want}（Minecraft {mc}）", loader.kind.display_name()),
+                "这个加载器版本可能已被下架，可以尝试安装该整合包的其它版本。",
+            )
+        })?;
+    Ok(LoaderChoice {
+        kind: loader.kind,
+        version: found.version.clone(),
+    })
+}
+
+/// 安装整合包：创建新实例（强制版本隔离），装好对应的游戏版本与加载器，再下载文件并解压 overrides。
+#[tauri::command]
+pub async fn install_modpack(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    source: PackSource,
+    name: Option<String>,
+) -> AppResult<u64> {
+    let installer = state.installer()?;
+    let app2 = app.clone();
+    Ok(state.tasks.spawn(&app, "安装整合包", move |reporter, cancel| async move {
+        let state = app2.state::<AppState>();
+        let tmp = installer.game.root().join(".redcraft-tmp");
+
+        // 1. 获取整合包文件
+        let (pack_path, downloaded) = match &source {
+            PackSource::File { path } => (path.clone(), false),
+            PackSource::Online { platform, project_id, version_id } => {
+                reporter.stage("获取整合包信息");
+                let version = client(&state, *platform)?.version(project_id, version_id).await?;
+                let file = version
+                    .primary_file()
+                    .ok_or_else(|| AppError::msg("这个整合包版本没有可下载的文件", ""))?
+                    .clone();
+                let path = tmp.join(&file.filename);
+                reporter.stage("下载整合包");
+                installer
+                    .downloader
+                    .download_all(
+                        vec![launcher_core::download::DownloadTask::new(&file.url, &path)
+                            .sha1(file.sha1.clone())
+                            .size(Some(file.size))],
+                        reporter.progress.clone(),
+                        &cancel,
+                    )
+                    .await?;
+                (path, true)
+            }
+        };
+        let info = {
+            let p = pack_path.clone();
+            tauri::async_runtime::spawn_blocking(move || content::read_modpack(&p))
+                .await
+                .map_err(|e| AppError::msg(e.to_string(), ""))??
+        };
+        let name = instance_name_for(&state, name.as_deref().unwrap_or(&info.name));
+        log::info!("安装整合包 {} {} 为实例 {name}", info.name, info.version);
+
+        // 2. 游戏版本与加载器
+        let manifest = launcher_core::version::VersionManifest::fetch(&state.http()?).await?;
+        let entry = manifest.find(&info.mc_version).cloned().ok_or_else(|| {
+            AppError::msg(format!("版本列表中没有整合包需要的 Minecraft {}", info.mc_version), "请稍后重试。")
+        })?;
+        let choice = match &info.loader {
+            Some(l) => Some(loader_choice(&state, &info.mc_version, l).await?),
+            None => None,
+        };
+        crate::commands::create_instance(&state, &installer, &entry, choice.as_ref(), &name, Some(true), &reporter, &cancel)
+            .await?;
+
+        // 3. 文件与 overrides；失败时删除新建的实例
+        let game_dir = installer.game.version_dir(&name);
+        let result: AppResult<()> = async {
+            let cf = CurseForge::new(state.http()?, Some(state.settings().curseforge_api_key));
+            content::download_pack_files(&info, &game_dir, &installer.downloader, &cf, &reporter, &cancel).await?;
+            reporter.stage("解压整合包配置");
+            let (p, i, g) = (pack_path.clone(), info.clone(), game_dir.clone());
+            tauri::async_runtime::spawn_blocking(move || content::extract_overrides(&p, &i, &g))
+                .await
+                .map_err(|e| AppError::msg(e.to_string(), ""))??;
+            Ok(())
+        }
+        .await;
+        if downloaded {
+            let _ = std::fs::remove_file(&pack_path);
+        }
+        if result.is_err() {
+            let _ = std::fs::remove_dir_all(installer.game.version_dir(&name));
+        }
+        result
+    }))
+}

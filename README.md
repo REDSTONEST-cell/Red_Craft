@@ -13,7 +13,7 @@
 | 3 | Java 检测与自动下载（Mojang Java runtime） | ✅ |
 | 4 | 微软正版登录 ✅、外置登录（authlib-injector）⏳ | 进行中 |
 | 5 | Fabric / Quilt / Forge / NeoForge | ✅ |
-| 6 | Mod / 材质包 / 光影包下载（Modrinth、CurseForge）、前置依赖解析 ✅；整合包、已安装 Mod 管理 ⏳ | 进行中 |
+| 6 | Mod / 材质包 / 光影包 / 整合包下载（Modrinth、CurseForge）、前置依赖解析 ✅；已安装 Mod 管理 ⏳ | 进行中 |
 | 7 | 界面打磨与动效 | 进行中 |
 | 8 | 打包（NSIS / MSI） | CI 已配置 |
 
@@ -26,6 +26,8 @@
 - **Java**：扫描 JAVA_HOME、PATH、Windows 注册表、常见安装目录、官方启动器自带的 runtime；按版本 JSON 的 `javaVersion` 自动选择，没有合适的就从 Mojang Java runtime 清单下载（目录布局与官方启动器一致，可互相复用）。
 - **模组加载器**：新建实例时可选 Fabric / Quilt / Forge / NeoForge，只列出支持所选游戏版本的加载器版本；Fabric / Quilt 直接使用官方 profile，Forge / NeoForge 先用启动器（支持镜像）预下载依赖库，再以无界面方式运行官方安装器；1.12.2 及更早的 Forge 直接解析安装配置，不运行安装器。加载器版本 JSON 通过 inheritsFrom 继承原版。
 - **资源下载**：Mod、材质包、光影包，数据源可选 Modrinth 或 CurseForge，按实例的游戏版本与加载器筛选（虚拟滚动、滚动加载）；只列出兼容的版本；安装前自动递归解析必需前置（处理循环依赖、去重、已安装的跳过、只给项目没给版本时选兼容的最新版），可选依赖供勾选，已安装的冲突项给出警告；更新时自动替换旧文件。Modrinth 走 MCIM 镜像，CurseForge 没有 API Key 时通过 MCIM 镜像访问。新建 Fabric / Quilt 实例时自动安装兼容的最新 Fabric API / QSL。
+- **整合包**：支持 Modrinth（.mrpack）与 CurseForge 整合包，可在资源页直接安装或从本地导入；自动安装对应的游戏版本与加载器（简写的 Forge 版本号会换成完整版本），下载全部文件（CurseForge 按项目类型放入 mods / resourcepacks / shaderpacks），解压 overrides，并作为开启版本隔离的独立实例。
+- **游戏日志**：原版日志配置输出的 log4j XML 会被还原成普通文本行（含多行消息与异常堆栈）。
 - **离线账号头像**：离线账号与某个正版账号同名时，头像使用该正版账号的皮肤。
 - **高级选项**（设置页，可折叠）：Java 虚拟机参数、游戏参数、启动前执行命令（支持占位符，可选择等待完成）、内存回收器（自动 / G1 / 分代 ZGC / 不指定）、使用高性能显卡（Windows）。
 - **默认中文**：实例第一次启动时自动把游戏语言设为简体中文（可在设置中关闭）。
@@ -72,6 +74,9 @@ xvfb-run -a cargo test -p launcher-core --test loaders -- --ignored --nocapture 
 # 资源下载：Modrinth 搜索 + 解析 Sodium Extra 的前置（Sodium、Fabric API）并下载；
 # CurseForge（MCIM 镜像）解析 Create: Steam 'n' Rails 的前置（Create）
 cargo test -p launcher-core --test content -- --ignored --nocapture
+
+# 整合包：安装 Fabulously Optimized（1.20.1）并启动到加载全部 Mod
+xvfb-run -a cargo test -p launcher-core --test modpack -- --ignored --nocapture
 
 # 前端类型检查
 pnpm check

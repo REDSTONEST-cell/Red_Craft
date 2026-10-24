@@ -169,6 +169,20 @@ export interface VersionRef {
   versionId: string;
 }
 
+export interface ModpackInfo {
+  format: "modrinth" | "curseforge";
+  name: string;
+  version: string;
+  summary: string;
+  mcVersion: string;
+  loader: { kind: LoaderKind; version: string } | null;
+  fileCount: number;
+}
+
+export type PackSource =
+  | { type: "file"; path: string }
+  | { type: "online"; platform: Platform; projectId: string; versionId: string };
+
 export interface InstanceConfig {
   mcVersion: string | null;
   isolation: boolean | null;
@@ -326,6 +340,9 @@ export const api = {
     call<Plan>("content_plan", { platform, instance, contentType, roots }),
   contentInstall: (platform: Platform, instance: string, contentType: ContentType, roots: VersionRef[]) =>
     call<number>("content_install", { platform, instance, contentType, roots }),
+
+  readModpackFile: (path: string) => call<ModpackInfo>("read_modpack_file", { path }),
+  installModpack: (source: PackSource, name: string | null) => call<number>("install_modpack", { source, name }),
 
   scanJava: (refresh = false) => call<JavaInstall[]>("scan_java", { refresh }),
   probeJava: (path: string) => call<JavaInstall>("probe_java", { path }),

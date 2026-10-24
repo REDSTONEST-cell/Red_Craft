@@ -5,6 +5,30 @@
   import Modal from "../components/Modal.svelte";
   import Icon from "../components/Icon.svelte";
   import Segmented from "../components/Segmented.svelte";
+  import ModpackInstall from "../components/ModpackInstall.svelte";
+  import { open as openDialog } from "@tauri-apps/plugin-dialog";
+  import type { ModpackInfo, PackSource } from "../lib/api";
+
+  let packOpen = $state(false);
+  let packSource = $state<PackSource | null>(null);
+  let packInfo = $state<ModpackInfo | null>(null);
+
+  async function importPack() {
+    const file = await openDialog({
+      title: "选择整合包",
+      multiple: false,
+      directory: false,
+      filters: [{ name: "整合包", extensions: ["mrpack", "zip"] }],
+    });
+    if (typeof file !== "string") return;
+    try {
+      packInfo = await api.readModpackFile(file);
+      packSource = { type: "file", path: file };
+      packOpen = true;
+    } catch (e) {
+      showError(e, "无法读取整合包");
+    }
+  }
 
   $effect(() => {
     refreshInstances();
@@ -82,6 +106,7 @@
   </div>
   <div class="tools">
     <button class="btn" onclick={() => api.openGameDir().catch((e) => showError(e))}><Icon name="folder" size={14} /> 打开目录</button>
+    <button class="btn" onclick={importPack}><Icon name="box" size={14} /> 导入整合包</button>
     <button class="btn primary" onclick={() => (app.page = "download")}><Icon name="plus" size={14} /> 新建实例</button>
   </div>
 </div>
@@ -140,6 +165,8 @@
     {/each}
   </div>
 {/if}
+
+<ModpackInstall bind:open={packOpen} source={packSource} title={packInfo?.name ?? ""} info={packInfo} />
 
 <Modal bind:open={deleteOpen} title="删除实例？" kicker="DELETE" width={420}>
   <p>

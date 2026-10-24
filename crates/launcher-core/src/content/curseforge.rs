@@ -247,6 +247,17 @@ impl CurseForge {
         self.http.request_json(&self.urls(path), None, &headers, what).await
     }
 
+    /// POST 请求（批量查询文件、项目）。
+    pub(crate) async fn post<T: for<'de> Deserialize<'de>>(&self, path: &str, body: &serde_json::Value) -> Result<T> {
+        let headers: Vec<(&str, &str)> = match &self.api_key {
+            Some(k) => vec![("x-api-key", k.as_str())],
+            None => vec![],
+        };
+        self.http
+            .request_json(&self.urls(path), Some(body), &headers, "CurseForge 响应")
+            .await
+    }
+
     pub async fn search(&self, q: &SearchQuery) -> Result<SearchResult> {
         let mut path = format!(
             "/mods/search?gameId={MINECRAFT}&classId={}&index={}&pageSize={}&sortOrder=desc&sortField={}",

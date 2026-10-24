@@ -75,6 +75,8 @@ pub fn run() {
             content::content_project,
             content::content_plan,
             content::content_install,
+            content::read_modpack_file,
+            content::install_modpack,
             launch::launch_instance,
             launch::kill_game,
         ])
