@@ -75,6 +75,7 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
         loader: detect_loader(&resolved),
         release_time: String::new(),
         error: None,
+        parents: Vec::new(),
     };
     let modded = summary.loader.is_some();
     let isolated = instance_isolated(&state, &summary, &config);

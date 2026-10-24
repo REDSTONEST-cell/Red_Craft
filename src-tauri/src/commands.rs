@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use launcher_core::auth::{is_standard_name, validate_offline_name, Account, AccountKind};
 use launcher_core::install::{validate_instance_name, Verify};
-use launcher_core::instance::{scan_instances, InstanceSummary, LoaderKind};
+use launcher_core::instance::{is_hidden_base, scan_instances, InstanceSummary, LoaderKind};
 use launcher_core::loader::{self, LoaderChoice, LoaderVersion};
 use launcher_core::java::{self, JavaInstall};
 use launcher_core::system::{self, MemoryInfo};
@@ -14,7 +14,7 @@ use tauri::{AppHandle, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
 use crate::error::{AppError, AppResult};
-use crate::settings::{InstanceConfig, Settings};
+use crate::settings::{InstanceConfig, Settings, INSTANCE_CONFIG};
 use crate::state::AppState;
 
 pub(crate) async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> AppResult<T> {
@@ -139,8 +139,14 @@ pub async fn list_instances(state: State<'_, AppState>) -> AppResult<Vec<Instanc
     let g = game.clone();
     let list = blocking(move || scan_instances(&g)).await?;
     let running = state.running.lock().map(|r| r.clone()).unwrap_or_default();
+    let hidden: Vec<String> = list
+        .iter()
+        .filter(|s| is_hidden_base(&game, &list, &s.id, INSTANCE_CONFIG))
+        .map(|s| s.id.clone())
+        .collect();
     Ok(list
         .into_iter()
+        .filter(|s| !hidden.contains(&s.id))
         .map(|mut summary| {
             let config = InstanceConfig::load(&game, &summary.id);
             if let Some(v) = config.mc_version.clone() {
@@ -184,6 +190,18 @@ pub async fn install_instance(
     let name = name.trim().to_string();
     validate_instance_name(&name)?;
     let game = state.game_dir();
+    // 已作为某个加载器实例的父版本自动安装过：补全文件并让它作为独立实例显示
+    if loader.is_none() && name == version && game.version_json(&name).is_file() && !game.version_dir(&name).join(INSTANCE_CONFIG).exists() {
+        let installer = state.installer()?;
+        InstanceConfig {
+            mc_version: Some(version.clone()),
+            ..Default::default()
+        }
+        .save(&game, &name)?;
+        return Ok(state.tasks.spawn(&app, format!("安装 {name}"), move |reporter, cancel| async move {
+            Ok(installer.complete(&name, Verify::Quick, &reporter, &cancel).await?)
+        }));
+    }
     if game.version_dir(&name).exists() {
         return Err(AppError::msg(
             format!("已存在名为「{name}」的实例"),
@@ -276,9 +294,31 @@ pub async fn delete_instance(state: State<'_, AppState>, id: String) -> AppResul
         return Err(AppError::msg("实例正在运行", "请先关闭游戏再删除。"));
     }
     validate_instance_name(&id)?;
-    let dir = state.game_dir().version_dir(&id);
+    let game = state.game_dir();
+    // 同时删除只为这个实例自动安装的原版父版本（没有其他实例继承它时）
+    let g = game.clone();
+    let before = blocking(move || scan_instances(&g)).await?;
+    let orphans: Vec<String> = before
+        .iter()
+        .find(|s| s.id == id)
+        .map(|s| s.parents.clone())
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|p| {
+            is_hidden_base(&game, &before, p, INSTANCE_CONFIG)
+                && !before.iter().any(|o| o.id != id && o.parents.contains(p))
+                && !state.running.lock().is_ok_and(|r| r.contains_key(p))
+        })
+        .collect();
+    let dir = game.version_dir(&id);
     blocking(move || std::fs::remove_dir_all(&dir).map_err(|e| launcher_core::CoreError::io(&dir, e)))
         .await??;
+    for p in orphans {
+        let d = game.version_dir(&p);
+        if let Err(e) = std::fs::remove_dir_all(&d) {
+            log::warn!("删除父版本 {p} 失败：{e}");
+        }
+    }
     if state.settings().selected_instance.as_deref() == Some(id.as_str()) {
         state.update_settings(|s| s.selected_instance = None)?;
     }

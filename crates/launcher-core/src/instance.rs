@@ -126,6 +126,9 @@ pub struct InstanceSummary {
     pub release_time: String,
     /// 版本文件无法解析时的原因
     pub error: Option<String>,
+    /// 继承的父版本（由近到远），例如 Fabric 实例的原版
+    #[serde(skip)]
+    pub parents: Vec<String>,
 }
 
 impl InstanceSummary {
@@ -153,6 +156,7 @@ pub fn scan_instances(game: &GameDir) -> Vec<InstanceSummary> {
                 loader: detect_loader(&r),
                 release_time: r.json.release_time.clone(),
                 error: None,
+                parents: r.chain.iter().skip(1).cloned().collect(),
                 id,
             },
             Err(e) => InstanceSummary {
@@ -161,12 +165,19 @@ pub fn scan_instances(game: &GameDir) -> Vec<InstanceSummary> {
                 loader: None,
                 release_time: String::new(),
                 error: Some(e.to_string()),
+                parents: Vec::new(),
                 id,
             },
         })
         .collect();
     out.sort_by(|a, b| b.release_time.cmp(&a.release_time).then_with(|| a.id.cmp(&b.id)));
     out
+}
+
+/// 安装加载器时作为父版本自动装上的原版：被其他实例继承，且没有 Red Craft 的实例配置（用户没有单独安装或启动过它）。
+/// 实例列表中隐藏这些版本。
+pub fn is_hidden_base(game: &GameDir, all: &[InstanceSummary], id: &str, config_file: &str) -> bool {
+    all.iter().any(|s| s.parents.iter().any(|p| p == id)) && !game.version_dir(id).join(config_file).exists()
 }
 
 #[cfg(test)]
@@ -177,6 +188,30 @@ mod tests {
     fn resolved(json: &str) -> ResolvedVersion {
         let v: VersionJson = serde_json::from_str(json).unwrap();
         resolve_with(&v.id.clone(), |_| Ok(v.clone())).unwrap()
+    }
+
+    #[test]
+    fn hides_auto_installed_parent() {
+        let t = tempfile::tempdir().unwrap();
+        let game = GameDir::new(t.path());
+        let write = |id: &str, json: &str| {
+            std::fs::create_dir_all(game.version_dir(id)).unwrap();
+            std::fs::write(game.version_json(id), json).unwrap();
+        };
+        write("1.21.1", r#"{"id":"1.21.1","type":"release","libraries":[]}"#);
+        write(
+            "1.21.1-Fabric",
+            r#"{"id":"1.21.1-Fabric","inheritsFrom":"1.21.1","libraries":[{"name":"net.fabricmc:fabric-loader:0.16.0"}]}"#,
+        );
+        write("1.20.1", r#"{"id":"1.20.1","type":"release","libraries":[]}"#);
+        let all = scan_instances(&game);
+        assert!(is_hidden_base(&game, &all, "1.21.1", "redcraft.json"));
+        assert!(!is_hidden_base(&game, &all, "1.21.1-Fabric", "redcraft.json"));
+        // 没有被继承的原版照常显示
+        assert!(!is_hidden_base(&game, &all, "1.20.1", "redcraft.json"));
+        // 用户单独安装或启动过（有实例配置）则显示
+        std::fs::write(game.version_dir("1.21.1").join("redcraft.json"), "{}").unwrap();
+        assert!(!is_hidden_base(&game, &all, "1.21.1", "redcraft.json"));
     }
 
     #[test]
