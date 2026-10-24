@@ -11,7 +11,7 @@
 | 1 | 项目骨架：Tauri 2 + Svelte 5 + launcher-core 工作区，command / event 打通 | ✅ |
 | 2 | 版本列表、原版下载与校验、离线登录、启动原版 | ✅ |
 | 3 | Java 检测与自动下载（Mojang Java runtime） | ✅ |
-| 4 | 微软正版登录、外置登录（authlib-injector） | ⏳ |
+| 4 | 微软正版登录 ✅、外置登录（authlib-injector）⏳ | 进行中 |
 | 5 | Fabric / Quilt / Forge / NeoForge | ⏳ |
 | 6 | Modrinth 搜索、前置依赖解析、已安装 Mod 管理 | ⏳ |
 | 7 | 界面打磨与动效 | 进行中 |
@@ -25,6 +25,7 @@
 - **便携模式**：启动器所在目录存在 `.minecraft` 时自动使用它，配置也保存在其中。
 - **Java**：扫描 JAVA_HOME、PATH、Windows 注册表、常见安装目录、官方启动器自带的 runtime；按版本 JSON 的 `javaVersion` 自动选择，没有合适的就从 Mojang Java runtime 清单下载（目录布局与官方启动器一致，可互相复用）。
 - **离线登录**：UUID 为 `OfflinePlayer:<name>` 的 MD5（UUID v3），与服务端一致。
+- **微软正版登录**：设备码流程 → Xbox Live → XSTS → Minecraft，检查是否拥有游戏并获取档案；未成年需家长同意、没有 Xbox 档案、没买游戏、应用未通过审核等情况都有中文提示；令牌存系统密钥库，过期自动刷新；显示正版皮肤头像。
 - **启动**：同时支持新版 `arguments` 与旧版 `minecraftArguments`；处理 `legacy` / `pre-1.6` 旧版资源；启动前快速补全缺失文件（资源只比较大小，约 150ms）；自动进入服务器（1.20+ 用 Quick Play，旧版用 `--server/--port`）；内存自动分配；日志实时推送；崩溃时分析常见原因并给出中文解决办法；启动后可隐藏 / 保持 / 关闭启动器。
 - **界面**：无边框窗口 + 自定义标题栏；深色 / 浅色 / 跟随系统；主题色可自定义；动效只使用 transform / opacity，并尊重系统「减少动态效果」设置。
 
@@ -39,7 +40,7 @@
   - **macOS**：Xcode Command Line Tools
   - **Linux（Debian/Ubuntu）**：
     ```sh
-    sudo apt install libwebkit2gtk-4.1-dev build-essential libssl-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev
+    sudo apt install libwebkit2gtk-4.1-dev build-essential libssl-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libdbus-1-dev
     ```
 
 ### 运行
@@ -93,7 +94,24 @@ Release 配置已开启 `lto = true`、`opt-level = "s"`、`codegen-units = 1`�
 5. 在「概述」页面复制 **「应用程序(客户端) ID」**，这就是 Client ID。
 6. **申请 Minecraft API 权限**：新注册的应用默认无法调用 Minecraft 的登录接口（`/authentication/login_with_xbox` 会返回 403 “Invalid app registration”）。需要填写微软的审核表单 <https://aka.ms/mce-reviewappid> 提交你的 Client ID，审核通过后才能正常登录，通常需要几天到几周。
 
-微软登录将在第 4 阶段实现，届时 Client ID 会做成配置项（设置界面中填写，或在构建时通过环境变量注入），代码里只保留占位值。
+### 配置 Client ID
+
+代码里不写死 Client ID，有两种方式提供：
+
+- **构建时注入**：设置环境变量 `REDCRAFT_MS_CLIENT_ID` 后再构建，例如
+  ```sh
+  REDCRAFT_MS_CLIENT_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx pnpm tauri dev
+  ```
+  仓库的 CI 已在 `.github/workflows/build.yml` 中设置了本项目的 Client ID。
+- **运行时填写**：在启动器「设置 → 账号 → 微软登录 Client ID」中填写，会覆盖内置值。
+
+可以用下面的联网测试检查 Azure 应用配置（只申请设备码，不需要真正登录）：
+
+```sh
+REDCRAFT_MS_CLIENT_ID=<你的 Client ID> cargo test -p launcher-core --test microsoft -- --ignored --nocapture
+```
+
+登录得到的令牌保存在系统密钥库（Windows 凭据管理器 / macOS 钥匙串 / Linux Secret Service），不会写入配置文件；Linux 上没有 Secret Service 时，退回到配置目录下 `secrets/` 中仅当前用户可读的文件。启动游戏时令牌过期会自动用 refresh token 刷新。
 
 ## 项目结构
 

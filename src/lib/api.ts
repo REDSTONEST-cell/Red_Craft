@@ -30,6 +30,7 @@ export interface Settings {
   accent: string;
   selectedInstance: string | null;
   selectedAccount: string | null;
+  msClientId: string;
 }
 
 export interface AppInfo {
@@ -91,6 +92,15 @@ export interface Account {
   kind: AccountKind;
   name: string;
   uuid: string;
+  skin?: string | null;
+}
+
+export interface MsLoginStart {
+  flowId: number;
+  userCode: string;
+  verificationUri: string;
+  expiresIn: number;
+  interval: number;
 }
 
 export interface JavaInstall {
@@ -196,6 +206,11 @@ export const api = {
     call<{ account: Account; warning: string | null }>("add_offline_account", { name }),
   removeAccount: (id: string) => call<void>("remove_account", { id }),
   selectAccount: (id: string) => call<void>("select_account", { id }),
+
+  msLoginStart: () => call<MsLoginStart>("ms_login_start"),
+  msLoginFinish: (flowId: number) => call<Account>("ms_login_finish", { flowId }),
+  msLoginCancel: (flowId: number) => call<void>("ms_login_cancel", { flowId }),
+  msRefreshAccount: (id: string) => call<Account>("ms_refresh_account", { id }),
 
   scanJava: (refresh = false) => call<JavaInstall[]>("scan_java", { refresh }),
   probeJava: (path: string) => call<JavaInstall>("probe_java", { path }),

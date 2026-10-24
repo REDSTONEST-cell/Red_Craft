@@ -79,6 +79,19 @@ pub struct Settings {
     pub accent: String,
     pub selected_instance: Option<String>,
     pub selected_account: Option<String>,
+    /// 微软登录使用的 Azure 应用 Client ID；为空时使用编译时内置的值
+    pub ms_client_id: String,
+}
+
+impl Settings {
+    pub fn effective_client_id(&self) -> String {
+        let id = self.ms_client_id.trim();
+        if id.is_empty() {
+            launcher_core::auth::microsoft::DEFAULT_CLIENT_ID.to_string()
+        } else {
+            id.to_string()
+        }
+    }
 }
 
 impl Default for Settings {
@@ -105,6 +118,7 @@ impl Default for Settings {
             accent: "#E8590C".into(),
             selected_instance: None,
             selected_account: None,
+            ms_client_id: String::new(),
         }
     }
 }

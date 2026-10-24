@@ -3,6 +3,23 @@
   import { app, refreshAccounts, showError, toast } from "../lib/state.svelte";
   import Avatar from "../components/Avatar.svelte";
   import Icon from "../components/Icon.svelte";
+  import MsLogin from "../components/MsLogin.svelte";
+
+  let msOpen = $state(false);
+  let refreshing = $state<string | null>(null);
+
+  async function refreshMs(id: string) {
+    refreshing = id;
+    try {
+      const a = await api.msRefreshAccount(id);
+      await refreshAccounts();
+      toast("ok", `账号 ${a.name} 登录状态正常`);
+    } catch (e) {
+      showError(e, "刷新失败");
+    } finally {
+      refreshing = null;
+    }
+  }
 
   let name = $state("");
   let busy = $state(false);
@@ -56,13 +73,18 @@
         {#each app.accounts as a, i (a.id)}
           <div class="acc" class:active={app.selectedAccount === a.id} style:--i={i}>
             <button class="pick" onclick={() => select(a.id)}>
-              <Avatar uuid={a.uuid} size={42} />
+              <Avatar uuid={a.uuid} skin={a.skin} size={42} />
               <div class="info">
                 <strong>{a.name}</strong>
                 <span class="muted">{kindLabel(a.kind.type)} · <span class="mono">{a.uuid.slice(0, 8)}…</span></span>
               </div>
               {#if app.selectedAccount === a.id}<span class="tag accent"><Icon name="check" size={10} /> 使用中</span>{/if}
             </button>
+            {#if a.kind.type === "microsoft"}
+              <button class="btn ghost icon sm" title="刷新登录状态" disabled={refreshing === a.id} onclick={() => refreshMs(a.id)}>
+                <span class:spin={refreshing === a.id}><Icon name="refresh" size={14} /></span>
+              </button>
+            {/if}
             <button class="btn ghost icon sm" title="删除账号" onclick={() => remove(a.id)}><Icon name="trash" size={14} /></button>
           </div>
         {/each}
@@ -86,9 +108,10 @@
         <button class="btn primary" disabled={busy || !name.trim()}>添加</button>
       </form>
     </div>
-    <div class="box disabled">
+    <div class="box">
       <div class="kicker">微软正版登录</div>
-      <p class="muted small">即将推出：使用设备码登录微软账号。</p>
+      <p class="muted small">在浏览器中登录购买了 Minecraft 的微软账号，启动器不会接触你的密码。令牌保存在系统密钥库中。</p>
+      <button class="btn primary" onclick={() => (msOpen = true)}>使用微软账号登录</button>
     </div>
     <div class="box disabled">
       <div class="kicker">外置登录</div>
@@ -96,6 +119,8 @@
     </div>
   </aside>
 </div>
+
+<MsLogin bind:open={msOpen} />
 
 <style>
   .grid {

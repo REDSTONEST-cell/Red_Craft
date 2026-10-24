@@ -10,6 +10,7 @@ use launcher_core::paths::GameDir;
 use launcher_core::version::VersionManifest;
 
 use crate::error::{AppError, AppResult};
+use crate::secrets::Secrets;
 use crate::settings::{read_json, write_json, AccountStore, AppPaths, Settings};
 use crate::tasks::Tasks;
 
@@ -25,6 +26,9 @@ pub struct AppState {
     pub running: Mutex<HashMap<String, u32>>,
     /// 被用户手动结束的实例，退出时不按崩溃处理
     pub killed: Mutex<HashSet<String>>,
+    pub secrets: Secrets,
+    /// 进行中的微软设备码登录
+    pub ms_flows: Mutex<HashMap<u64, (launcher_core::download::CancelToken, launcher_core::auth::microsoft::DeviceCode)>>,
 }
 
 impl AppState {
@@ -33,6 +37,8 @@ impl AppState {
         let settings: Settings = read_json(&paths.settings_file()).unwrap_or_default();
         let accounts: AccountStore = read_json(&paths.accounts_file()).unwrap_or_default();
         AppState {
+            secrets: Secrets::new(&paths.config_dir),
+            ms_flows: Mutex::new(HashMap::new()),
             paths,
             settings: RwLock::new(settings),
             accounts: RwLock::new(accounts),

@@ -352,6 +352,7 @@ pub fn remove_account(state: State<'_, AppState>, id: String) -> AppResult<()> {
     if let Ok(mut store) = state.accounts.write() {
         store.accounts.retain(|a| a.id != id);
     }
+    state.secrets.delete(&id);
     state.save_accounts()?;
     if state.settings().selected_account.as_deref() == Some(id.as_str()) {
         state.update_settings(|s| s.selected_account = None)?;

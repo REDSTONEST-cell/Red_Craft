@@ -1,6 +1,7 @@
 <script lang="ts">
   // 像素头像：离线账号按 UUID 选择 Steve 或 Alex 的配色（与游戏默认皮肤规则一致）。
-  let { uuid = "", size = 40 }: { uuid?: string; size?: number } = $props();
+  let { uuid = "", size = 40, skin = null }: { uuid?: string; size?: number; skin?: string | null } = $props();
+  let skinFailed = $state(false);
 
   // Java: UUID.hashCode() & 1，等价于对各 32 位分段异或后取最低位
   const alex = $derived.by(() => {
@@ -44,6 +45,14 @@
   const grid = $derived(alex ? ALEX : STEVE);
 </script>
 
+{#if skin && !skinFailed}
+  <!-- 皮肤贴图 64×64：脸在 (8,8)，帽子层在 (40,8)；背景按 8 倍放大后偏移 -->
+  <span class="avatar skin" style:width="{size}px" style:height="{size}px" role="img" aria-label="皮肤头像">
+    <span class="layer" style:background-image="url({skin})" style:background-size="{size * 8}px auto" style:background-position="-{size}px -{size}px"></span>
+    <span class="layer" style:background-image="url({skin})" style:background-size="{size * 8}px auto" style:background-position="-{size * 5}px -{size}px"></span>
+    <img src={skin} alt="" hidden onerror={() => (skinFailed = true)} />
+  </span>
+{:else}
 <svg width={size} height={size} viewBox="0 0 8 8" shape-rendering="crispEdges" class="avatar" aria-hidden="true">
   {#each grid as row, y}
     {#each row.split("") as c, x}
@@ -51,8 +60,22 @@
     {/each}
   {/each}
 </svg>
+{/if}
 
 <style>
+  .skin {
+    /* 内容区正好是 size，边框画在外面，保证贴图偏移准确 */
+    box-sizing: content-box;
+    position: relative;
+    overflow: hidden;
+    background: var(--paper-2);
+  }
+  .layer {
+    position: absolute;
+    inset: 0;
+    image-rendering: pixelated;
+    background-repeat: no-repeat;
+  }
   .avatar {
     display: block;
     border: 1.5px solid var(--ink);

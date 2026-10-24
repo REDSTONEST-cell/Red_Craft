@@ -144,7 +144,7 @@
   <footer class="launchbar">
     <button class="account" onclick={() => (app.page = "accounts")}>
       {#if account}
-        <Avatar uuid={account.uuid} size={36} />
+        <Avatar uuid={account.uuid} skin={account.skin} size={36} />
         <div>
           <strong>{account.name}</strong>
           <span class="muted">{accountLabel}</span>

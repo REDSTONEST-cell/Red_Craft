@@ -63,15 +63,9 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
         .selected
         .and_then(|sel| accounts.accounts.into_iter().find(|a| a.id == sel))
         .ok_or_else(|| AppError::msg("还没有选择账号", "请先在「账号」页面添加并选择一个账号。"))?;
-    let auth = match &account.kind {
-        AccountKind::Offline => LaunchAuth::offline(&account.name),
-        _ => {
-            return Err(AppError::msg(
-                "暂不支持这种账号类型",
-                "微软登录与外置登录将在后续版本中提供，请先使用离线账号。",
-            ))
-        }
-    };
+    if matches!(account.kind, AccountKind::Yggdrasil { .. }) {
+        return Err(AppError::msg("暂不支持外置登录账号", "外置登录将在后续版本中提供。"));
+    }
 
     let installer = state.installer()?;
     let game = installer.game.clone();
@@ -110,6 +104,16 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
     let title = format!("启动 {id}");
     let task_id = tasks.spawn(&app, title, move |reporter, cancel| async move {
         let state = app2.state::<AppState>();
+
+        // 登录凭据：正版账号可能需要先刷新令牌
+        let auth = match &account.kind {
+            AccountKind::Microsoft => {
+                reporter.stage("验证微软账号");
+                crate::auth::microsoft_launch_auth(&state, &account).await?
+            }
+            _ => LaunchAuth::offline(&account.name),
+        };
+        cancel.check()?;
 
         // 选择 Java
         reporter.stage("选择 Java");

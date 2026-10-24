@@ -1,9 +1,11 @@
 //! Tauri 外壳：把 launcher-core 包装成 commands 与 events。
 
+mod auth;
 mod commands;
 mod error;
 mod launch;
 mod logger;
+mod secrets;
 mod settings;
 mod state;
 mod tasks;
@@ -60,6 +62,10 @@ pub fn run() {
             commands::scan_java,
             commands::probe_java,
             commands::cancel_task,
+            auth::ms_login_start,
+            auth::ms_login_finish,
+            auth::ms_login_cancel,
+            auth::ms_refresh_account,
             launch::launch_instance,
             launch::kill_game,
         ])

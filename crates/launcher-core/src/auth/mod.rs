@@ -1,5 +1,6 @@
 //! 账号与登录。
 
+pub mod microsoft;
 mod offline;
 
 use serde::{Deserialize, Serialize};
@@ -29,6 +30,9 @@ pub struct Account {
     pub name: String,
     /// 不带连字符或带连字符均可，启动时统一处理
     pub uuid: String,
+    /// 正版账号的皮肤地址，用于显示头像
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skin: Option<String>,
 }
 
 impl Account {
@@ -39,6 +43,17 @@ impl Account {
             kind: AccountKind::Offline,
             name: name.to_string(),
             uuid,
+            skin: None,
+        }
+    }
+
+    pub fn microsoft(profile: &microsoft::McProfile) -> Self {
+        Account {
+            id: format!("ms-{}", profile.id),
+            kind: AccountKind::Microsoft,
+            name: profile.name.clone(),
+            uuid: profile.id.clone(),
+            skin: profile.skin.clone(),
         }
     }
 }
@@ -65,6 +80,17 @@ pub struct AuthlibArgs {
 }
 
 impl LaunchAuth {
+    pub fn microsoft(session: &microsoft::MsSession) -> Self {
+        LaunchAuth {
+            name: session.profile.name.clone(),
+            uuid: session.profile.id.replace('-', ""),
+            access_token: session.mc_access_token.clone(),
+            user_type: "msa".into(),
+            xuid: if session.xuid.is_empty() { "0".into() } else { session.xuid.clone() },
+            authlib: None,
+        }
+    }
+
     pub fn offline(name: &str) -> Self {
         LaunchAuth {
             name: name.to_string(),

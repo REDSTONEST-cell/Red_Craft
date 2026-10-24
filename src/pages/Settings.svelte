@@ -263,6 +263,22 @@
   </section>
 
   <section>
+    <h3>账号</h3>
+    <div class="row col">
+      <div class="desc">
+        <strong>微软登录 Client ID</strong>
+        <span class="help">Azure 应用的「应用程序(客户端) ID」。留空则使用启动器内置的值；如何申请见 README。</span>
+      </div>
+      <input
+        class="input mono wide"
+        bind:value={s.msClientId}
+        onchange={() => save({ msClientId: s.msClientId.trim() })}
+        placeholder="使用内置 Client ID"
+      />
+    </div>
+  </section>
+
+  <section>
     <h3>外观</h3>
     <div class="row">
       <div class="desc"><strong>主题</strong></div>
