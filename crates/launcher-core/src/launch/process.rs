@@ -49,6 +49,18 @@ pub struct RunningGame {
 
 const TAIL_LINES: usize = 300;
 
+/// 按 POSIX 优先级（LC_ALL > LC_CTYPE > LANG）判断字符编码是否为 UTF-8。
+#[cfg_attr(not(unix), allow(dead_code))]
+fn locale_is_utf8(get: impl Fn(&str) -> Option<String>) -> bool {
+    ["LC_ALL", "LC_CTYPE", "LANG"]
+        .iter()
+        .find_map(|k| get(k).filter(|v| !v.is_empty()))
+        .is_some_and(|v| {
+            let v = v.to_ascii_lowercase();
+            v.contains("utf-8") || v.contains("utf8")
+        })
+}
+
 pub fn spawn(cmd: &LaunchCommand, on_log: LogFn) -> Result<RunningGame> {
     if !cmd.java.exists() && cmd.java.components().count() > 1 {
         return Err(CoreError::Java(format!("找不到 Java：{}", cmd.java.display())));
@@ -67,6 +79,11 @@ pub fn spawn(cmd: &LaunchCommand, on_log: LogFn) -> Result<RunningGame> {
     {
         // CREATE_NO_WINDOW：不弹出控制台窗口
         command.creation_flags(0x0800_0000);
+    }
+    // 系统区域设置不是 UTF-8（例如 C / POSIX）时，Java 无法处理含中文等字符的路径，启动即崩溃
+    #[cfg(unix)]
+    if !locale_is_utf8(|k| std::env::var(k).ok()) {
+        command.env("LC_ALL", "C.UTF-8");
     }
     let mut child = command
         .spawn()
@@ -319,6 +336,18 @@ pub fn analyze(log: &str, report: &str) -> Vec<CrashCause> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn utf8_locale() {
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |k: &str| pairs.iter().find(|(n, _)| *n == k).map(|(_, v)| v.to_string())
+        };
+        assert!(locale_is_utf8(env(&[("LANG", "zh_CN.UTF-8")])));
+        assert!(locale_is_utf8(env(&[("LC_ALL", "C.utf8"), ("LANG", "C")])));
+        assert!(!locale_is_utf8(env(&[("LC_ALL", "C"), ("LANG", "zh_CN.UTF-8")])));
+        assert!(!locale_is_utf8(env(&[])));
+        assert!(!locale_is_utf8(env(&[("LANG", "")])));
+    }
 
     #[test]
     fn xml_log_events() {
