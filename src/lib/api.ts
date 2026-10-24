@@ -183,6 +183,27 @@ export type PackSource =
   | { type: "file"; path: string }
   | { type: "online"; platform: Platform; projectId: string; versionId: string };
 
+export interface LocalMod {
+  filename: string;
+  enabled: boolean;
+  modId: string;
+  name: string;
+  version: string;
+  description: string;
+  authors: string[];
+  icon: string | null;
+  loader: string;
+  size: number;
+  source: { platform: Platform; projectId: string; versionId: string; title: string; versionNumber: string } | null;
+}
+
+export interface ModUpdate {
+  filename: string;
+  title: string;
+  current: string;
+  latest: ContentVersion;
+}
+
 export interface InstanceConfig {
   mcVersion: string | null;
   isolation: boolean | null;
@@ -345,6 +366,13 @@ export const api = {
 
   readModpackFile: (path: string) => call<ModpackInfo>("read_modpack_file", { path }),
   installModpack: (source: PackSource, name: string | null) => call<number>("install_modpack", { source, name }),
+
+  modsList: (instance: string) => call<LocalMod[]>("mods_list", { instance }),
+  modSetEnabled: (instance: string, filename: string, enabled: boolean) =>
+    call<string>("mod_set_enabled", { instance, filename, enabled }),
+  modDelete: (instance: string, filenames: string[]) => call<void>("mod_delete", { instance, filenames }),
+  modsCheckUpdates: (instance: string) => call<ModUpdate[]>("mods_check_updates", { instance }),
+  modsUpdate: (instance: string, updates: ModUpdate[]) => call<number>("mods_update", { instance, updates }),
 
   scanJava: (refresh = false) => call<JavaInstall[]>("scan_java", { refresh }),
   probeJava: (path: string) => call<JavaInstall>("probe_java", { path }),

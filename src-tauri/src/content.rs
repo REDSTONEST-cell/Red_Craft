@@ -376,3 +376,149 @@ pub async fn install_modpack(
         result
     }))
 }
+
+// ───────────── 已安装 Mod 管理 ─────────────
+
+fn mods_dir(state: &AppState, instance: &str) -> AppResult<PathBuf> {
+    Ok(instance_context(state, instance)?.game_dir.join("mods"))
+}
+
+async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> AppResult<T> {
+    tauri::async_runtime::spawn_blocking(f)
+        .await
+        .map_err(|e| AppError::msg(format!("后台任务异常：{e}"), "请重试"))
+}
+
+#[tauri::command]
+pub async fn mods_list(state: State<'_, AppState>, instance: String) -> AppResult<Vec<content::local::LocalMod>> {
+    let dir = mods_dir(&state, &instance)?;
+    blocking(move || content::local::scan_mods(&dir)).await
+}
+
+/// 启用 / 禁用，返回新的文件名。
+#[tauri::command]
+pub fn mod_set_enabled(state: State<'_, AppState>, instance: String, filename: String, enabled: bool) -> AppResult<String> {
+    ensure_not_running(&state, &instance)?;
+    Ok(content::local::set_enabled(&mods_dir(&state, &instance)?, &filename, enabled)?)
+}
+
+#[tauri::command]
+pub fn mod_delete(state: State<'_, AppState>, instance: String, filenames: Vec<String>) -> AppResult<()> {
+    ensure_not_running(&state, &instance)?;
+    let dir = mods_dir(&state, &instance)?;
+    for f in filenames {
+        content::local::delete(&dir, &f)?;
+    }
+    Ok(())
+}
+
+fn ensure_not_running(state: &AppState, instance: &str) -> AppResult<()> {
+    if state.running.lock().is_ok_and(|r| r.contains_key(instance)) {
+        return Err(AppError::msg("游戏正在运行", "Mod 文件被游戏占用，请先关闭游戏再修改。"));
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModUpdate {
+    pub filename: String,
+    pub title: String,
+    pub current: String,
+    pub latest: ContentVersion,
+}
+
+/// 检查更新：Modrinth 用文件 SHA1 查询（/version_files/update），
+/// 从 CurseForge 安装的 Mod 按安装记录查询最新兼容版本。
+#[tauri::command]
+pub async fn mods_check_updates(state: State<'_, AppState>, instance: String) -> AppResult<Vec<ModUpdate>> {
+    let ctx = instance_context(&state, &instance)?;
+    let dir = ctx.game_dir.join("mods");
+    let filter = filter_for(&ctx, ContentType::Mod);
+    let (hashes, index) = {
+        let d = dir.clone();
+        blocking(move || {
+            let mut index = content::ContentIndex::load(&d);
+            index.prune(&d);
+            (content::local::hash_mods(&d), index)
+        })
+        .await?
+    };
+    let mut updates = Vec::new();
+
+    let modrinth = Modrinth::new(state.http()?);
+    let all: Vec<String> = hashes.values().cloned().collect();
+    let current = modrinth.versions_by_hash(&all).await?;
+    let latest = modrinth.latest_by_hash(&all, &filter).await?;
+    let mut handled = HashSet::new();
+    for (file, hash) in &hashes {
+        let (Some(cur), Some(new)) = (current.get(hash), latest.get(hash)) else { continue };
+        handled.insert(file.clone());
+        if cur.id != new.id && new.published > cur.published {
+            updates.push(ModUpdate {
+                filename: file.clone(),
+                title: index
+                    .files
+                    .get(content::base_name(file))
+                    .map(|e| e.title.clone())
+                    .unwrap_or_else(|| cur.name.clone()),
+                current: cur.version_number.clone(),
+                latest: new.clone(),
+            });
+        }
+    }
+
+    let cf = client(&state, Platform::Curseforge)?;
+    for (file, _) in hashes.iter().filter(|(f, _)| !handled.contains(*f)) {
+        let Some(entry) = index.files.get(content::base_name(file)) else { continue };
+        if entry.platform != Platform::Curseforge {
+            continue;
+        }
+        let Ok(list) = cf.versions(&entry.project_id, &filter).await else { continue };
+        if let Some(best) = best_of(list) {
+            if best.id != entry.version_id {
+                updates.push(ModUpdate {
+                    filename: file.clone(),
+                    title: entry.title.clone(),
+                    current: entry.version_number.clone(),
+                    latest: best,
+                });
+            }
+        }
+    }
+    updates.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
+    Ok(updates)
+}
+
+/// 应用更新：下载新版本，删除旧文件；原来禁用的 Mod 更新后仍保持禁用。
+#[tauri::command]
+pub async fn mods_update(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    instance: String,
+    updates: Vec<ModUpdate>,
+) -> AppResult<u64> {
+    ensure_not_running(&state, &instance)?;
+    let dir = mods_dir(&state, &instance)?;
+    let installer = state.installer()?;
+    Ok(state.tasks.spawn(&app, format!("更新 {} 个 Mod", updates.len()), move |reporter, cancel| async move {
+        let items: Vec<(ContentVersion, String)> = updates.iter().map(|u| (u.latest.clone(), u.title.clone())).collect();
+        let installed = install_files(&installer.downloader, &dir, &items, &reporter, &cancel).await?;
+        for (u, new_name) in updates.iter().zip(installed) {
+            let was_disabled = u.filename.ends_with(".disabled");
+            // 旧文件（包括同名但带 .disabled 的）在新文件下载完成后删除
+            if u.filename != new_name {
+                let _ = std::fs::remove_file(dir.join(&u.filename));
+                if content::base_name(&u.filename) != new_name {
+                    let mut index = content::ContentIndex::load(&dir);
+                    index.files.remove(content::base_name(&u.filename));
+                    let _ = index.save(&dir);
+                }
+            }
+            if was_disabled {
+                let _ = content::local::set_enabled(&dir, &new_name, false);
+            }
+        }
+        Ok(())
+    }))
+}

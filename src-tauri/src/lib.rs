@@ -79,6 +79,11 @@ pub fn run() {
             content::content_install,
             content::read_modpack_file,
             content::install_modpack,
+            content::mods_list,
+            content::mod_set_enabled,
+            content::mod_delete,
+            content::mods_check_updates,
+            content::mods_update,
             launch::launch_instance,
             launch::kill_game,
         ])

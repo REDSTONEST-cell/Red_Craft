@@ -2,6 +2,7 @@
 
 mod curseforge;
 mod index;
+pub mod local;
 mod modpack;
 mod modrinth;
 mod resolve;

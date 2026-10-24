@@ -22,6 +22,7 @@ dirs = "6"
 base64 = "0.22"
 sha2 = "0.10"
 getrandom = "0.3"
+toml = { version = "0.8", default-features = false, features = ["parse"] }
 
 [dev-dependencies]
 tempfile = "3"

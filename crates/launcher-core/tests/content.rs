@@ -114,3 +114,20 @@ async fn curseforge_search_and_resolve() {
     eprintln!("Steam 'n' Rails 将安装：{titles:?}");
     assert!(plan.items.iter().any(|i| i.project_id == "328085"), "{titles:?}");
 }
+
+/// 扫描整合包测试安装的真实 Mod（需先运行 modpack 测试）。
+#[test]
+#[ignore = "依赖 modpack 测试的结果"]
+fn scan_real_mods() {
+    let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/mc-test/versions/test-modpack-fo/mods");
+    let start = std::time::Instant::now();
+    let mods = launcher_core::content::local::scan_mods(&dir);
+    eprintln!("扫描 {} 个 Mod 用时 {:?}", mods.len(), start.elapsed());
+    let with_meta = mods.iter().filter(|m| !m.mod_id.is_empty()).count();
+    let with_icon = mods.iter().filter(|m| m.icon.is_some()).count();
+    eprintln!("识别元数据 {with_meta} 个，有图标 {with_icon} 个");
+    for m in mods.iter().take(5) {
+        eprintln!("  {} {} [{}] {}", m.name, m.version, m.loader, m.filename);
+    }
+    assert!(with_meta * 10 >= mods.len() * 9);
+}

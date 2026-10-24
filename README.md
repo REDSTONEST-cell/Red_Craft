@@ -13,7 +13,7 @@
 | 3 | Java 检测与自动下载（Mojang Java runtime） | ✅ |
 | 4 | 微软正版登录 ✅、外置登录（authlib-injector）⏳ | 进行中 |
 | 5 | Fabric / Quilt / Forge / NeoForge | ✅ |
-| 6 | Mod / 材质包 / 光影包 / 整合包下载（Modrinth、CurseForge）、前置依赖解析 ✅；已安装 Mod 管理 ⏳ | 进行中 |
+| 6 | Mod / 材质包 / 光影包 / 整合包下载（Modrinth、CurseForge）、前置依赖解析、已安装 Mod 管理 | ✅ |
 | 7 | 界面打磨与动效 | 进行中 |
 | 8 | 打包（NSIS / MSI） | CI 已配置 |
 
@@ -28,6 +28,7 @@
 - **资源下载**：Mod、材质包、光影包，数据源可选 Modrinth 或 CurseForge，按实例的游戏版本与加载器筛选（虚拟滚动、滚动加载）；只列出兼容的版本；安装前自动递归解析必需前置（处理循环依赖、去重、已安装的跳过、只给项目没给版本时选兼容的最新版），可选依赖供勾选，已安装的冲突项给出警告；更新时自动替换旧文件。Modrinth 走 MCIM 镜像，CurseForge 没有 API Key 时通过 MCIM 镜像访问。新建 Fabric / Quilt 实例时自动安装兼容的最新 Fabric API / QSL。
 - **整合包**：支持 Modrinth（.mrpack）与 CurseForge 整合包，可在资源页直接安装或从本地导入；自动安装对应的游戏版本与加载器（简写的 Forge 版本号会换成完整版本），下载全部文件（CurseForge 按项目类型放入 mods / resourcepacks / shaderpacks），解压 overrides，并作为开启版本隔离的独立实例。
 - **游戏日志**：原版日志配置输出的 log4j XML 会被还原成普通文本行（含多行消息与异常堆栈）。
+- **已安装 Mod 管理**：读取 jar 中的 `fabric.mod.json` / `quilt.mod.json` / `mods.toml` / `neoforge.mods.toml` / `mcmod.info` 显示名称、版本、作者与图标；启用 / 禁用（改后缀 `.disabled`）、删除、检查更新（Modrinth 用文件 SHA1 调 `/version_files/update`，从 CurseForge 安装的按安装记录查询）、单个或全部更新（禁用的 Mod 更新后仍保持禁用）。
 - **离线账号头像**：离线账号与某个正版账号同名时，头像使用该正版账号的皮肤。
 - **高级选项**（设置页，可折叠）：Java 虚拟机参数、游戏参数、启动前执行命令（支持占位符，可选择等待完成）、内存回收器（自动 / G1 / 分代 ZGC / 不指定）、使用高性能显卡（Windows）。
 - **默认中文**：实例第一次启动时自动把游戏语言设为简体中文（可在设置中关闭）。

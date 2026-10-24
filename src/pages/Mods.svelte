@@ -17,6 +17,7 @@
   import ContentDetail from "../components/ContentDetail.svelte";
   import InstallPlan from "../components/InstallPlan.svelte";
   import ModpackInstall from "../components/ModpackInstall.svelte";
+  import InstalledMods from "../components/InstalledMods.svelte";
   import Icon from "../components/Icon.svelte";
   import Toggle from "../components/Toggle.svelte";
 
@@ -36,7 +37,10 @@
   }
 
   let platform = $state<Platform>(stored("rc.platform", "modrinth"));
-  let tab = $state<ContentType>(stored("rc.contentTab", "mod"));
+  type Tab = ContentType | "installed";
+  let tab = $state<Tab>(stored("rc.contentTab", "mod") as Tab);
+  // 搜索用的类型（「已安装」标签不搜索）
+  const searchType = $derived<ContentType>(tab === "installed" ? "mod" : tab);
   let sort = $state<SortBy>("relevance");
   let query = $state("");
   let instanceId = $state<string | null>(selectedInstance()?.id ?? null);
@@ -63,9 +67,10 @@
       .catch((e) => showError(e, "读取实例信息失败"));
   });
 
-  const useFilter = $derived(compatibleOnly && tab !== "modpack" && !!ctx);
+  const useFilter = $derived(compatibleOnly && searchType !== "modpack" && !!ctx);
 
   async function search(reset: boolean) {
+    if (tab === "installed") return;
     if (!reset && (loading || hits.length >= total)) return;
     const gen = ++generation;
     loading = true;
@@ -73,7 +78,7 @@
     try {
       const res = await api.contentSearch(platform, {
         query: query.trim(),
-        contentType: tab,
+        contentType: searchType,
         gameVersion: useFilter ? ctx!.mcVersion : null,
         loader: useFilter ? ctx!.loader : null,
         sort,
@@ -96,7 +101,7 @@
   // 条件变化时重新搜索；输入关键词时防抖
   let timer: ReturnType<typeof setTimeout> | undefined;
   $effect(() => {
-    void [platform, tab, sort, useFilter, ctx?.mcVersion, ctx?.loader];
+    void [platform, searchType, tab, sort, useFilter, ctx?.mcVersion, ctx?.loader];
     const q = query;
     clearTimeout(timer);
     timer = setTimeout(() => search(true), q ? 350 : 0);
@@ -133,11 +138,12 @@
     planOpen = true;
   }
 
-  const tabs: { value: ContentType; label: string }[] = [
+  const tabs: { value: Tab; label: string }[] = [
     { value: "mod", label: "Mod" },
     { value: "resourcepack", label: "材质包" },
     { value: "shader", label: "光影包" },
     { value: "modpack", label: "整合包" },
+    { value: "installed", label: "已安装" },
   ];
 </script>
 
@@ -172,6 +178,7 @@
 
   <div class="bar">
     <Segmented bind:value={tab} options={tabs} />
+    {#if tab !== "installed"}
     <div class="search">
       <Icon name="search" size={14} />
       <input class="input" placeholder={`搜索${tabs.find((t) => t.value === tab)?.label}…`} bind:value={query} />
@@ -185,8 +192,18 @@
     {#if tab !== "modpack"}
       <Toggle bind:checked={compatibleOnly} label="仅兼容" />
     {/if}
+    {/if}
   </div>
 
+  {#if tab === "installed"}
+    <div class="installed">
+      {#if instanceId}
+        <InstalledMods instance={instanceId} />
+      {:else}
+        <div class="empty"><h3>请先选择实例</h3></div>
+      {/if}
+    </div>
+  {:else}
   <div class="results">
     {#if error}
       <div class="empty">
@@ -226,6 +243,7 @@
   <div class="foot muted small">
     {#if loading}加载中…{:else if total}共 {count(total)} 个结果，已显示 {hits.length} 个{/if}
   </div>
+  {/if}
 </div>
 
 <ContentDetail
@@ -284,6 +302,10 @@
   }
   .sort {
     width: 110px;
+  }
+  .installed {
+    flex: 1;
+    min-height: 0;
   }
   .results {
     flex: 1;
