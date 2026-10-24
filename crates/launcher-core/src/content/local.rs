@@ -247,7 +247,7 @@ pub fn scan_mods(folder: &Path) -> Vec<LocalMod> {
     for m in &mut mods {
         m.source = index.files.get(base_name(&m.filename)).cloned();
     }
-    mods.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    mods.sort_by_key(|m| m.name.to_lowercase());
     mods
 }
 

@@ -486,7 +486,7 @@ pub async fn mods_check_updates(state: State<'_, AppState>, instance: String) ->
             }
         }
     }
-    updates.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
+    updates.sort_by_key(|u| u.title.to_lowercase());
     Ok(updates)
 }
 
