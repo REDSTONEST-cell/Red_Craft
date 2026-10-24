@@ -32,6 +32,7 @@ export interface Settings {
   selectedAccount: string | null;
   msClientId: string;
   defaultChinese: boolean;
+  curseforgeApiKey: string;
 }
 
 export interface AppInfo {
@@ -77,6 +78,91 @@ export interface LoaderVersion {
   version: string;
   display: string;
   stable: boolean;
+}
+
+export type Platform = "modrinth" | "curseforge";
+export type ContentType = "mod" | "resourcepack" | "shader" | "modpack";
+export type SortBy = "relevance" | "downloads" | "updated" | "newest";
+
+export interface SearchQuery {
+  query: string;
+  contentType: ContentType;
+  gameVersion: string | null;
+  loader: LoaderKind | null;
+  sort: SortBy;
+  offset: number;
+  limit: number;
+}
+
+export interface ProjectHit {
+  platform: Platform;
+  id: string;
+  slug: string;
+  title: string;
+  description: string;
+  author: string;
+  iconUrl: string | null;
+  downloads: number;
+  categories: string[];
+  contentType: ContentType;
+  updated: string;
+}
+
+export interface ContentFile {
+  url: string;
+  filename: string;
+  sha1: string | null;
+  size: number;
+  primary: boolean;
+}
+
+export interface ContentVersion {
+  platform: Platform;
+  id: string;
+  projectId: string;
+  name: string;
+  versionNumber: string;
+  gameVersions: string[];
+  loaders: string[];
+  releaseType: string;
+  published: string;
+  downloads: number;
+  files: ContentFile[];
+  dependencies: { projectId: string | null; versionId: string | null; kind: string }[];
+}
+
+export interface PlanItem {
+  projectId: string;
+  title: string;
+  version: ContentVersion;
+  installed: boolean;
+  requiredBy: string | null;
+}
+
+export interface MissingDep {
+  projectId: string;
+  title: string;
+  requiredBy: string;
+  reason: string;
+}
+
+export interface Plan {
+  items: PlanItem[];
+  optional: PlanItem[];
+  incompatible: MissingDep[];
+  missing: MissingDep[];
+}
+
+export interface InstanceContext {
+  id: string;
+  mcVersion: string;
+  loader: LoaderKind | null;
+  gameDir: string;
+}
+
+export interface VersionRef {
+  projectId: string;
+  versionId: string;
 }
 
 export interface InstanceConfig {
@@ -197,8 +283,12 @@ export const api = {
 
   listInstances: () => call<InstanceInfo[]>("list_instances"),
   loaderVersions: (kind: LoaderKind, mc: string) => call<LoaderVersion[]>("loader_versions", { kind, mc }),
-  installInstance: (version: string, name: string, loader: { kind: LoaderKind; version: string } | null) =>
-    call<number>("install_instance", { version, name, loader }),
+  installInstance: (
+    version: string,
+    name: string,
+    loader: { kind: LoaderKind; version: string } | null,
+    withApi = true,
+  ) => call<number>("install_instance", { version, name, loader, withApi }),
   repairInstance: (id: string) => call<number>("repair_instance", { id }),
   deleteInstance: (id: string) => call<void>("delete_instance", { id }),
   getInstanceConfig: (id: string) => call<InstanceConfig>("get_instance_config", { id }),
@@ -214,12 +304,24 @@ export const api = {
   addOfflineAccount: (name: string) =>
     call<{ account: Account; warning: string | null }>("add_offline_account", { name }),
   removeAccount: (id: string) => call<void>("remove_account", { id }),
+  refreshOfflineSkin: (id: string) => call<Account>("refresh_offline_skin", { id }),
   selectAccount: (id: string) => call<void>("select_account", { id }),
 
   msLoginStart: () => call<MsLoginStart>("ms_login_start"),
   msLoginFinish: (flowId: number) => call<Account>("ms_login_finish", { flowId }),
   msLoginCancel: (flowId: number) => call<void>("ms_login_cancel", { flowId }),
   msRefreshAccount: (id: string) => call<Account>("ms_refresh_account", { id }),
+
+  contentSearch: (platform: Platform, query: SearchQuery) =>
+    call<{ hits: ProjectHit[]; total: number }>("content_search", { platform, query }),
+  contentInstance: (id: string) => call<InstanceContext>("content_instance", { id }),
+  contentVersions: (platform: Platform, projectId: string, contentType: ContentType, instance: string | null) =>
+    call<ContentVersion[]>("content_versions", { platform, projectId, contentType, instance }),
+  contentProject: (platform: Platform, projectId: string) => call<ProjectHit>("content_project", { platform, projectId }),
+  contentPlan: (platform: Platform, instance: string, contentType: ContentType, roots: VersionRef[]) =>
+    call<Plan>("content_plan", { platform, instance, contentType, roots }),
+  contentInstall: (platform: Platform, instance: string, contentType: ContentType, roots: VersionRef[]) =>
+    call<number>("content_install", { platform, instance, contentType, roots }),
 
   scanJava: (refresh = false) => call<JavaInstall[]>("scan_java", { refresh }),
   probeJava: (path: string) => call<JavaInstall>("probe_java", { path }),

@@ -179,6 +179,7 @@ pub async fn install_instance(
     version: String,
     name: String,
     loader: Option<LoaderArg>,
+    with_api: Option<bool>,
 ) -> AppResult<u64> {
     let name = name.trim().to_string();
     validate_instance_name(&name)?;
@@ -231,8 +232,15 @@ pub async fn install_instance(
         if result.is_err() {
             // 安装失败时清理掉这次新建的实例目录，避免出现损坏的实例
             let _ = std::fs::remove_dir_all(installer.game.version_dir(&name));
+            return result;
         }
-        result
+        // Fabric / Quilt 自动安装 Fabric API / QSL；失败时实例本身仍然保留
+        if with_api.unwrap_or(true) && choice.as_ref().is_some_and(|c| matches!(c.kind, LoaderKind::Fabric | LoaderKind::Quilt)) {
+            if let Err(e) = crate::content::install_loader_api(&state, &name, &reporter, &cancel).await {
+                return Err(AppError::msg(format!("实例已安装完成，但自动安装 API 失败：{}", e.info().message), e.info().hint));
+            }
+        }
+        Ok(())
     });
     Ok(id)
 }
@@ -365,10 +373,15 @@ pub struct AddedAccount {
 }
 
 #[tauri::command]
-pub fn add_offline_account(state: State<'_, AppState>, name: String) -> AppResult<AddedAccount> {
+pub async fn add_offline_account(state: State<'_, AppState>, name: String) -> AppResult<AddedAccount> {
     let name = name.trim().to_string();
     validate_offline_name(&name)?;
-    let account = Account::offline(&name);
+    let mut account = Account::offline(&name);
+    if state.accounts.read().is_ok_and(|s| s.accounts.iter().any(|a| a.id == account.id)) {
+        return Err(AppError::msg(format!("离线账号「{name}」已存在"), "可以直接在列表中选择它。"));
+    }
+    // 有同名正版账号时使用它的皮肤做头像（查询失败不影响添加）
+    account.skin = launcher_core::auth::lookup_skin(state.http()?.raw(), &name).await;
     {
         let mut store = state
             .accounts
@@ -385,6 +398,27 @@ pub fn add_offline_account(state: State<'_, AppState>, name: String) -> AppResul
         "用户名包含字母、数字、下划线以外的字符或长度不足 3 位，单人游戏可以正常使用，但部分服务器可能拒绝登录。".to_string()
     });
     Ok(AddedAccount { account, warning })
+}
+
+/// 重新查询离线账号同名正版账号的皮肤。
+#[tauri::command]
+pub async fn refresh_offline_skin(state: State<'_, AppState>, id: String) -> AppResult<Account> {
+    let account = state
+        .accounts
+        .read()
+        .ok()
+        .and_then(|a| a.accounts.iter().find(|x| x.id == id).cloned())
+        .ok_or_else(|| AppError::msg("账号不存在", "请刷新账号列表。"))?;
+    let skin = launcher_core::auth::lookup_skin(state.http()?.raw(), &account.name).await;
+    let mut updated = account.clone();
+    updated.skin = skin;
+    if let Ok(mut store) = state.accounts.write() {
+        if let Some(a) = store.accounts.iter_mut().find(|a| a.id == id) {
+            *a = updated.clone();
+        }
+    }
+    state.save_accounts()?;
+    Ok(updated)
 }
 
 #[tauri::command]

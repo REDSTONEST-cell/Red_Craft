@@ -6,7 +6,7 @@
     { page: "launch", label: "启动", icon: "play" },
     { page: "instances", label: "实例", icon: "box" },
     { page: "download", label: "下载", icon: "download" },
-    { page: "mods", label: "Mod", icon: "cube" },
+    { page: "mods", label: "资源", icon: "cube" },
     { page: "accounts", label: "账号", icon: "user" },
   ];
 

@@ -84,6 +84,44 @@ impl HttpClient {
         String::from_utf8(bytes).map_err(|_| CoreError::InvalidData(format!("{url} 返回的不是文本")))
     }
 
+    /// 按候选地址依次发送请求（可带请求头与 JSON 请求体），返回解析后的 JSON。
+    pub async fn request_json<T: DeserializeOwned>(
+        &self,
+        urls: &[String],
+        body: Option<&serde_json::Value>,
+        headers: &[(&str, &str)],
+        what: &str,
+    ) -> Result<T> {
+        let mut last = None;
+        for url in urls {
+            let mut req = match body {
+                Some(b) => self.inner.post(url).json(b),
+                None => self.inner.get(url),
+            };
+            for (k, v) in headers {
+                req = req.header(*k, *v);
+            }
+            match req.send().await {
+                Ok(resp) if resp.status().is_success() => {
+                    let bytes = resp.bytes().await.map_err(|e| CoreError::network(url.clone(), e))?;
+                    return serde_json::from_slice(&bytes).map_err(|e| CoreError::json(what, e));
+                }
+                Ok(resp) => {
+                    last = Some(CoreError::HttpStatus {
+                        url: url.clone(),
+                        status: resp.status().as_u16(),
+                    })
+                }
+                Err(e) => last = Some(CoreError::network(url.clone(), e)),
+            }
+        }
+        Err(last.unwrap_or_else(|| CoreError::InvalidData("没有可用的请求地址".into())))
+    }
+
+    pub async fn post_json<T: DeserializeOwned>(&self, url: &str, body: &serde_json::Value, what: &str) -> Result<T> {
+        self.request_json(&self.candidates(url), Some(body), &[], what).await
+    }
+
     pub async fn get_json<T: DeserializeOwned>(&self, url: &str, what: &str) -> Result<T> {
         let bytes = self.get_bytes(url).await?;
         serde_json::from_slice(&bytes).map_err(|e| CoreError::json(what, e))

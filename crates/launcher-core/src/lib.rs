@@ -1,6 +1,7 @@
 //! Red Craft 启动器核心库。不依赖 Tauri，可独立测试。
 
 pub mod auth;
+pub mod content;
 pub mod download;
 pub mod error;
 pub mod install;

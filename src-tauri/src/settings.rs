@@ -83,6 +83,8 @@ pub struct Settings {
     pub ms_client_id: String,
     /// 第一次启动实例时把游戏语言设为简体中文
     pub default_chinese: bool,
+    /// CurseForge 官方 API Key；为空时通过 MCIM 镜像访问
+    pub curseforge_api_key: String,
 }
 
 impl Settings {
@@ -122,6 +124,7 @@ impl Default for Settings {
             selected_account: None,
             ms_client_id: String::new(),
             default_chinese: true,
+            curseforge_api_key: String::new(),
         }
     }
 }

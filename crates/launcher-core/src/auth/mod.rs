@@ -5,7 +5,7 @@ mod offline;
 
 use serde::{Deserialize, Serialize};
 
-pub use offline::{is_standard_name, offline_uuid, validate_offline_name};
+pub use offline::{is_standard_name, lookup_skin, offline_uuid, validate_offline_name};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]

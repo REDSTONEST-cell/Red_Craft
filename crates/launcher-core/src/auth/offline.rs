@@ -33,8 +33,66 @@ pub fn is_standard_name(name: &str) -> bool {
     (3..=16).contains(&name.len()) && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
+/// 查询同名正版账号的皮肤地址，用作离线账号的头像。查不到（没有同名正版账号或网络失败）时返回 `None`。
+pub async fn lookup_skin(http: &reqwest::Client, name: &str) -> Option<String> {
+    use base64::Engine;
+
+    #[derive(serde::Deserialize)]
+    struct Profile {
+        id: String,
+        #[serde(default)]
+        properties: Vec<Property>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Property {
+        name: String,
+        value: String,
+    }
+
+    let timeout = std::time::Duration::from_secs(6);
+    let profile: Profile = http
+        .get(format!("https://api.mojang.com/users/profiles/minecraft/{name}"))
+        .timeout(timeout)
+        .send()
+        .await
+        .ok()
+        .filter(|r| r.status().is_success())?
+        .json()
+        .await
+        .ok()?;
+    let full: Profile = http
+        .get(format!("https://sessionserver.mojang.com/session/minecraft/profile/{}", profile.id))
+        .timeout(timeout)
+        .send()
+        .await
+        .ok()
+        .filter(|r| r.status().is_success())?
+        .json()
+        .await
+        .ok()?;
+    let textures = full.properties.into_iter().find(|p| p.name == "textures")?;
+    let decoded = base64::engine::general_purpose::STANDARD.decode(textures.value).ok()?;
+    skin_url_from_textures(&decoded)
+}
+
+fn skin_url_from_textures(json: &[u8]) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_slice(json).ok()?;
+    let url = v.get("textures")?.get("SKIN")?.get("url")?.as_str()?;
+    Some(url.replace("http://", "https://"))
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn textures_payload() {
+        let json = br#"{"timestamp":1,"profileId":"x","profileName":"Notch","textures":{"SKIN":{"url":"http://textures.minecraft.net/texture/abc"}}}"#;
+        assert_eq!(
+            super::skin_url_from_textures(json).as_deref(),
+            Some("https://textures.minecraft.net/texture/abc")
+        );
+        assert!(super::skin_url_from_textures(br#"{"textures":{}}"#).is_none());
+    }
+
     use super::*;
 
     #[test]

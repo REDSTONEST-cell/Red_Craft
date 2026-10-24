@@ -6,6 +6,7 @@
   import Segmented from "../components/Segmented.svelte";
   import Modal from "../components/Modal.svelte";
   import Icon from "../components/Icon.svelte";
+  import Toggle from "../components/Toggle.svelte";
 
   type Filter = "release" | "snapshot" | "old";
   let filter = $state<Filter>((localStorage.getItem("rc.versionFilter") as Filter) || "release");
@@ -60,6 +61,7 @@
   // 各加载器可用的版本：undefined 表示加载中，null 表示获取失败
   let loaderLists = $state<Record<string, LoaderVersion[] | null | undefined>>({});
   let loaderVersion = $state("");
+  let withApi = $state(true);
 
   function defaultName(v: VersionItem, c: Choice) {
     const base = c === "vanilla" ? v.id : `${v.id}-${LOADER_LABEL[c]}`;
@@ -101,7 +103,7 @@
     try {
       const loader = choice === "vanilla" ? null : { kind: choice, version: loaderVersion };
       const instName = name.trim();
-      const id = await api.installInstance(target.id, instName, loader);
+      const id = await api.installInstance(target.id, instName, loader, withApi);
       dialog = false;
       const t = await waitTask(id);
       if (t.state === "done") {
@@ -229,6 +231,12 @@
           {/if}
         </span>
       </div>
+      {#if choice === "fabric" || choice === "quilt"}
+        <Toggle
+          bind:checked={withApi}
+          label={choice === "fabric" ? "同时安装 Fabric API（自动选择兼容的最新版本）" : "同时安装 QSL（Quilt 标准库，自动选择兼容的最新版本）"}
+        />
+      {/if}
     {/if}
   </div>
   {#snippet actions()}

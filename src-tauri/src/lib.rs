@@ -2,6 +2,7 @@
 
 mod auth;
 mod commands;
+mod content;
 mod error;
 mod launch;
 mod logger;
@@ -59,6 +60,7 @@ pub fn run() {
             commands::list_accounts,
             commands::add_offline_account,
             commands::remove_account,
+            commands::refresh_offline_skin,
             commands::select_account,
             commands::scan_java,
             commands::probe_java,
@@ -67,6 +69,12 @@ pub fn run() {
             auth::ms_login_finish,
             auth::ms_login_cancel,
             auth::ms_refresh_account,
+            content::content_search,
+            content::content_instance,
+            content::content_versions,
+            content::content_project,
+            content::content_plan,
+            content::content_install,
             launch::launch_instance,
             launch::kill_game,
         ])

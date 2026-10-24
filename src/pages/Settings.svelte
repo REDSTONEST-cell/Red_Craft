@@ -270,7 +270,7 @@
   </section>
 
   <section>
-    <h3>账号</h3>
+    <h3>账号与资源</h3>
     <div class="row col">
       <div class="desc">
         <strong>微软登录 Client ID</strong>
@@ -281,6 +281,19 @@
         bind:value={s.msClientId}
         onchange={() => save({ msClientId: s.msClientId.trim() })}
         placeholder="使用内置 Client ID"
+      />
+    </div>
+    <div class="row col">
+      <div class="desc">
+        <strong>CurseForge API Key</strong>
+        <span class="help">留空时通过 MCIM 镜像访问 CurseForge（无需 Key）；填写后可直连官方接口，镜像作为回退。</span>
+      </div>
+      <input
+        class="input mono wide"
+        type="password"
+        bind:value={s.curseforgeApiKey}
+        onchange={() => save({ curseforgeApiKey: s.curseforgeApiKey.trim() })}
+        placeholder="使用 MCIM 镜像"
       />
     </div>
   </section>

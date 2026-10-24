@@ -8,9 +8,15 @@
   let msOpen = $state(false);
   let refreshing = $state<string | null>(null);
 
-  async function refreshMs(id: string) {
+  async function refreshMs(id: string, offline = false) {
     refreshing = id;
     try {
+      if (offline) {
+        const a = await api.refreshOfflineSkin(id);
+        await refreshAccounts();
+        toast("ok", a.skin ? `已使用正版账号 ${a.name} 的皮肤` : `没有找到名为 ${a.name} 的正版账号，使用默认头像`);
+        return;
+      }
       const a = await api.msRefreshAccount(id);
       await refreshAccounts();
       toast("ok", `账号 ${a.name} 登录状态正常`);
@@ -80,8 +86,13 @@
               </div>
               {#if app.selectedAccount === a.id}<span class="tag accent"><Icon name="check" size={10} /> 使用中</span>{/if}
             </button>
-            {#if a.kind.type === "microsoft"}
-              <button class="btn ghost icon sm" title="刷新登录状态" disabled={refreshing === a.id} onclick={() => refreshMs(a.id)}>
+            {#if a.kind.type === "microsoft" || a.kind.type === "offline"}
+              <button
+                class="btn ghost icon sm"
+                title={a.kind.type === "offline" ? "重新获取同名正版皮肤" : "刷新登录状态"}
+                disabled={refreshing === a.id}
+                onclick={() => refreshMs(a.id, a.kind.type === "offline")}
+              >
                 <span class:spin={refreshing === a.id}><Icon name="refresh" size={14} /></span>
               </button>
             {/if}

@@ -35,6 +35,9 @@ const MIRRORS: &[(&str, &str)] = &[
     ("https://authlib-injector.yushi.moe", "https://bmclapi2.bangbang93.com/mirrors/authlib-injector"),
     ("https://api.modrinth.com", "https://mod.mcimirror.top/modrinth"),
     ("https://cdn.modrinth.com", MCIM),
+    ("https://api.curseforge.com", "https://mod.mcimirror.top/curseforge"),
+    ("https://edge.forgecdn.net", MCIM),
+    ("https://mediafilez.forgecdn.net", MCIM),
 ];
 
 /// 返回 URL 对应的镜像地址；没有镜像时返回 `None`。
@@ -83,6 +86,10 @@ mod tests {
         assert_eq!(
             mirror_of("https://cdn.modrinth.com/data/AANobbMI/versions/x/a.jar").unwrap(),
             "https://mod.mcimirror.top/data/AANobbMI/versions/x/a.jar"
+        );
+        assert_eq!(
+            mirror_of("https://edge.forgecdn.net/files/4371/666/jei.jar").unwrap(),
+            "https://mod.mcimirror.top/files/4371/666/jei.jar"
         );
         assert!(mirror_of("https://example.com/a").is_none());
         // 前缀必须在路径边界上匹配
