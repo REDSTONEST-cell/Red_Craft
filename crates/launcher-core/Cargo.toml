@@ -1,0 +1,27 @@
+[package]
+name = "launcher-core"
+description = "Red Craft 启动器核心：下载、校验、登录、加载器安装与游戏启动"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+tokio.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+log.workspace = true
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+sha1 = "0.10"
+md-5 = "0.10"
+hex = "0.4"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+regex-lite = "0.1"
+dirs = "6"
+
+[dev-dependencies]
+tempfile = "3"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_System_SystemInformation", "Win32_Foundation", "Win32_System_Registry"] }

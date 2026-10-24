@@ -1,0 +1,117 @@
+# Red Craft
+
+一个轻量、快速的 Minecraft Java 版启动器。Tauri 2 + Rust + Svelte 5，简洁报刊风界面。
+
+主要面向 Windows，同时支持 macOS 与 Linux。
+
+## 当前进度
+
+| 阶段 | 内容 | 状态 |
+| --- | --- | --- |
+| 1 | 项目骨架：Tauri 2 + Svelte 5 + launcher-core 工作区，command / event 打通 | ✅ |
+| 2 | 版本列表、原版下载与校验、离线登录、启动原版 | ✅ |
+| 3 | Java 检测与自动下载（Mojang Java runtime） | ✅ |
+| 4 | 微软正版登录、外置登录（authlib-injector） | ⏳ |
+| 5 | Fabric / Quilt / Forge / NeoForge | ⏳ |
+| 6 | Modrinth 搜索、前置依赖解析、已安装 Mod 管理 | ⏳ |
+| 7 | 界面打磨与动效 | 进行中 |
+| 8 | 打包（NSIS / MSI） | CI 已配置 |
+
+已实现的功能：
+
+- **版本管理**：官方版本清单，按正式版 / 快照 / 远古版筛选和搜索（虚拟滚动）；下载版本 JSON、客户端 jar、libraries（按 rules 判断系统与架构）、natives（兼容旧版 classifiers 写法与 1.19+ 新写法，按架构筛选）、资源索引与资源文件、日志配置。所有文件 SHA1 校验，已存在且校验通过的跳过。
+- **下载器**：tokio + reqwest + Semaphore 并发（默认 64，可调），失败重试与下载源切换（自动 / 官方 / BMCLAPI），总进度与速度实时推送。
+- **版本隔离**：与 PCL 相同的五档策略（关闭 / 隔离可安装 Mod 的版本 / 隔离非正式版 / 两者都隔离 / 全部隔离），每个实例可单独覆盖。
+- **便携模式**：启动器所在目录存在 `.minecraft` 时自动使用它，配置也保存在其中。
+- **Java**：扫描 JAVA_HOME、PATH、Windows 注册表、常见安装目录、官方启动器自带的 runtime；按版本 JSON 的 `javaVersion` 自动选择，没有合适的就从 Mojang Java runtime 清单下载（目录布局与官方启动器一致，可互相复用）。
+- **离线登录**：UUID 为 `OfflinePlayer:<name>` 的 MD5（UUID v3），与服务端一致。
+- **启动**：同时支持新版 `arguments` 与旧版 `minecraftArguments`；处理 `legacy` / `pre-1.6` 旧版资源；启动前快速补全缺失文件（资源只比较大小，约 150ms）；自动进入服务器（1.20+ 用 Quick Play，旧版用 `--server/--port`）；内存自动分配；日志实时推送；崩溃时分析常见原因并给出中文解决办法；启动后可隐藏 / 保持 / 关闭启动器。
+- **界面**：无边框窗口 + 自定义标题栏；深色 / 浅色 / 跟随系统；主题色可自定义；动效只使用 transform / opacity，并尊重系统「减少动态效果」设置。
+
+## 开发
+
+### 环境要求
+
+- Rust（stable，1.85 及以上）
+- Node.js 20+ 与 pnpm 10
+- 各平台的 Tauri 依赖，详见 <https://tauri.app/start/prerequisites/>
+  - **Windows**：Microsoft C++ 生成工具（勾选「使用 C++ 的桌面开发」）与 WebView2（Windows 10/11 已自带）
+  - **macOS**：Xcode Command Line Tools
+  - **Linux（Debian/Ubuntu）**：
+    ```sh
+    sudo apt install libwebkit2gtk-4.1-dev build-essential libssl-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev
+    ```
+
+### 运行
+
+```sh
+pnpm install
+pnpm tauri dev
+```
+
+### 测试
+
+```sh
+# 核心库单元测试（规则判断、参数拼装、inheritsFrom 合并、离线 UUID、natives 解压等）
+cargo test --workspace
+
+# 使用真实 API 的集成测试：下载 1.20.1（约 730MB）与 Java 17，并启动游戏直到 LWJGL 初始化
+# 默认游戏目录为 target/mc-test，可用 RC_TEST_GAME_DIR 指定
+cargo test -p launcher-core --test vanilla -- --ignored --nocapture
+
+# 前端类型检查
+pnpm check
+```
+
+## 打包
+
+```sh
+pnpm tauri build
+```
+
+产物位于 `target/release/bundle/`。Windows 上默认生成 NSIS 安装包（`.exe`）和 MSI；也可以只生成其中一种：
+
+```sh
+pnpm tauri build --bundles nsis
+pnpm tauri build --bundles msi
+```
+
+> MSI 需要 WiX Toolset v3，NSIS 需要 NSIS 3；Tauri CLI 会在首次打包时自动下载。MSI 只能在 Windows 上生成。
+
+Release 配置已开启 `lto = true`、`opt-level = "s"`、`codegen-units = 1`、`panic = "abort"`、`strip = true`。
+
+仓库的 GitHub Actions（`.github/workflows/build.yml`）会在推送到 main 时运行测试，并在 Windows / macOS / Linux 上打包，产物可在 Actions 页面下载。
+
+## 申请 Azure 应用 Client ID（微软正版登录用）
+
+微软登录使用设备码流程（Device Code Flow），需要你自己在 Azure 注册一个应用：
+
+1. 打开 <https://portal.azure.com>，进入「Microsoft Entra ID」→「应用注册」→「新注册」。
+2. 名称随意（例如 `Red Craft`）；「受支持的帐户类型」选择 **「任何组织目录中的帐户和个人 Microsoft 帐户」** 或 **「仅个人 Microsoft 帐户」**（必须包含个人账户，否则普通玩家无法登录）。
+3. 「重定向 URI」留空即可（设备码流程不需要），点击「注册」。
+4. 在应用的「身份验证」页面，把 **「允许公共客户端流」** 设为「是」并保存。
+5. 在「概述」页面复制 **「应用程序(客户端) ID」**，这就是 Client ID。
+6. **申请 Minecraft API 权限**：新注册的应用默认无法调用 Minecraft 的登录接口（`/authentication/login_with_xbox` 会返回 403 “Invalid app registration”）。需要填写微软的审核表单 <https://aka.ms/mce-reviewappid> 提交你的 Client ID，审核通过后才能正常登录，通常需要几天到几周。
+
+微软登录将在第 4 阶段实现，届时 Client ID 会做成配置项（设置界面中填写，或在构建时通过环境变量注入），代码里只保留占位值。
+
+## 项目结构
+
+```
+├─ crates/launcher-core/   纯 Rust 核心库，不依赖 Tauri，可独立 cargo test
+│  ├─ download/            并发下载器、HTTP 客户端、下载源（官方 / BMCLAPI）
+│  ├─ version/             版本清单、版本 JSON、rules 判断、inheritsFrom 合并、libraries 展开
+│  ├─ install/             原版安装与文件补全、资源索引
+│  ├─ java/                Java 扫描、选择与 Mojang runtime 下载
+│  ├─ auth/                账号与离线登录
+│  ├─ launch/              参数拼装、natives 解压、启动进程与崩溃分析
+│  ├─ instance.rs          实例扫描与加载器识别
+│  └─ system.rs            物理内存与自动内存分配
+├─ src-tauri/              Tauri 外壳：把 core 包装成 commands / events，管理设置与账号
+└─ src/                    Svelte 5 前端
+   ├─ components/          标题栏、侧栏、虚拟列表、弹窗、进度条等
+   ├─ pages/               启动、实例、下载、Mod、账号、设置
+   └─ lib/                 API 封装、全局状态、动效、格式化
+```
+
+启动器设置保存在系统配置目录下的 `RedCraft/`（Windows 为 `%APPDATA%\RedCraft`），便携模式下保存在 `.minecraft/redcraft/`；运行日志位于其中的 `logs/latest.log`。令牌等敏感信息不会写入这些文件。

@@ -1,0 +1,414 @@
+//! 暴露给前端的 Tauri commands。只做参数转换与状态管理，业务逻辑都在 launcher-core。
+
+use std::path::PathBuf;
+
+use launcher_core::auth::{is_standard_name, validate_offline_name, Account};
+use launcher_core::install::{validate_instance_name, Verify};
+use launcher_core::instance::{scan_instances, InstanceSummary};
+use launcher_core::java::{self, JavaInstall};
+use launcher_core::system::{self, MemoryInfo};
+use launcher_core::version::VersionManifest;
+use serde::Serialize;
+use tauri::{AppHandle, Manager, State};
+use tauri_plugin_opener::OpenerExt;
+
+use crate::error::{AppError, AppResult};
+use crate::settings::{InstanceConfig, Settings};
+use crate::state::AppState;
+
+async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> AppResult<T> {
+    tauri::async_runtime::spawn_blocking(f)
+        .await
+        .map_err(|e| AppError::msg(format!("后台任务异常：{e}"), "请重试"))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppInfo {
+    name: &'static str,
+    version: &'static str,
+    portable: bool,
+    config_dir: PathBuf,
+    game_dir: PathBuf,
+    default_game_dir: PathBuf,
+    memory: MemoryInfo,
+    os: &'static str,
+    arch: &'static str,
+}
+
+#[tauri::command]
+pub fn app_info(state: State<'_, AppState>) -> AppInfo {
+    AppInfo {
+        name: launcher_core::LAUNCHER_NAME,
+        version: launcher_core::LAUNCHER_VERSION,
+        portable: state.paths.portable,
+        config_dir: state.paths.config_dir.clone(),
+        game_dir: state.game_dir().root().to_path_buf(),
+        default_game_dir: state.paths.default_game_dir.clone(),
+        memory: system::memory(),
+        os: std::env::consts::OS,
+        arch: std::env::consts::ARCH,
+    }
+}
+
+#[tauri::command]
+pub fn get_settings(state: State<'_, AppState>) -> Settings {
+    state.settings()
+}
+
+#[tauri::command]
+pub fn save_settings(state: State<'_, AppState>, settings: Settings) -> AppResult<()> {
+    let mut settings = settings;
+    settings.concurrency = settings.concurrency.clamp(1, 256);
+    settings.game_dir = settings.game_dir.filter(|p| !p.as_os_str().is_empty());
+    settings.java_path = settings.java_path.filter(|p| !p.as_os_str().is_empty());
+    state.save_settings(settings)
+}
+
+// ───────────── 版本 ─────────────
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VersionItem {
+    id: String,
+    kind: String,
+    release_time: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VersionList {
+    latest_release: String,
+    latest_snapshot: String,
+    versions: Vec<VersionItem>,
+}
+
+async fn manifest(state: &AppState, refresh: bool) -> AppResult<VersionManifest> {
+    let mut guard = state.manifest.lock().await;
+    if !refresh {
+        if let Some(m) = guard.as_ref() {
+            return Ok(m.clone());
+        }
+    }
+    let m = VersionManifest::fetch(&state.http()?).await?;
+    *guard = Some(m.clone());
+    Ok(m)
+}
+
+#[tauri::command]
+pub async fn version_list(state: State<'_, AppState>, refresh: bool) -> AppResult<VersionList> {
+    let m = manifest(&state, refresh).await?;
+    Ok(VersionList {
+        latest_release: m.latest.release.clone(),
+        latest_snapshot: m.latest.snapshot.clone(),
+        versions: m
+            .versions
+            .into_iter()
+            .map(|v| VersionItem {
+                id: v.id,
+                kind: v.kind,
+                release_time: v.release_time,
+            })
+            .collect(),
+    })
+}
+
+// ───────────── 实例 ─────────────
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstanceInfo {
+    #[serde(flatten)]
+    summary: InstanceSummary,
+    isolated: bool,
+    game_dir: PathBuf,
+    last_played: Option<u64>,
+    running: bool,
+}
+
+pub fn instance_isolated(state: &AppState, summary: &InstanceSummary, config: &InstanceConfig) -> bool {
+    config
+        .isolation
+        .unwrap_or_else(|| state.settings().isolation.applies(summary.loader.is_some(), summary.is_release()))
+}
+
+#[tauri::command]
+pub async fn list_instances(state: State<'_, AppState>) -> AppResult<Vec<InstanceInfo>> {
+    let game = state.game_dir();
+    let g = game.clone();
+    let list = blocking(move || scan_instances(&g)).await?;
+    let running = state.running.lock().map(|r| r.clone()).unwrap_or_default();
+    Ok(list
+        .into_iter()
+        .map(|mut summary| {
+            let config = InstanceConfig::load(&game, &summary.id);
+            if let Some(v) = config.mc_version.clone() {
+                summary.mc_version = v;
+            }
+            let isolated = instance_isolated(&state, &summary, &config);
+            InstanceInfo {
+                game_dir: game.instance_game_dir(&summary.id, isolated),
+                isolated,
+                last_played: config.last_played,
+                running: running.contains_key(&summary.id),
+                summary,
+            }
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub async fn install_vanilla(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    version: String,
+    name: String,
+) -> AppResult<u64> {
+    let name = name.trim().to_string();
+    validate_instance_name(&name)?;
+    let game = state.game_dir();
+    if game.version_json(&name).exists() {
+        return Err(AppError::msg(
+            format!("已存在名为「{name}」的实例"),
+            "请换一个实例名称，或先删除同名实例。",
+        ));
+    }
+    let m = manifest(&state, false).await?;
+    let entry = m
+        .find(&version)
+        .cloned()
+        .ok_or_else(|| AppError::msg(format!("版本列表中没有 {version}"), "请刷新版本列表后重试。"))?;
+    let installer = state.installer()?;
+    let tasks = state.tasks.clone();
+    let id = tasks.spawn(&app, format!("安装 {name}"), move |reporter, cancel| async move {
+        let config = InstanceConfig {
+            mc_version: Some(entry.id.clone()),
+            ..Default::default()
+        };
+        let result = installer.install_vanilla(&entry, &name, &reporter, &cancel).await;
+        if result.is_ok() {
+            config.save(&installer.game, &name)?;
+        } else if !installer.game.version_jar(&name).exists() {
+            // 安装失败且还没有任何内容时，清理掉残留的版本目录，避免出现损坏的实例
+            let _ = std::fs::remove_dir_all(installer.game.version_dir(&name));
+        }
+        Ok(result?)
+    });
+    Ok(id)
+}
+
+/// 完整校验并补全实例文件。
+#[tauri::command]
+pub fn repair_instance(app: AppHandle, state: State<'_, AppState>, id: String) -> AppResult<u64> {
+    let installer = state.installer()?;
+    Ok(state.tasks.spawn(&app, format!("补全 {id}"), move |reporter, cancel| async move {
+        Ok(installer.complete(&id, Verify::Full, &reporter, &cancel).await?)
+    }))
+}
+
+#[tauri::command]
+pub async fn delete_instance(state: State<'_, AppState>, id: String) -> AppResult<()> {
+    if state.running.lock().is_ok_and(|r| r.contains_key(&id)) {
+        return Err(AppError::msg("实例正在运行", "请先关闭游戏再删除。"));
+    }
+    validate_instance_name(&id)?;
+    let dir = state.game_dir().version_dir(&id);
+    blocking(move || std::fs::remove_dir_all(&dir).map_err(|e| launcher_core::CoreError::io(&dir, e)))
+        .await??;
+    if state.settings().selected_instance.as_deref() == Some(id.as_str()) {
+        state.update_settings(|s| s.selected_instance = None)?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_instance_config(state: State<'_, AppState>, id: String) -> InstanceConfig {
+    InstanceConfig::load(&state.game_dir(), &id)
+}
+
+#[tauri::command]
+pub fn save_instance_config(state: State<'_, AppState>, id: String, config: InstanceConfig) -> AppResult<()> {
+    validate_instance_name(&id)?;
+    Ok(config.save(&state.game_dir(), &id)?)
+}
+
+#[tauri::command]
+pub fn select_instance(state: State<'_, AppState>, id: Option<String>) -> AppResult<()> {
+    state.update_settings(|s| s.selected_instance = id)
+}
+
+/// 打开实例相关目录：`root`（游戏运行目录）、`mods`、`saves`、`resourcepacks`、`screenshots`、`logs`。
+#[tauri::command]
+pub async fn open_instance_dir(app: AppHandle, state: State<'_, AppState>, id: String, sub: String) -> AppResult<()> {
+    let list = list_instances(state.clone()).await?;
+    let inst = list
+        .into_iter()
+        .find(|i| i.summary.id == id)
+        .ok_or_else(|| AppError::msg(format!("找不到实例 {id}"), "实例可能已被删除，请刷新列表。"))?;
+    let allowed = ["mods", "saves", "resourcepacks", "shaderpacks", "screenshots", "logs", "crash-reports", "config"];
+    let dir = if sub == "root" || sub.is_empty() {
+        inst.game_dir
+    } else if allowed.contains(&sub.as_str()) {
+        inst.game_dir.join(&sub)
+    } else {
+        return Err(AppError::msg("无效的目录", ""));
+    };
+    std::fs::create_dir_all(&dir).map_err(|e| launcher_core::CoreError::io(&dir, e))?;
+    open_path(&app, &dir)
+}
+
+#[tauri::command]
+pub fn open_game_dir(app: AppHandle, state: State<'_, AppState>) -> AppResult<()> {
+    let dir = state.game_dir().root().to_path_buf();
+    std::fs::create_dir_all(&dir).map_err(|e| launcher_core::CoreError::io(&dir, e))?;
+    open_path(&app, &dir)
+}
+
+/// 打开崩溃报告等文件，只允许游戏目录内的路径。
+#[tauri::command]
+pub fn open_file(app: AppHandle, state: State<'_, AppState>, path: PathBuf) -> AppResult<()> {
+    let root = std::fs::canonicalize(state.game_dir().root()).unwrap_or_default();
+    let target = std::fs::canonicalize(&path).map_err(|e| launcher_core::CoreError::io(&path, e))?;
+    if !target.starts_with(&root) {
+        return Err(AppError::msg("只能打开游戏目录中的文件", ""));
+    }
+    open_path(&app, &target)
+}
+
+/// 读取游戏目录中的文本文件（崩溃报告），最多 1MB。
+#[tauri::command]
+pub async fn read_game_file(state: State<'_, AppState>, path: PathBuf) -> AppResult<String> {
+    let root = std::fs::canonicalize(state.game_dir().root()).unwrap_or_default();
+    blocking(move || -> AppResult<String> {
+        let target = std::fs::canonicalize(&path).map_err(|e| launcher_core::CoreError::io(&path, e))?;
+        if !target.starts_with(&root) {
+            return Err(AppError::msg("只能读取游戏目录中的文件", ""));
+        }
+        let data = std::fs::read(&target).map_err(|e| launcher_core::CoreError::io(&target, e))?;
+        let data = &data[..data.len().min(1 << 20)];
+        Ok(String::from_utf8_lossy(data).into_owned())
+    })
+    .await?
+}
+
+fn open_path(app: &AppHandle, path: &std::path::Path) -> AppResult<()> {
+    app.opener()
+        .open_path(path.display().to_string(), None::<&str>)
+        .map_err(|e| AppError::msg(format!("无法打开 {}：{e}", path.display()), "请手动打开该目录。"))
+}
+
+// ───────────── 账号 ─────────────
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountList {
+    pub accounts: Vec<Account>,
+    pub selected: Option<String>,
+}
+
+#[tauri::command]
+pub fn list_accounts(state: State<'_, AppState>) -> AccountList {
+    let accounts = state.accounts.read().map(|a| a.accounts.clone()).unwrap_or_default();
+    let mut selected = state.settings().selected_account;
+    if selected.as_ref().is_none_or(|s| !accounts.iter().any(|a| &a.id == s)) {
+        selected = accounts.first().map(|a| a.id.clone());
+    }
+    AccountList { accounts, selected }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AddedAccount {
+    account: Account,
+    /// 用户名不符合正版规则时的提醒
+    warning: Option<String>,
+}
+
+#[tauri::command]
+pub fn add_offline_account(state: State<'_, AppState>, name: String) -> AppResult<AddedAccount> {
+    let name = name.trim().to_string();
+    validate_offline_name(&name)?;
+    let account = Account::offline(&name);
+    {
+        let mut store = state
+            .accounts
+            .write()
+            .map_err(|_| AppError::msg("账号数据被锁定", "请重启启动器"))?;
+        if store.accounts.iter().any(|a| a.id == account.id) {
+            return Err(AppError::msg(format!("离线账号「{name}」已存在"), "可以直接在列表中选择它。"));
+        }
+        store.accounts.push(account.clone());
+    }
+    state.save_accounts()?;
+    state.update_settings(|s| s.selected_account = Some(account.id.clone()))?;
+    let warning = (!is_standard_name(&name)).then(|| {
+        "用户名包含字母、数字、下划线以外的字符或长度不足 3 位，单人游戏可以正常使用，但部分服务器可能拒绝登录。".to_string()
+    });
+    Ok(AddedAccount { account, warning })
+}
+
+#[tauri::command]
+pub fn remove_account(state: State<'_, AppState>, id: String) -> AppResult<()> {
+    if let Ok(mut store) = state.accounts.write() {
+        store.accounts.retain(|a| a.id != id);
+    }
+    state.save_accounts()?;
+    if state.settings().selected_account.as_deref() == Some(id.as_str()) {
+        state.update_settings(|s| s.selected_account = None)?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn select_account(state: State<'_, AppState>, id: String) -> AppResult<()> {
+    state.update_settings(|s| s.selected_account = Some(id))
+}
+
+// ───────────── Java ─────────────
+
+pub async fn java_list(state: &AppState, refresh: bool) -> AppResult<Vec<JavaInstall>> {
+    if !refresh {
+        if let Some(list) = state.java.lock().ok().and_then(|j| j.clone()) {
+            return Ok(list);
+        }
+    }
+    let runtime = state.game_dir().runtime();
+    let list = blocking(move || java::scan_installed(&[runtime])).await?;
+    if let Ok(mut j) = state.java.lock() {
+        *j = Some(list.clone());
+    }
+    Ok(list)
+}
+
+#[tauri::command]
+pub async fn scan_java(state: State<'_, AppState>, refresh: bool) -> AppResult<Vec<JavaInstall>> {
+    java_list(&state, refresh).await
+}
+
+/// 检查用户手动选择的 Java。
+#[tauri::command]
+pub async fn probe_java(path: PathBuf) -> AppResult<JavaInstall> {
+    let p = path.clone();
+    blocking(move || java::probe(&p)).await?.ok_or_else(|| {
+        AppError::msg(
+            format!("{} 不是有效的 Java", path.display()),
+            "请选择 Java 安装目录下 bin 文件夹中的 java.exe（或 javaw.exe）。",
+        )
+    })
+}
+
+// ───────────── 任务与窗口 ─────────────
+
+#[tauri::command]
+pub fn cancel_task(state: State<'_, AppState>, id: u64) -> bool {
+    state.tasks.cancel(id)
+}
+
+/// 前端完成首次渲染后再显示窗口，避免启动时白屏闪烁。
+#[tauri::command]
+pub fn app_ready(app: AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+}

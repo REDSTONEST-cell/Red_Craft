@@ -1,0 +1,29 @@
+[workspace]
+resolver = "2"
+members = ["crates/launcher-core", "src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/REDSTONEST-cell/Red_Craft"
+
+[workspace.dependencies]
+launcher-core = { path = "crates/launcher-core" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "io-util", "process", "sync", "time"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "json", "stream", "gzip", "http2"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+log = "0.4"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+# 开发时依赖保持较快的编译速度，但让下载/解压相关的依赖跑得快一些
+[profile.dev.package."*"]
+opt-level = 2

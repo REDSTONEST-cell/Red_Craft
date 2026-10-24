@@ -1,0 +1,419 @@
+/* Red Craft — 报刊风设计语言：米白纸张 + 墨色细线 + 橙色强调，像素方块点缀。
+   所有动效只使用 transform / opacity，交给 GPU 合成。 */
+
+:root {
+  --paper: #f4efe6;
+  --paper-2: #ece5d8;
+  --card: #fbf8f2;
+  --ink: #1b1a17;
+  --ink-2: #3a362f;
+  --muted: #7a7266;
+  --rule: rgba(27, 26, 23, 0.16);
+  --rule-strong: #1b1a17;
+  --accent: #e8590c;
+  --accent-ink: #fffaf3;
+  --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
+  --danger: #b42318;
+  --ok: #2f7d32;
+  --shadow: 3px 3px 0 var(--ink);
+  --shadow-sm: 2px 2px 0 var(--ink);
+
+  --serif: "Noto Serif SC", "Noto Serif CJK SC", "Source Han Serif SC", "Source Han Serif CN", "Songti SC", "STSong", "SimSun", Georgia, serif;
+  --sans: "Inter", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+  --mono: "JetBrains Mono", "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
+
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --t-fast: 120ms;
+  --t-mid: 220ms;
+  --t-slow: 360ms;
+
+  --titlebar-h: 36px;
+  --sidebar-w: 76px;
+  --radius: 2px;
+
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --paper: #161412;
+  --paper-2: #1f1c19;
+  --card: #1c1a17;
+  --ink: #ede6d8;
+  --ink-2: #cfc6b6;
+  --muted: #8f877a;
+  --rule: rgba(237, 230, 216, 0.14);
+  --rule-strong: #ede6d8;
+  --accent-ink: #1b1209;
+  --shadow: 3px 3px 0 #000;
+  --shadow-sm: 2px 2px 0 #000;
+  color-scheme: dark;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --t-fast: 0.01ms;
+    --t-mid: 0.01ms;
+    --t-slow: 0.01ms;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#app {
+  height: 100%;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--serif);
+  font-weight: 700;
+  margin: 0;
+  letter-spacing: 0.01em;
+}
+
+p {
+  margin: 0;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+input,
+textarea {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* 滚动条：细、方 */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--rule);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--muted);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ─── 通用排版 ─── */
+
+.kicker {
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.mono {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.rule {
+  border: 0;
+  border-top: 1px solid var(--rule);
+  margin: 0;
+}
+
+.rule-double {
+  border: 0;
+  height: 5px;
+  border-top: 2px solid var(--rule-strong);
+  border-bottom: 1px solid var(--rule-strong);
+  margin: 0;
+}
+
+/* 页面标题：报头式 */
+.page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 10px;
+  border-bottom: 2px solid var(--rule-strong);
+  margin-bottom: 18px;
+}
+.page-head h1 {
+  font-size: 30px;
+  line-height: 1.1;
+}
+.page-head .sub {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+/* ─── 按钮 ───
+   方块按钮：底色与边框画在 ::before，硬阴影画在 ::after。
+   悬停/按压时只改变 transform，阴影层反向位移保持不动，因此全程只触发合成。 */
+
+.btn {
+  --bg: var(--card);
+  --fg: var(--ink);
+  --lift: 0px;
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  transform: translate(var(--lift), var(--lift));
+  transition: transform var(--t-fast) var(--ease);
+}
+.btn::before,
+.btn::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius);
+  pointer-events: none;
+}
+.btn::before {
+  z-index: -1;
+  background: var(--bg);
+  border: 1.5px solid var(--ink);
+}
+.btn::after {
+  z-index: -2;
+  background: var(--ink);
+  transform: translate(calc(2px - var(--lift)), calc(2px - var(--lift)));
+  transition: transform var(--t-fast) var(--ease);
+}
+:root[data-theme="dark"] .btn::after {
+  background: #000;
+}
+.btn:hover {
+  --lift: -1px;
+}
+.btn:active {
+  --lift: 2px;
+}
+.btn:active,
+.btn:active::after {
+  transition-duration: 40ms;
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  --lift: 0px;
+}
+.btn.primary {
+  --bg: var(--accent);
+  --fg: var(--accent-ink);
+}
+.btn.danger {
+  --fg: var(--danger);
+}
+.btn.ghost::after {
+  display: none;
+}
+.btn.ghost::before {
+  border-color: transparent;
+  background: transparent;
+  opacity: 0;
+  transition: opacity var(--t-fast);
+}
+.btn.ghost:hover {
+  --lift: 0px;
+}
+.btn.ghost:hover::before {
+  opacity: 1;
+  background: var(--accent-soft);
+}
+.btn.ghost:active {
+  --lift: 0px;
+  transform: scale(0.96);
+}
+.btn.sm {
+  height: 26px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+.btn.icon {
+  width: 32px;
+  padding: 0;
+}
+.btn.icon.sm {
+  width: 26px;
+}
+
+/* ─── 表单 ─── */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.field > label,
+.field > .label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.field .help {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.input,
+select.input {
+  height: 34px;
+  padding: 0 10px;
+  border: 1.5px solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--card);
+  outline: none;
+  min-width: 0;
+}
+.input:focus {
+  border-color: var(--accent);
+}
+.input::placeholder {
+  color: var(--muted);
+}
+textarea.input {
+  height: auto;
+  padding: 8px 10px;
+  resize: vertical;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+/* ─── 卡片与标签 ─── */
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 7px;
+  border: 1px solid var(--rule);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.tag.accent {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* 像素方块点缀 */
+.pixel {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background: var(--accent);
+  box-shadow: 2px 2px 0 var(--ink);
+  flex: none;
+}
+
+/* 列表项交错进入 */
+.stagger > * {
+  animation: rise var(--t-slow) var(--ease-out) both;
+  animation-delay: calc(min(var(--i, 0), 12) * 28ms);
+}
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.empty {
+  padding: 48px 16px;
+  text-align: center;
+  color: var(--muted);
+}
+.empty h3 {
+  color: var(--ink);
+  font-size: 18px;
+  margin-bottom: 6px;
+}
+
+.spin {
+  animation: spin 0.9s steps(8) infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
