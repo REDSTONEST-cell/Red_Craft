@@ -12,6 +12,19 @@ use crate::download::CancelToken;
 use crate::error::{CoreError, Result};
 use crate::install::{AssetIndex, Installer, Reporter, Verify};
 
+/// 游戏目录中还没有 options.txt（第一次启动）时写入简体中文语言设置；已有的不覆盖。
+///
+/// 16w32a（2016 年 8 月）之后语言代码改为小写 `zh_cn`，之前是 `zh_CN`。
+pub fn ensure_chinese(game_dir: &std::path::Path, release_time: &str) -> Result<()> {
+    let options = game_dir.join("options.txt");
+    if options.exists() {
+        return Ok(());
+    }
+    let lang = if !release_time.is_empty() && release_time < "2016-08-10" { "zh_CN" } else { "zh_cn" };
+    std::fs::create_dir_all(game_dir).map_err(|e| CoreError::io(game_dir, e))?;
+    std::fs::write(&options, format!("lang:{lang}\n")).map_err(|e| CoreError::io(&options, e))
+}
+
 /// 启动前准备：补全缺失文件、解压 natives、整理旧版资源，然后生成启动命令。
 pub async fn prepare(
     installer: &Installer,
@@ -48,4 +61,24 @@ pub async fn prepare(
 
     reporter.stage("生成启动参数");
     build_command(&installer.game, &resolved, &installer.env, opts)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chinese_options() {
+        let dir = tempfile::tempdir().unwrap();
+        let new = dir.path().join("new");
+        ensure_chinese(&new, "2023-06-12T13:25:51+00:00").unwrap();
+        assert_eq!(std::fs::read_to_string(new.join("options.txt")).unwrap(), "lang:zh_cn\n");
+        let old = dir.path().join("old");
+        ensure_chinese(&old, "2014-06-26T11:23:59+00:00").unwrap();
+        assert_eq!(std::fs::read_to_string(old.join("options.txt")).unwrap(), "lang:zh_CN\n");
+        // 已有设置不覆盖
+        std::fs::write(new.join("options.txt"), "lang:en_us\n").unwrap();
+        ensure_chinese(&new, "2023").unwrap();
+        assert_eq!(std::fs::read_to_string(new.join("options.txt")).unwrap(), "lang:en_us\n");
+    }
 }

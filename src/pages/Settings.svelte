@@ -245,6 +245,13 @@
       </div>
     </div>
     <div class="row">
+      <div class="desc">
+        <strong>默认使用简体中文</strong>
+        <span class="help">实例第一次启动时把游戏语言设为简体中文；之后在游戏里改过的语言不会被覆盖。</span>
+      </div>
+      <Toggle checked={s.defaultChinese} onchange={(v) => save({ defaultChinese: v })} />
+    </div>
+    <div class="row">
       <div class="desc"><strong>全屏启动</strong></div>
       <Toggle checked={s.fullscreen} onchange={(v) => save({ fullscreen: v })} />
     </div>

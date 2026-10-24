@@ -4,7 +4,8 @@ use std::path::PathBuf;
 
 use launcher_core::auth::{is_standard_name, validate_offline_name, Account};
 use launcher_core::install::{validate_instance_name, Verify};
-use launcher_core::instance::{scan_instances, InstanceSummary};
+use launcher_core::instance::{scan_instances, InstanceSummary, LoaderKind};
+use launcher_core::loader::{self, LoaderChoice, LoaderVersion};
 use launcher_core::java::{self, JavaInstall};
 use launcher_core::system::{self, MemoryInfo};
 use launcher_core::version::VersionManifest;
@@ -157,17 +158,32 @@ pub async fn list_instances(state: State<'_, AppState>) -> AppResult<Vec<Instanc
         .collect())
 }
 
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoaderArg {
+    kind: LoaderKind,
+    version: String,
+}
+
+/// 列出与游戏版本兼容的加载器版本。
 #[tauri::command]
-pub async fn install_vanilla(
+pub async fn loader_versions(state: State<'_, AppState>, kind: LoaderKind, mc: String) -> AppResult<Vec<LoaderVersion>> {
+    Ok(loader::list_versions(&state.http()?, kind, &mc).await?)
+}
+
+/// 新建实例：原版，或原版 + 加载器。
+#[tauri::command]
+pub async fn install_instance(
     app: AppHandle,
     state: State<'_, AppState>,
     version: String,
     name: String,
+    loader: Option<LoaderArg>,
 ) -> AppResult<u64> {
     let name = name.trim().to_string();
     validate_instance_name(&name)?;
     let game = state.game_dir();
-    if game.version_json(&name).exists() {
+    if game.version_dir(&name).exists() {
         return Err(AppError::msg(
             format!("已存在名为「{name}」的实例"),
             "请换一个实例名称，或先删除同名实例。",
@@ -179,20 +195,44 @@ pub async fn install_vanilla(
         .cloned()
         .ok_or_else(|| AppError::msg(format!("版本列表中没有 {version}"), "请刷新版本列表后重试。"))?;
     let installer = state.installer()?;
-    let tasks = state.tasks.clone();
-    let id = tasks.spawn(&app, format!("安装 {name}"), move |reporter, cancel| async move {
-        let config = InstanceConfig {
-            mc_version: Some(entry.id.clone()),
-            ..Default::default()
-        };
-        let result = installer.install_vanilla(&entry, &name, &reporter, &cancel).await;
-        if result.is_ok() {
-            config.save(&installer.game, &name)?;
-        } else if !installer.game.version_jar(&name).exists() {
-            // 安装失败且还没有任何内容时，清理掉残留的版本目录，避免出现损坏的实例
+    let choice = loader.map(|l| LoaderChoice { kind: l.kind, version: l.version });
+    let title = match &choice {
+        Some(c) => format!("安装 {name}（{}）", c.kind.display_name()),
+        None => format!("安装 {name}"),
+    };
+    let app2 = app.clone();
+    let id = state.tasks.spawn(&app, title, move |reporter, cancel| async move {
+        let state = app2.state::<AppState>();
+        let result: AppResult<()> = async {
+            // Forge / NeoForge 的安装器需要 Java，版本与原版要求的一致
+            let java = match &choice {
+                Some(c) if matches!(c.kind, LoaderKind::Forge | LoaderKind::NeoForge) => {
+                    if !installer.game.version_json(&entry.id).exists() {
+                        reporter.stage("下载原版版本信息");
+                        installer.save_version_json(&entry, &entry.id).await?;
+                    }
+                    let vanilla = installer.resolve(&entry.id)?;
+                    let (required, component) = crate::launch::required_java(&vanilla.json);
+                    reporter.stage("选择 Java");
+                    let java_override = state.settings().java_path;
+                    Some(crate::launch::select_java(&state, &installer, java_override, required, &component, &reporter, &cancel).await?.0)
+                }
+                _ => None,
+            };
+            loader::install_instance(&installer, &entry, choice.as_ref(), &name, java.as_deref(), &reporter, &cancel).await?;
+            InstanceConfig {
+                mc_version: Some(entry.id.clone()),
+                ..Default::default()
+            }
+            .save(&installer.game, &name)?;
+            Ok(())
+        }
+        .await;
+        if result.is_err() {
+            // 安装失败时清理掉这次新建的实例目录，避免出现损坏的实例
             let _ = std::fs::remove_dir_all(installer.game.version_dir(&name));
         }
-        Ok(result?)
+        result
     });
     Ok(id)
 }

@@ -5,7 +5,7 @@ use serde::Serialize;
 use crate::paths::GameDir;
 use crate::version::{resolve_version, ResolvedVersion};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LoaderKind {
     Fabric,
@@ -33,28 +33,73 @@ pub struct LoaderInfo {
 }
 
 /// 根据库列表与主类识别加载器。
+///
+/// 1.20.1 的 NeoForge 仍带有 `net.minecraftforge` 坐标的库，因此 NeoForge 的标志优先于 Forge。
 pub fn detect_loader(resolved: &ResolvedVersion) -> Option<LoaderInfo> {
+    let (mut fabric, mut quilt, mut neo, mut forge) = (None, None, None, None);
     for lib in &resolved.json.libraries {
         let Some(c) = lib.coord() else { continue };
-        let found = match (c.group, c.artifact) {
-            ("net.fabricmc", "fabric-loader") => Some((LoaderKind::Fabric, c.version.to_string())),
-            ("org.quiltmc", "quilt-loader") => Some((LoaderKind::Quilt, c.version.to_string())),
-            ("net.neoforged", "neoforge") => Some((LoaderKind::NeoForge, c.version.to_string())),
-            // 1.20.1 的 NeoForge 沿用 forge 坐标
-            ("net.neoforged", "forge") => Some((
-                LoaderKind::NeoForge,
-                c.version.split_once('-').map(|x| x.1).unwrap_or(c.version).to_string(),
-            )),
-            ("net.minecraftforge", "forge" | "fmlloader") => Some((
-                LoaderKind::Forge,
+        match (c.group, c.artifact) {
+            ("net.fabricmc", "fabric-loader") => fabric = Some(c.version.to_string()),
+            ("org.quiltmc", "quilt-loader") => quilt = Some(c.version.to_string()),
+            ("net.neoforged", "neoforge") => neo = Some(c.version.to_string()),
+            // 1.20.1 的 NeoForge 沿用 forge 坐标：net.neoforged:forge:1.20.1-47.1.106
+            ("net.neoforged", "forge") => {
+                neo = Some(c.version.split_once('-').map(|x| x.1).unwrap_or(c.version).to_string())
+            }
+            ("net.minecraftforge", "forge" | "fmlloader") if forge.is_none() => {
                 // 形如 1.20.1-47.2.0 或 1.7.10-10.13.4.1614-1.7.10
-                c.version.split('-').nth(1).unwrap_or(c.version).to_string(),
-            )),
-            _ => None,
-        };
-        if let Some((kind, version)) = found {
-            return Some(LoaderInfo { kind, version });
+                forge = Some(c.version.split('-').nth(1).unwrap_or(c.version).to_string())
+            }
+            _ => {}
         }
+    }
+    // 版本号以启动参数为准；1.20.1 的 NeoForge 只能通过 net.neoforged 开头的库识别
+    let game_args: Vec<&str> = resolved
+        .json
+        .arguments
+        .as_ref()
+        .map(|a| {
+            a.game
+                .iter()
+                .filter_map(|x| match x {
+                    crate::version::Argument::Plain(s) => Some(s.as_str()),
+                    _ => None,
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let arg = |key: &str| {
+        game_args
+            .iter()
+            .position(|a| *a == key)
+            .and_then(|i| game_args.get(i + 1))
+            .map(|s| s.to_string())
+    };
+    let has_neo_libs = resolved
+        .json
+        .libraries
+        .iter()
+        .any(|l| l.name.starts_with("net.neoforged"));
+    if has_neo_libs {
+        if let Some(v) = arg("--fml.neoForgeVersion").or_else(|| arg("--fml.forgeVersion")) {
+            neo = Some(v);
+        } else if neo.is_none() {
+            neo = forge.take().or(Some(String::new()));
+        }
+        forge = None;
+    } else if forge.is_some() || resolved.json.main_class.contains("cpw.mods") {
+        if let Some(v) = arg("--fml.forgeVersion") {
+            forge = Some(v);
+        }
+    }
+    let pick = |kind, version: Option<String>| version.map(|version| LoaderInfo { kind, version });
+    if let Some(info) = pick(LoaderKind::NeoForge, neo)
+        .or_else(|| pick(LoaderKind::Quilt, quilt))
+        .or_else(|| pick(LoaderKind::Fabric, fabric))
+        .or_else(|| pick(LoaderKind::Forge, forge))
+    {
+        return Some(info);
     }
     let main = resolved.json.main_class.as_str();
     if main.contains("fabricmc") {
@@ -142,6 +187,18 @@ mod tests {
         assert_eq!(detect_loader(&r).unwrap().version, "47.2.0");
         let r = resolved(r#"{"id":"a","libraries":[{"name":"net.neoforged:neoforge:21.1.65:universal"}]}"#);
         assert_eq!(detect_loader(&r).unwrap().kind, LoaderKind::NeoForge);
+        // NeoForge 1.20.1：同时带有 net.minecraftforge 的库
+        let r = resolved(
+            r#"{"id":"a","mainClass":"cpw.mods.bootstraplauncher.BootstrapLauncher",
+                "arguments":{"game":["--launchTarget","forgeclient","--fml.forgeVersion","47.1.106"],"jvm":[]},
+                "libraries":[{"name":"net.neoforged.fancymodloader:loader:47.2.2"}]}"#,
+        );
+        assert_eq!(detect_loader(&r), Some(LoaderInfo { kind: LoaderKind::NeoForge, version: "47.1.106".into() }));
+        // Quilt 带有 fabric 兼容库时仍识别为 Quilt
+        let r = resolved(
+            r#"{"id":"a","libraries":[{"name":"net.fabricmc:intermediary:1.20.1"},{"name":"org.quiltmc:quilt-loader:0.24.0"}]}"#,
+        );
+        assert_eq!(detect_loader(&r).unwrap().kind, LoaderKind::Quilt);
         let r = resolved(r#"{"id":"a","mainClass":"net.minecraft.client.main.Main"}"#);
         assert_eq!(detect_loader(&r), None);
     }

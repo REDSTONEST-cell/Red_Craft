@@ -265,7 +265,21 @@ pub fn build_command(
     }
 
     match new_args.filter(|a| !a.jvm.is_empty()) {
-        Some(a) => expand(&a.jvm, &env, &vars, &mut args),
+        Some(a) => {
+            // Forge / NeoForge 用 `-DignoreList=...,${version_name}.jar` 排除原版 jar；
+            // 实例名与原版 jar 名不同，这里换成实际的客户端 jar 名
+            let jvm: Vec<Argument> = a
+                .jvm
+                .iter()
+                .map(|arg| match arg {
+                    Argument::Plain(s) if s.contains("${version_name}.jar") => {
+                        Argument::Plain(s.replace("${version_name}.jar", "${primary_jar_name}"))
+                    }
+                    other => other.clone(),
+                })
+                .collect();
+            expand(&jvm, &env, &vars, &mut args)
+        }
         None => {
             // 旧版没有 JVM 参数，使用官方启动器的默认值
             if env.os_name == "osx" {
@@ -531,6 +545,22 @@ mod tests {
         assert_eq!(value_after(&cmd.args, "--assetsDir"), game.asset_virtual("legacy").display().to_string());
         let cmd = build_command(&game, &mk("pre-1.6"), &env(), &opts(dir.path())).unwrap();
         assert_eq!(value_after(&cmd.args, "--assetsDir"), dir.path().join("resources").display().to_string());
+    }
+
+    #[test]
+    fn forge_ignore_list_uses_client_jar() {
+        let dir = tempfile::tempdir().unwrap();
+        let game = GameDir::new(dir.path());
+        let child: VersionJson = serde_json::from_str(
+            r#"{"id":"my-forge","inheritsFrom":"1.20.1","mainClass":"cpw.mods.bootstraplauncher.BootstrapLauncher",
+                "arguments":{"jvm":["-DignoreList=fmlcore,forge-,${version_name}.jar"],"game":[]}}"#,
+        )
+        .unwrap();
+        let parent: VersionJson = serde_json::from_str(MODERN).unwrap();
+        let r = resolve_with("my-forge", |id| Ok(if id == "my-forge" { child.clone() } else { parent.clone() })).unwrap();
+        let cmd = build_command(&game, &r, &env(), &opts(dir.path())).unwrap();
+        assert!(cmd.args.contains(&"-DignoreList=fmlcore,forge-,1.20.1.jar".to_string()), "{:?}", cmd.args);
+        assert_eq!(value_after(&cmd.args, "--version"), "my-forge");
     }
 
     #[test]

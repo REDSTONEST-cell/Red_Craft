@@ -31,6 +31,7 @@ export interface Settings {
   selectedInstance: string | null;
   selectedAccount: string | null;
   msClientId: string;
+  defaultChinese: boolean;
 }
 
 export interface AppInfo {
@@ -70,6 +71,12 @@ export interface InstanceInfo {
   gameDir: string;
   lastPlayed: number | null;
   running: boolean;
+}
+
+export interface LoaderVersion {
+  version: string;
+  display: string;
+  stable: boolean;
 }
 
 export interface InstanceConfig {
@@ -189,7 +196,9 @@ export const api = {
   versionList: (refresh = false) => call<VersionList>("version_list", { refresh }),
 
   listInstances: () => call<InstanceInfo[]>("list_instances"),
-  installVanilla: (version: string, name: string) => call<number>("install_vanilla", { version, name }),
+  loaderVersions: (kind: LoaderKind, mc: string) => call<LoaderVersion[]>("loader_versions", { kind, mc }),
+  installInstance: (version: string, name: string, loader: { kind: LoaderKind; version: string } | null) =>
+    call<number>("install_instance", { version, name, loader }),
   repairInstance: (id: string) => call<number>("repair_instance", { id }),
   deleteInstance: (id: string) => call<void>("delete_instance", { id }),
   getInstanceConfig: (id: string) => call<InstanceConfig>("get_instance_config", { id }),

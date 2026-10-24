@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { api, type VersionItem, type VersionList } from "../lib/api";
+  import { api, type LoaderKind, type LoaderVersion, type VersionItem, type VersionList } from "../lib/api";
   import { app, refreshInstances, selectInstance, showError, waitTask } from "../lib/state.svelte";
-  import { date, KIND_LABEL } from "../lib/format";
+  import { date, KIND_LABEL, LOADER_LABEL } from "../lib/format";
   import VirtualList from "../components/VirtualList.svelte";
   import Segmented from "../components/Segmented.svelte";
   import Modal from "../components/Modal.svelte";
@@ -51,28 +51,62 @@
   let dialog = $state(false);
   let target = $state<VersionItem | null>(null);
   let name = $state("");
+  let nameTouched = $state(false);
   let installing = $state(false);
+
+  type Choice = "vanilla" | LoaderKind;
+  const LOADERS: LoaderKind[] = ["fabric", "quilt", "forge", "neoforge"];
+  let choice = $state<Choice>("vanilla");
+  // 各加载器可用的版本：undefined 表示加载中，null 表示获取失败
+  let loaderLists = $state<Record<string, LoaderVersion[] | null | undefined>>({});
+  let loaderVersion = $state("");
+
+  function defaultName(v: VersionItem, c: Choice) {
+    const base = c === "vanilla" ? v.id : `${v.id}-${LOADER_LABEL[c]}`;
+    const ids = new Set(app.instances.map((x) => x.id));
+    let n = base;
+    let i = 2;
+    while (ids.has(n)) n = `${base}-${i++}`;
+    return n;
+  }
 
   function openInstall(v: VersionItem) {
     target = v;
-    let n = v.id;
-    let i = 2;
-    const ids = new Set(app.instances.map((x) => x.id));
-    while (ids.has(n)) n = `${v.id}-${i++}`;
-    name = n;
+    choice = "vanilla";
+    nameTouched = false;
+    name = defaultName(v, "vanilla");
+    loaderLists = {};
+    loaderVersion = "";
     dialog = true;
+    for (const k of LOADERS) {
+      api
+        .loaderVersions(k, v.id)
+        .then((list) => (loaderLists[k] = list))
+        .catch(() => (loaderLists[k] = null));
+    }
+  }
+
+  function pick(c: Choice) {
+    choice = c;
+    if (target && !nameTouched) name = defaultName(target, c);
+    if (c !== "vanilla") {
+      const list = loaderLists[c] ?? [];
+      loaderVersion = (list.find((v) => v.stable) ?? list[0])?.version ?? "";
+    }
   }
 
   async function install() {
     if (!target) return;
     installing = true;
     try {
-      const id = await api.installVanilla(target.id, name);
+      const loader = choice === "vanilla" ? null : { kind: choice, version: loaderVersion };
+      const instName = name.trim();
+      const id = await api.installInstance(target.id, instName, loader);
       dialog = false;
       const t = await waitTask(id);
       if (t.state === "done") {
         await refreshInstances();
-        await selectInstance(name);
+        await selectInstance(instName);
       }
     } catch (e) {
       showError(e, "无法安装");
@@ -145,11 +179,11 @@
   </div>
 </div>
 
-<Modal bind:open={dialog} title={`安装 ${target?.id ?? ""}`} kicker="NEW INSTANCE">
+<Modal bind:open={dialog} title={`安装 ${target?.id ?? ""}`} kicker="NEW INSTANCE" width={620}>
   <div class="form">
     <div class="field">
       <label for="inst-name">实例名称</label>
-      <input id="inst-name" class="input" bind:value={name} maxlength="64" />
+      <input id="inst-name" class="input" bind:value={name} maxlength="64" oninput={() => (nameTouched = true)} />
       {#if nameExists}
         <span class="help" style="color:var(--danger)">已存在同名实例，请换一个名称。</span>
       {:else}
@@ -159,14 +193,51 @@
     <div class="field">
       <span class="label">模组加载器</span>
       <div class="loaders">
-        <span class="tag accent">原版</span>
-        <span class="help">Fabric、Quilt、Forge、NeoForge 的安装将在后续版本加入。</span>
+        <button class="loader" class:active={choice === "vanilla"} onclick={() => pick("vanilla")}>
+          <strong>原版</strong><span>不安装加载器</span>
+        </button>
+        {#each LOADERS as k}
+          {@const list = loaderLists[k]}
+          <button
+            class="loader"
+            class:active={choice === k}
+            disabled={!list || list.length === 0}
+            onclick={() => pick(k)}
+          >
+            <strong>{LOADER_LABEL[k]}</strong>
+            <span>
+              {#if list === undefined}查询中…{:else if list === null}获取失败{:else if list.length === 0}不支持此版本{:else}{list.length} 个版本{/if}
+            </span>
+          </button>
+        {/each}
       </div>
     </div>
+    {#if choice !== "vanilla"}
+      {@const list = loaderLists[choice] ?? []}
+      <div class="field">
+        <label for="loader-ver">{LOADER_LABEL[choice]} 版本</label>
+        <select id="loader-ver" class="input" bind:value={loaderVersion}>
+          {#each list as v}
+            <option value={v.version}>{v.display}{v.stable ? "" : "（测试版）"}</option>
+          {/each}
+        </select>
+        <span class="help">
+          {#if choice === "forge" || choice === "neoforge"}
+            会下载官方安装器并自动运行，需要一两分钟。
+          {:else}
+            默认选中最新的稳定版本。
+          {/if}
+        </span>
+      </div>
+    {/if}
   </div>
   {#snippet actions()}
     <button class="btn" onclick={() => (dialog = false)}>取消</button>
-    <button class="btn primary" disabled={installing || !name.trim() || nameExists} onclick={install}>开始安装</button>
+    <button
+      class="btn primary"
+      disabled={installing || !name.trim() || nameExists || (choice !== "vanilla" && !loaderVersion)}
+      onclick={install}>开始安装</button
+    >
   {/snippet}
 </Modal>
 
@@ -239,8 +310,45 @@
     gap: 16px;
   }
   .loaders {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .loader {
     display: flex;
-    align-items: center;
-    gap: 10px;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px 10px;
+    border: 1.5px solid var(--rule);
+    background: var(--paper);
+    text-align: left;
+    cursor: pointer;
+    transition:
+      transform var(--t-fast) var(--ease),
+      border-color var(--t-fast);
+  }
+  .loader strong {
+    font-family: var(--serif);
+    font-size: 14px;
+  }
+  .loader span {
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .loader:hover:not(:disabled) {
+    border-color: var(--ink);
+    transform: translateY(-1px);
+  }
+  .loader:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+  .loader.active {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    box-shadow: inset 0 -3px 0 var(--accent);
+  }
+  .loader:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 </style>

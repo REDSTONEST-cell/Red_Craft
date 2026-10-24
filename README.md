@@ -12,7 +12,7 @@
 | 2 | 版本列表、原版下载与校验、离线登录、启动原版 | ✅ |
 | 3 | Java 检测与自动下载（Mojang Java runtime） | ✅ |
 | 4 | 微软正版登录 ✅、外置登录（authlib-injector）⏳ | 进行中 |
-| 5 | Fabric / Quilt / Forge / NeoForge | ⏳ |
+| 5 | Fabric / Quilt / Forge / NeoForge | ✅ |
 | 6 | Modrinth 搜索、前置依赖解析、已安装 Mod 管理 | ⏳ |
 | 7 | 界面打磨与动效 | 进行中 |
 | 8 | 打包（NSIS / MSI） | CI 已配置 |
@@ -24,6 +24,8 @@
 - **版本隔离**：与 PCL 相同的五档策略（关闭 / 隔离可安装 Mod 的版本 / 隔离非正式版 / 两者都隔离 / 全部隔离），每个实例可单独覆盖。
 - **便携模式**：启动器所在目录存在 `.minecraft` 时自动使用它，配置也保存在其中。
 - **Java**：扫描 JAVA_HOME、PATH、Windows 注册表、常见安装目录、官方启动器自带的 runtime；按版本 JSON 的 `javaVersion` 自动选择，没有合适的就从 Mojang Java runtime 清单下载（目录布局与官方启动器一致，可互相复用）。
+- **模组加载器**：新建实例时可选 Fabric / Quilt / Forge / NeoForge，只列出支持所选游戏版本的加载器版本；Fabric / Quilt 直接使用官方 profile，Forge / NeoForge 先用启动器（支持镜像）预下载依赖库，再以无界面方式运行官方安装器；1.12.2 及更早的 Forge 直接解析安装配置，不运行安装器。加载器版本 JSON 通过 inheritsFrom 继承原版。
+- **默认中文**：实例第一次启动时自动把游戏语言设为简体中文（可在设置中关闭）。
 - **离线登录**：UUID 为 `OfflinePlayer:<name>` 的 MD5（UUID v3），与服务端一致。
 - **微软正版登录**：设备码流程 → Xbox Live → XSTS → Minecraft，检查是否拥有游戏并获取档案；未成年需家长同意、没有 Xbox 档案、没买游戏、应用未通过审核等情况都有中文提示；令牌存系统密钥库，过期自动刷新；显示正版皮肤头像。
 - **启动**：同时支持新版 `arguments` 与旧版 `minecraftArguments`；处理 `legacy` / `pre-1.6` 旧版资源；启动前快速补全缺失文件（资源只比较大小，约 150ms）；自动进入服务器（1.20+ 用 Quick Play，旧版用 `--server/--port`）；内存自动分配；日志实时推送；崩溃时分析常见原因并给出中文解决办法；启动后可隐藏 / 保持 / 关闭启动器。
@@ -59,6 +61,10 @@ cargo test --workspace
 # 使用真实 API 的集成测试：下载 1.20.1（约 730MB）与 Java 17，并启动游戏直到 LWJGL 初始化
 # 默认游戏目录为 target/mc-test，可用 RC_TEST_GAME_DIR 指定
 cargo test -p launcher-core --test vanilla -- --ignored --nocapture
+
+# 加载器集成测试：Fabric / Quilt / Forge / NeoForge（1.20.1）以及 Forge 1.12.2、1.7.10，
+# 安装后启动到加载器与 LWJGL 初始化。Linux 无显示器时需要 xvfb-run
+xvfb-run -a cargo test -p launcher-core --test loaders -- --ignored --nocapture --test-threads 1
 
 # 前端类型检查
 pnpm check

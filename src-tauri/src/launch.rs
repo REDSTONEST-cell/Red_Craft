@@ -30,7 +30,7 @@ pub enum GameEvent {
 }
 
 /// 1.6 之前的旧版本 JSON 中常常没有 javaVersion，默认使用 Java 8。
-fn required_java(json: &launcher_core::version::VersionJson) -> (u32, String) {
+pub fn required_java(json: &launcher_core::version::VersionJson) -> (u32, String) {
     match &json.java_version {
         Some(j) if j.major_version > 0 => (j.major_version, j.component.clone()),
         Some(j) if !j.component.is_empty() => (component_major(&j.component), j.component.clone()),
@@ -83,12 +83,8 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
     let isolated = instance_isolated(&state, &summary, &config);
     let game_dir = game.instance_game_dir(&id, isolated);
     let (required, component) = required_java(&resolved.json);
+    let release_time = resolved.json.release_time.clone();
     let java_override = config.java_path.clone().or(settings.java_path.clone());
-    let installed = if java_override.is_none() {
-        java_list(&state, false).await?
-    } else {
-        Vec::new()
-    };
 
     let memory = system::memory();
     let max_memory_mb = match config.max_memory_mb {
@@ -117,56 +113,8 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
 
         // 选择 Java
         reporter.stage("选择 Java");
-        let (java_path, java_major) = match java_override {
-            Some(path) => {
-                let p = path.clone();
-                let info = tauri::async_runtime::spawn_blocking(move || java::probe(&p))
-                    .await
-                    .ok()
-                    .flatten()
-                    .ok_or_else(|| {
-                        AppError::msg(
-                            format!("设置中指定的 Java 无效：{}", path.display()),
-                            "请在「设置 → Java」中重新选择，或改为「自动选择」。",
-                        )
-                    })?;
-                if info.major < required {
-                    return Err(AppError::msg(
-                        format!("这个版本需要 Java {required}，但设置中指定的是 Java {}", info.major),
-                        "请在「设置 → Java」中改为「自动选择」，或指定更高版本的 Java。",
-                    ));
-                }
-                (info.path, info.major)
-            }
-            None => match java::pick(&installed, required, &installer.env.arch) {
-                Some(j) => (j.path.clone(), j.major),
-                None => {
-                    let component = component_for(required, &component);
-                    if let Some(p) = java::runtime_java_path(&game, &component, &installer.env) {
-                        (p, required)
-                    } else if settings.auto_download_java {
-                        let p = java::install_runtime(
-                            &installer.downloader,
-                            &game,
-                            &component,
-                            &installer.env,
-                            &reporter,
-                            &cancel,
-                        )
-                        .await?;
-                        if let Ok(mut j) = state.java.lock() {
-                            *j = None;
-                        }
-                        (p, required)
-                    } else {
-                        return Err(AppError::msg(
-                            format!("没有找到可用的 Java {required}"),
-                            "请安装对应版本的 Java，或在「设置 → Java」中开启「自动下载 Java」。",
-                        ));
-                    }
-                }
-            },
-        };
+        let (java_path, java_major) =
+            select_java(&state, &installer, java_override, required, &component, &reporter, &cancel).await?;
 
         let opts = LaunchOptions {
             java: java_path,
@@ -186,6 +134,9 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
             launcher_version: launcher_core::LAUNCHER_VERSION.into(),
         };
 
+        if settings.default_chinese {
+            launch::ensure_chinese(&game_dir, &release_time)?;
+        }
         let cmd = launch::prepare(&installer, &id, &opts, &reporter, &cancel).await?;
         cancel.check()?;
         reporter.stage("启动游戏");
@@ -279,6 +230,57 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
         Ok(())
     });
     Ok(task_id)
+}
+
+/// 选择 Java：优先使用手动指定的；否则从已安装的里挑选，没有合适的就从 Mojang 下载。
+pub async fn select_java(
+    state: &AppState,
+    installer: &launcher_core::install::Installer,
+    java_override: Option<std::path::PathBuf>,
+    required: u32,
+    component: &str,
+    reporter: &launcher_core::install::Reporter,
+    cancel: &launcher_core::download::CancelToken,
+) -> AppResult<(std::path::PathBuf, u32)> {
+    if let Some(path) = java_override {
+        let p = path.clone();
+        let info = tauri::async_runtime::spawn_blocking(move || java::probe(&p))
+            .await
+            .ok()
+            .flatten()
+            .ok_or_else(|| {
+                AppError::msg(
+                    format!("设置中指定的 Java 无效：{}", path.display()),
+                    "请在「设置 → Java」中重新选择，或改为「自动选择」。",
+                )
+            })?;
+        if info.major < required {
+            return Err(AppError::msg(
+                format!("这个版本需要 Java {required}，但设置中指定的是 Java {}", info.major),
+                "请在「设置 → Java」中改为「自动选择」，或指定更高版本的 Java。",
+            ));
+        }
+        return Ok((info.path, info.major));
+    }
+    let installed = java_list(state, false).await?;
+    if let Some(j) = java::pick(&installed, required, &installer.env.arch) {
+        return Ok((j.path.clone(), j.major));
+    }
+    let component = component_for(required, component);
+    if let Some(p) = java::runtime_java_path(&installer.game, &component, &installer.env) {
+        return Ok((p, required));
+    }
+    if !state.settings().auto_download_java {
+        return Err(AppError::msg(
+            format!("没有找到可用的 Java {required}"),
+            "请安装对应版本的 Java，或在「设置 → Java」中开启「自动下载 Java」。",
+        ));
+    }
+    let p = java::install_runtime(&installer.downloader, &installer.game, &component, &installer.env, reporter, cancel).await?;
+    if let Ok(mut j) = state.java.lock() {
+        *j = None;
+    }
+    Ok((p, required))
 }
 
 fn flush(app: &AppHandle, id: &str, buffer: &Mutex<Vec<LogLine>>) {

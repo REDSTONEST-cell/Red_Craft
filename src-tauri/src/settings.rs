@@ -81,6 +81,8 @@ pub struct Settings {
     pub selected_account: Option<String>,
     /// 微软登录使用的 Azure 应用 Client ID；为空时使用编译时内置的值
     pub ms_client_id: String,
+    /// 第一次启动实例时把游戏语言设为简体中文
+    pub default_chinese: bool,
 }
 
 impl Settings {
@@ -119,6 +121,7 @@ impl Default for Settings {
             selected_instance: None,
             selected_account: None,
             ms_client_id: String::new(),
+            default_chinese: true,
         }
     }
 }

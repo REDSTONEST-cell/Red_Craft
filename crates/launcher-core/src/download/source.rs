@@ -16,29 +16,33 @@ pub enum DownloadSource {
     Bmclapi,
 }
 
-/// 官方地址前缀 → BMCLAPI 地址前缀。
+pub const MCIM: &str = "https://mod.mcimirror.top";
+
+/// 官方地址前缀 → 镜像地址前缀。游戏本体与加载器使用 BMCLAPI，Modrinth 使用 MCIM 镜像。
 const MIRRORS: &[(&str, &str)] = &[
-    ("https://piston-meta.mojang.com", ""),
-    ("https://piston-data.mojang.com", ""),
-    ("https://launchermeta.mojang.com", ""),
-    ("https://launcher.mojang.com", ""),
-    ("https://resources.download.minecraft.net", "/assets"),
-    ("https://libraries.minecraft.net", "/maven"),
-    ("https://maven.minecraftforge.net", "/maven"),
-    ("https://files.minecraftforge.net/maven", "/maven"),
-    ("https://maven.neoforged.net/releases", "/maven"),
-    ("https://maven.fabricmc.net", "/maven"),
-    ("https://meta.fabricmc.net", "/fabric-meta"),
-    ("https://maven.quiltmc.org/repository/release", "/maven"),
-    ("https://authlib-injector.yushi.moe", "/mirrors/authlib-injector"),
+    ("https://piston-meta.mojang.com", BMCLAPI),
+    ("https://piston-data.mojang.com", BMCLAPI),
+    ("https://launchermeta.mojang.com", BMCLAPI),
+    ("https://launcher.mojang.com", BMCLAPI),
+    ("https://resources.download.minecraft.net", "https://bmclapi2.bangbang93.com/assets"),
+    ("https://libraries.minecraft.net", "https://bmclapi2.bangbang93.com/maven"),
+    ("https://maven.minecraftforge.net", "https://bmclapi2.bangbang93.com/maven"),
+    ("https://files.minecraftforge.net/maven", "https://bmclapi2.bangbang93.com/maven"),
+    ("https://maven.neoforged.net/releases", "https://bmclapi2.bangbang93.com/maven"),
+    ("https://maven.fabricmc.net", "https://bmclapi2.bangbang93.com/maven"),
+    ("https://meta.fabricmc.net", "https://bmclapi2.bangbang93.com/fabric-meta"),
+    ("https://maven.quiltmc.org/repository/release", "https://bmclapi2.bangbang93.com/maven"),
+    ("https://authlib-injector.yushi.moe", "https://bmclapi2.bangbang93.com/mirrors/authlib-injector"),
+    ("https://api.modrinth.com", "https://mod.mcimirror.top/modrinth"),
+    ("https://cdn.modrinth.com", MCIM),
 ];
 
-/// 返回 URL 对应的 BMCLAPI 镜像地址；没有镜像时返回 `None`。
+/// 返回 URL 对应的镜像地址；没有镜像时返回 `None`。
 pub fn mirror_of(url: &str) -> Option<String> {
-    MIRRORS.iter().find_map(|(official, path)| {
+    MIRRORS.iter().find_map(|(official, mirror)| {
         url.strip_prefix(official)
             .filter(|rest| rest.is_empty() || rest.starts_with('/'))
-            .map(|rest| format!("{BMCLAPI}{path}{rest}"))
+            .map(|rest| format!("{mirror}{rest}"))
     })
 }
 
@@ -72,7 +76,15 @@ mod tests {
             mirror_of("https://libraries.minecraft.net/a/b/c.jar").unwrap(),
             "https://bmclapi2.bangbang93.com/maven/a/b/c.jar"
         );
-        assert!(mirror_of("https://api.modrinth.com/v2/search").is_none());
+        assert_eq!(
+            mirror_of("https://api.modrinth.com/v2/search?query=a").unwrap(),
+            "https://mod.mcimirror.top/modrinth/v2/search?query=a"
+        );
+        assert_eq!(
+            mirror_of("https://cdn.modrinth.com/data/AANobbMI/versions/x/a.jar").unwrap(),
+            "https://mod.mcimirror.top/data/AANobbMI/versions/x/a.jar"
+        );
+        assert!(mirror_of("https://example.com/a").is_none());
         // 前缀必须在路径边界上匹配
         assert!(mirror_of("https://launcher.mojang.comevil.net/x").is_none());
     }
