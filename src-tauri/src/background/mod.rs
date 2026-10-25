@@ -259,7 +259,12 @@ pub async fn background_remove(app: AppHandle, id: String) -> AppResult<()> {
         store::save(&state.paths.config_dir, &next)?;
         *guard = next;
         drop(guard);
-        store::remove_copy(&state.paths.config_dir, &asset)
+        let removed = store::remove_copy(&state.paths.config_dir, &asset);
+        // 封面缓存与素材一起移除；清缓存失败不应让已完成的移除报错。
+        if let Err(e) = store::remove_covers(&state.paths.config_dir, &id) {
+            log::warn!("清理背景封面缓存失败：{e}");
+        }
+        removed
     })
     .await?
 }
@@ -269,11 +274,28 @@ pub fn background_window_state(window: tauri::WebviewWindow) -> bool {
     window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(true)
 }
 
+/// 记录可见性并返回是否发生变化。窗口移动/缩放/聚焦等事件非常频繁，
+/// 只有可见性真正变化时才通知前端，避免拖动时每秒几十次 IPC。
+fn next_visibility(last: &mut Option<bool>, visible: bool) -> bool {
+    let changed = *last != Some(visible);
+    *last = Some(visible);
+    changed
+}
+
 pub fn window_changed(app: &AppHandle) {
     use tauri::Emitter;
-    if let Some(window) = app.get_webview_window("main") {
-        let visible =
-            window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(true);
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let visible = window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(true);
+    let changed = match app.try_state::<AppState>() {
+        Some(state) => match state.background_visible.lock() {
+            Ok(mut last) => next_visibility(&mut last, visible),
+            Err(_) => true,
+        },
+        None => true,
+    };
+    if changed {
         let _ = app.emit("background-window-visible", visible);
     }
 }

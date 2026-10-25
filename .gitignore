@@ -5,10 +5,3 @@ src-tauri/gen/schemas
 *.log
 .DS_Store
 /.minecraft-test
-
-# Local development artifacts
-/validation/
-/node_modules.before-rename/
-.env
-.env.*
-!.env.example

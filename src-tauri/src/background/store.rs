@@ -261,3 +261,24 @@ pub fn remove_copy(config: &Path, asset: &Asset) -> AppResult<()> {
     }
     Ok(())
 }
+
+/// 删除某个素材 id 生成的全部封面/缩略图缓存。
+/// 缓存文件名固定为 `<id>-<宽>x<高>-<mtime>-<size>.png`，只匹配 `<id>-` 前缀，
+/// 因此不会碰到其它素材或用户自己的文件。
+pub fn remove_covers(config: &Path, id: &str) -> AppResult<()> {
+    let dir = config.join("backgrounds/covers");
+    if !dir.is_dir() {
+        return Ok(());
+    }
+    let prefix = format!("{id}-");
+    for entry in std::fs::read_dir(&dir).at(&dir)? {
+        let entry = entry.at(&dir)?;
+        if !entry.file_name().to_string_lossy().starts_with(&prefix) {
+            continue;
+        }
+        if entry.file_type().at(&entry.path())?.is_file() {
+            std::fs::remove_file(entry.path()).at(&entry.path())?;
+        }
+    }
+    Ok(())
+}

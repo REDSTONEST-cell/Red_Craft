@@ -1,4 +1,4 @@
-use super::{model::*, steam, store};
+use super::{model::*, next_visibility, steam, store};
 use launcher_core::download::CancelToken;
 
 #[test]
@@ -383,6 +383,31 @@ fn static_cover_is_an_owned_single_frame_png() {
     );
     assert!(source.exists());
     assert_eq!(store::still_cover(dir.path(), &id, &source).unwrap(), cover);
+}
+
+#[test]
+fn window_visibility_is_only_broadcast_when_it_changes() {
+    let mut last = None;
+    assert!(next_visibility(&mut last, true));
+    assert!(!next_visibility(&mut last, true));
+    assert!(next_visibility(&mut last, false));
+    assert!(!next_visibility(&mut last, false));
+}
+
+#[test]
+fn removing_an_asset_cleans_only_its_cover_cache() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("source.png");
+    image::RgbImage::new(16, 9).save(&source).unwrap();
+    let kept = uuid::Uuid::new_v4().to_string();
+    let gone = uuid::Uuid::new_v4().to_string();
+    let kept_cover = store::still_cover(dir.path(), &kept, &source).unwrap();
+    let gone_cover = store::still_cover(dir.path(), &gone, &source).unwrap();
+    store::remove_covers(dir.path(), &gone).unwrap();
+    assert!(!gone_cover.exists());
+    assert!(kept_cover.exists());
+    // 没有缓存目录时也应是幂等的成功。
+    store::remove_covers(&dir.path().join("missing"), &gone).unwrap();
 }
 
 #[cfg(windows)]

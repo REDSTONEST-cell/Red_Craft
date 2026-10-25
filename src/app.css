@@ -95,13 +95,12 @@ body {
   --control-rule-strong: var(--rule-strong);
 }
 
-/* With a selected background, text and navigation sit directly over media.
-   Only interactive controls keep their original solid surfaces. */
+/* 设置背景后，文字和导航直接覆盖在视频/图片上，只有可交互控件保留实心底色。 */
 :root.has-background :is(.titlebar, .sidebar, .card) {
   background: transparent;
 }
 
-/* Bright foreground plus a dark edge remains legible over changing video frames. */
+/* 视频帧明暗变化大，用白色前景 + 深色描边保证可读性。 */
 :root.has-background .shell {
   --ink: #ffffff;
   --ink-2: #f4f6fa;
@@ -111,12 +110,13 @@ body {
     0 1px 1px #000, 0 2px 4px rgba(0, 0, 0, 0.9);
 }
 
-/* Remove decorative separators and transparent frames, keeping real controls. */
-.shell { --rule: transparent; --rule-strong: transparent; }
-.shell :is(.rule, .rule-double) { display: none; }
-#app .shell :is(.chip, .avatar-empty) { border-color: transparent; }
+/* 背景模式下保留结构性分隔线（页头下划线、报头双线、页脚上边线等），
+   用半透明白色适配视频；细微的纸色分隔线仍隐去，避免画面被切碎。
+   以下规则全部限定在 has-background，未设置背景的界面保持原报刊风。 */
+:root.has-background .shell { --rule: transparent; --rule-strong: rgba(255, 255, 255, 0.58); }
+:root.has-background #app .shell :is(.chip, .avatar-empty) { border-color: transparent; }
 
-/* Solid controls keep the selected theme's foreground and their own button colors. */
+/* 实心控件保留当前主题的前景色和按钮配色，避免白字落到纸色控件上。 */
 :root.has-background .shell :is(.btn:not(.ghost), .input, select, textarea, .seg,
   .java, .asset-grid article, .background-picker .status,
   .background-picker .error, .background-picker .empty, .toggle .track) {

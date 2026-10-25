@@ -67,6 +67,9 @@
       <span>{dateline()}</span>
       <span>Minecraft Java 版启动器</span>
     </div>
+    <hr class="rule-double" />
+    <h1 class="title">Red Craft</h1>
+    <hr class="rule-double" />
   </header>
 
   <div class="columns">
@@ -197,6 +200,14 @@
     letter-spacing: 0.12em;
     color: var(--muted);
     padding-bottom: 6px;
+  }
+  .title {
+    font-size: 64px;
+    line-height: 1;
+    text-align: center;
+    letter-spacing: 0.06em;
+    padding: 10px 0 8px;
+    font-weight: 900;
   }
   .columns {
     flex: 1;
