@@ -479,3 +479,167 @@ textarea.input {
     transform: rotate(360deg);
   }
 }
+
+/* ─── 形状：圆润（圆角、柔和阴影、浅色描边，类似 PCL2） ─── */
+
+:root[data-corner="rounded"] {
+  --radius: 8px;
+  --radius-lg: 12px;
+  --shadow: 0 6px 22px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08);
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.1);
+  --line: color-mix(in srgb, var(--ink) 16%, transparent);
+  --rule-strong: color-mix(in srgb, var(--ink) 22%, transparent);
+}
+:root[data-corner="rounded"][data-theme="dark"] {
+  --shadow: 0 6px 22px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+/* 按钮：去掉硬阴影，改为柔和投影与浅描边，悬停时轻微上浮 */
+:root[data-corner="rounded"] .btn {
+  transform: translateY(var(--lift));
+}
+:root[data-corner="rounded"] .btn::after {
+  display: none;
+}
+:root[data-corner="rounded"] .btn:not(.ghost)::before {
+  border-color: var(--line);
+  box-shadow: var(--shadow-sm);
+}
+:root[data-corner="rounded"] .btn.primary::before {
+  border-color: transparent;
+}
+:root[data-corner="rounded"] .btn:active {
+  --lift: 0px;
+}
+:root[data-corner="rounded"] :is(.input, select.input, textarea) {
+  border-width: 1px;
+  border-color: var(--line);
+}
+:root[data-corner="rounded"] :is(.input, select.input, textarea):focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+/* 浮层与卡片 */
+:root[data-corner="rounded"] :is(.modal, .toast, .task) {
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+:root[data-corner="rounded"] :is(.card, .box, .asset-grid article) {
+  border-radius: var(--radius-lg);
+  border-color: var(--line);
+  box-shadow: var(--shadow-sm);
+}
+:root[data-corner="rounded"] :is(.loader, .hit, .row, .chip, .swatch, .code span) {
+  border-radius: var(--radius);
+}
+:root[data-corner="rounded"] :is(.icon, .badge, .avatar, .brief article) {
+  border-radius: var(--radius);
+  border-color: var(--line);
+  box-shadow: none;
+}
+:root[data-corner="rounded"] :is(.tag, .chip) {
+  border-radius: 999px;
+}
+:root[data-corner="rounded"] .chip {
+  padding-left: 12px;
+  padding-right: 12px;
+}
+/* 分段选择、开关、进度条 */
+:root[data-corner="rounded"] .seg {
+  border-radius: var(--radius);
+  border-width: 1px;
+  border-color: var(--line);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+:root[data-corner="rounded"] .seg .thumb {
+  border-radius: calc(var(--radius) - 1px);
+  background: var(--accent);
+}
+:root[data-corner="rounded"] .seg button[aria-pressed="true"],
+:root[data-corner="rounded"] .seg button.active {
+  color: var(--accent-ink);
+}
+:root[data-corner="rounded"] .track,
+:root[data-corner="rounded"] .track::before {
+  border-radius: 999px;
+}
+:root[data-corner="rounded"] .track {
+  border-color: var(--line);
+}
+:root[data-corner="rounded"] .knob {
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+:root[data-corner="rounded"] :is(.bar, .bar .fill) {
+  border-radius: 999px;
+}
+:root[data-corner="rounded"] .bar {
+  border-width: 1px;
+  border-color: var(--line);
+}
+:root[data-corner="rounded"] .pixel {
+  border-radius: 3px;
+  box-shadow: none;
+}
+
+/* ─── 布局：极简（只突出主要内容，字号与可点区域更大） ─── */
+
+:root[data-layout="minimal"] body {
+  font-size: 15px;
+}
+:root[data-layout="minimal"] {
+  /* 次要文字更深，提升可读性 */
+  --muted: color-mix(in srgb, var(--ink) 62%, var(--paper));
+}
+/* 去掉装饰：英文小标题、像素方块、启动页报头与简讯栏 */
+:root[data-layout="minimal"] :is(.page-head .kicker, .lead > .kicker, .pixel:not(.titlebar .pixel)) {
+  display: none;
+}
+:root[data-layout="minimal"] :is(.masthead, .brief) {
+  display: none;
+}
+:root[data-layout="minimal"] .columns {
+  grid-template-columns: minmax(0, 1fr);
+  align-content: center;
+}
+:root[data-layout="minimal"] .headline {
+  font-size: 60px;
+}
+:root[data-layout="minimal"] .deck {
+  font-size: 20px;
+}
+:root[data-layout="minimal"] .page-head h1 {
+  font-size: 34px;
+}
+:root[data-layout="minimal"] .page-head .sub {
+  font-size: 13.5px;
+}
+/* 列表只保留名称、简介和关键信息 */
+:root[data-layout="minimal"] :is(.hit .meta .tag, .hit .title .muted) {
+  display: none;
+}
+:root[data-layout="minimal"] .btn {
+  height: 36px;
+  font-size: 14px;
+}
+:root[data-layout="minimal"] .btn.sm {
+  height: 30px;
+  font-size: 13px;
+}
+:root[data-layout="minimal"] .input,
+:root[data-layout="minimal"] select.input {
+  height: 38px;
+  font-size: 14.5px;
+}
+:root[data-layout="minimal"] .sidebar :is(button, a) span {
+  font-size: 12.5px;
+}
+:root[data-layout="minimal"] .lg-btn {
+  height: 60px;
+  min-width: 240px;
+  font-size: 20px;
+}

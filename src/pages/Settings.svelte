@@ -379,6 +379,28 @@
         <input type="color" class="picker" value={s.accent} onchange={(e) => save({ accent: e.currentTarget.value })} title="自定义颜色" />
       </div>
     </div>
+    <div class="row">
+      <div class="desc"><strong>形状</strong><span class="help">利落：直角与硬朗线条的报刊风；圆润：圆角与柔和阴影，类似 PCL2</span></div>
+      <Segmented
+        value={s.corner}
+        options={[
+          { value: "sharp", label: "利落" },
+          { value: "rounded", label: "圆润" },
+        ]}
+        onchange={(v) => save({ corner: v })}
+      />
+    </div>
+    <div class="row">
+      <div class="desc"><strong>布局</strong><span class="help">极简：去掉报头与装饰，只突出主要内容，字号更大</span></div>
+      <Segmented
+        value={s.layout}
+        options={[
+          { value: "standard", label: "标准" },
+          { value: "minimal", label: "极简" },
+        ]}
+        onchange={(v) => save({ layout: v })}
+      />
+    </div>
     <BackgroundPicker />
   </section>
 

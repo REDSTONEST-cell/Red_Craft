@@ -39,6 +39,8 @@
     const dark = theme === "dark" || (theme === "system" && systemDark);
     const root = document.documentElement;
     root.dataset.theme = dark ? "dark" : "light";
+    root.dataset.corner = s?.corner ?? "sharp";
+    root.dataset.layout = s?.layout ?? "standard";
     const accent = s?.accent || "#E8590C";
     root.style.setProperty("--accent", accent);
     root.style.setProperty("--accent-ink", readableOn(accent));

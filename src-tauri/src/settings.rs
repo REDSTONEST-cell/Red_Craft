@@ -52,6 +52,24 @@ pub enum Theme {
     Dark,
 }
 
+/// 界面形状：利落（直角、硬阴影，报刊风）或圆润（圆角、柔和阴影，类似 PCL2）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum Corner {
+    #[default]
+    Sharp,
+    Rounded,
+}
+
+/// 界面布局：标准，或只突出主要内容、字号更大的极简。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum Layout {
+    #[default]
+    Standard,
+    Minimal,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Settings {
@@ -77,6 +95,8 @@ pub struct Settings {
     pub after_launch: AfterLaunch,
     pub theme: Theme,
     pub accent: String,
+    pub corner: Corner,
+    pub layout: Layout,
     pub selected_instance: Option<String>,
     pub selected_account: Option<String>,
     /// 微软登录使用的 Azure 应用 Client ID；为空时使用编译时内置的值
@@ -128,6 +148,8 @@ impl Default for Settings {
             after_launch: AfterLaunch::Hide,
             theme: Theme::System,
             accent: "#E8590C".into(),
+            corner: Corner::default(),
+            layout: Layout::default(),
             selected_instance: None,
             selected_account: None,
             ms_client_id: String::new(),

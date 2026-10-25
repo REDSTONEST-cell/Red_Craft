@@ -28,6 +28,8 @@ export interface Settings {
   afterLaunch: AfterLaunch;
   theme: Theme;
   accent: string;
+  corner: "sharp" | "rounded";
+  layout: "standard" | "minimal";
   selectedInstance: string | null;
   selectedAccount: string | null;
   msClientId: string;
