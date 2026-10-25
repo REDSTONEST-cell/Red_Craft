@@ -25,6 +25,7 @@ log.workspace = true
 dirs = "6"
 reqwest.workspace = true
 tempfile = "3"
+percent-encoding = "2"
 uuid = { version = "1", features = ["v4", "v5"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 

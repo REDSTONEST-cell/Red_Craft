@@ -28,7 +28,7 @@
     ],
     "security": {
       "assetProtocol": { "enable": true, "scope": [] },
-      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost https://asset.localhost data: https://cdn.modrinth.com https://*.modrinth.com https://media.forgecdn.net https://*.forgecdn.net https://textures.minecraft.net; media-src 'self' asset: http://asset.localhost https://asset.localhost; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost"
+      "csp": "default-src 'self'; img-src 'self' rcicon: http://rcicon.localhost asset: http://asset.localhost https://asset.localhost data: https://cdn.modrinth.com https://*.modrinth.com https://media.forgecdn.net https://*.forgecdn.net https://textures.minecraft.net; media-src 'self' asset: http://asset.localhost https://asset.localhost; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost"
     }
   },
   "bundle": {

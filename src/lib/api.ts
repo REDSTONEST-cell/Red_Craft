@@ -116,6 +116,8 @@ export interface ProjectHit {
   description: string;
   author: string;
   iconUrl: string | null;
+  /** 简介的中文翻译（MCIM），搜索后由前端补充 */
+  zhDescription?: string;
   downloads: number;
   categories: string[];
   contentType: ContentType;
@@ -429,6 +431,8 @@ export const api = {
   yggCancel: (flowId: number) => call<void>("ygg_cancel", { flowId }),
   yggRefreshAccount: (id: string) => call<Account>("ygg_refresh_account", { id }),
 
+  contentTranslations: (platform: Platform, ids: string[]) =>
+    call<Record<string, string>>("content_translations", { platform, ids }),
   contentSearch: (platform: Platform, query: SearchQuery) =>
     call<{ hits: ProjectHit[]; total: number }>("content_search", { platform, query }),
   contentInstance: (id: string) => call<InstanceContext>("content_instance", { id }),

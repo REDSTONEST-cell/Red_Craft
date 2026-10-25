@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { iconSrc, zhName } from "../lib/zh";
   // 项目详情：只列出兼容当前实例的版本，可一键安装最新兼容版本。
   import { api, type ContentVersion, type ProjectHit } from "../lib/api";
   import { count, date } from "../lib/format";
@@ -39,12 +40,13 @@
   const typeLabel: Record<string, string> = { release: "正式", beta: "测试", alpha: "早期" };
 </script>
 
-<Modal bind:open title={project?.title ?? ""} kicker={project?.platform === "curseforge" ? "CURSEFORGE" : "MODRINTH"} width={720}>
+<Modal bind:open title={project ? (zhName(project.title, project.slug) ?? project.title) : ""} kicker={project?.platform === "curseforge" ? "CURSEFORGE" : "MODRINTH"} width={720}>
   {#if project}
     <div class="head">
-      {#if project.iconUrl}<img src={project.iconUrl} alt="" class="icon" />{:else}<span class="icon blank"></span>{/if}
+      {#if project.iconUrl}<img src={iconSrc(project.iconUrl)} alt="" class="icon" />{:else}<span class="icon blank"></span>{/if}
       <div>
-        <p class="desc">{project.description}</p>
+        <p class="desc">{project.zhDescription ?? project.description}</p>
+        {#if project.zhDescription}<p class="muted small">{project.description}</p>{/if}
         <p class="muted small">
           {#if project.author}{project.author} · {/if}{count(project.downloads)} 次下载 · 更新于 {date(project.updated)}
         </p>

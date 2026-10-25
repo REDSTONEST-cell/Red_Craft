@@ -599,3 +599,76 @@ pub async fn mods_update(
         Ok(())
     }))
 }
+
+// ───────────── 图标与中文简介 ─────────────
+
+/// 批量获取简介的中文翻译（MCIM）。按平台与 id 缓存在内存中，失败的 id 下次再试。
+#[tauri::command]
+pub async fn content_translations(
+    state: State<'_, AppState>,
+    platform: Platform,
+    ids: Vec<String>,
+) -> AppResult<std::collections::HashMap<String, String>> {
+    let key = |id: &str| format!("{platform:?}:{id}");
+    let mut out = std::collections::HashMap::new();
+    let mut missing = Vec::new();
+    if let Ok(cache) = state.translations.lock() {
+        for id in ids {
+            match cache.get(&key(&id)) {
+                Some(t) => {
+                    out.insert(id, t.clone());
+                }
+                None => missing.push(id),
+            }
+        }
+    }
+    if !missing.is_empty() {
+        let http = state.http()?;
+        let fetched = launcher_core::content::media::translations(http.raw(), platform, &missing).await;
+        if let Ok(mut cache) = state.translations.lock() {
+            for (id, t) in &fetched {
+                cache.insert(key(id), t.clone());
+            }
+        }
+        out.extend(fetched);
+    }
+    Ok(out)
+}
+
+/// `rcicon://` 协议：前端以 `rcicon://localhost/<编码后的图标地址>` 加载资源图标。
+/// 先读磁盘缓存，没有时同时请求官方地址与 MCIM 镜像。
+pub async fn serve_icon(app: AppHandle, request: tauri::http::Request<Vec<u8>>) -> tauri::http::Response<Vec<u8>> {
+    use launcher_core::content::media::{fetch_icon, image_mime, is_icon_url};
+    let not_found = || tauri::http::Response::builder().status(404).body(Vec::new()).unwrap();
+    let path = request.uri().path().trim_start_matches('/');
+    let Ok(url) = percent_encoding::percent_decode_str(path).decode_utf8() else {
+        return not_found();
+    };
+    let url = url.to_string();
+    if !is_icon_url(&url) {
+        return not_found();
+    }
+    let state = app.state::<AppState>();
+    let dir = state.paths.config_dir.join("cache").join("icons");
+    let file = dir.join(launcher_core::download::sha1_bytes(url.as_bytes()));
+    let bytes = match tokio::fs::read(&file).await {
+        Ok(b) if image_mime(&b).is_some() => Some(b),
+        _ => {
+            let Ok(http) = state.http() else { return not_found() };
+            let fetched = fetch_icon(http.raw(), &url).await;
+            if let Some(b) = &fetched {
+                let _ = tokio::fs::create_dir_all(&dir).await;
+                let _ = tokio::fs::write(&file, b).await;
+            }
+            fetched
+        }
+    };
+    match bytes {
+        Some(b) => tauri::http::Response::builder()
+            .header("Content-Type", image_mime(&b).unwrap_or("application/octet-stream"))
+            .header("Cache-Control", "max-age=604800")
+            .body(b)
+            .unwrap(),
+        None => not_found(),
+    }
+}

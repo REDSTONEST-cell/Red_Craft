@@ -20,6 +20,7 @@
   import InstalledMods from "../components/InstalledMods.svelte";
   import Icon from "../components/Icon.svelte";
   import Toggle from "../components/Toggle.svelte";
+  import { iconSrc, zhName, zhQuery } from "../lib/zh";
 
   function stored<T extends string>(key: string, fallback: T): T {
     try {
@@ -52,6 +53,8 @@
   let loading = $state(false);
   let error = $state<{ message: string; hint: string } | null>(null);
   let generation = 0;
+  // 中文关键词转换后的提示，例如「机械动力 → Create」
+  const converted = $derived(tab === "installed" ? null : zhQuery(query));
 
   $effect(() => store("rc.platform", platform));
   $effect(() => store("rc.contentTab", tab));
@@ -77,7 +80,7 @@
     error = null;
     try {
       const res = await api.contentSearch(platform, {
-        query: query.trim(),
+        query: converted?.query ?? query.trim(),
         contentType: searchType,
         gameVersion: useFilter ? ctx!.mcVersion : null,
         loader: useFilter ? ctx!.loader : null,
@@ -88,6 +91,7 @@
       if (gen !== generation) return;
       hits = reset ? res.hits : [...hits, ...res.hits];
       total = res.total;
+      translate(res.hits, gen);
     } catch (e) {
       if (gen !== generation) return;
       const err = e as { message: string; hint: string };
@@ -95,6 +99,19 @@
       if (reset) hits = [];
     } finally {
       if (gen === generation) loading = false;
+    }
+  }
+
+  // 补充简介的中文翻译（失败时保持英文）
+  async function translate(list: ProjectHit[], gen: number) {
+    if (!list.length) return;
+    const p = list[0].platform;
+    try {
+      const map = await api.contentTranslations(p, list.map((h) => h.id));
+      if (gen !== generation) return;
+      hits = hits.map((h) => (h.platform === p && map[h.id] ? { ...h, zhDescription: map[h.id] } : h));
+    } catch {
+      /* 翻译不可用时保持英文 */
     }
   }
 
@@ -181,7 +198,7 @@
     {#if tab !== "installed"}
     <div class="search">
       <Icon name="search" size={14} />
-      <input class="input" placeholder={`搜索${tabs.find((t) => t.value === tab)?.label}…`} bind:value={query} />
+      <input class="input" placeholder={`搜索${tabs.find((t) => t.value === tab)?.label}，支持常见中文名…`} bind:value={query} />
     </div>
     <select class="input sort" bind:value={sort}>
       <option value="relevance">相关度</option>
@@ -217,18 +234,20 @@
     {:else}
       <VirtualList items={hits} rowHeight={84} key={(h) => `${h.platform}:${h.id}`} onEnd={() => search(false)}>
         {#snippet row(h)}
+          {@const zh = zhName(h.title, h.slug)}
           <button class="hit" onclick={() => openDetail(h)}>
             {#if h.iconUrl}
-              <img src={h.iconUrl} alt="" loading="lazy" class="icon" />
+              <img src={iconSrc(h.iconUrl)} alt="" loading="lazy" class="icon" />
             {:else}
               <span class="icon blank"><Icon name="cube" size={20} /></span>
             {/if}
             <div class="main">
               <div class="title">
-                <strong>{h.title}</strong>
+                <strong>{zh ?? h.title}</strong>
+                {#if zh}<span class="en">{h.title}</span>{/if}
                 {#if h.author}<span class="muted small">by {h.author}</span>{/if}
               </div>
-              <p class="desc">{h.description}</p>
+              <p class="desc" title={h.zhDescription ? h.description : undefined}>{h.zhDescription ?? h.description}</p>
               <div class="meta">
                 <span class="mono small"><Icon name="download" size={11} /> {count(h.downloads)}</span>
                 <span class="muted small">更新于 {date(h.updated)}</span>
@@ -241,6 +260,7 @@
     {/if}
   </div>
   <div class="foot muted small">
+    {#if converted}已按「{converted.from}」搜索 {converted.query} · {/if}
     {#if loading}加载中…{:else if total}共 {count(total)} 个结果，已显示 {hits.length} 个{/if}
   </div>
   {/if}
@@ -359,6 +379,11 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .title .en {
+    font-size: 12px;
+    color: var(--muted);
+    white-space: nowrap;
   }
   .desc {
     font-size: 12px;

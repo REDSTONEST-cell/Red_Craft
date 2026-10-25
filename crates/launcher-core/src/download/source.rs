@@ -38,6 +38,7 @@ const MIRRORS: &[(&str, &str)] = &[
     ("https://api.curseforge.com", "https://mod.mcimirror.top/curseforge"),
     ("https://edge.forgecdn.net", MCIM),
     ("https://mediafilez.forgecdn.net", MCIM),
+    ("https://media.forgecdn.net", MCIM),
 ];
 
 /// 返回 URL 对应的镜像地址；没有镜像时返回 `None`。

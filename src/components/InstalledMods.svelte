@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { zhName } from "../lib/zh";
   // 已安装 Mod：启用 / 禁用、删除、检查更新。
   import { api, type LocalMod, type ModUpdate } from "../lib/api";
   import { showError, toast, waitTask } from "../lib/state.svelte";
@@ -139,7 +140,7 @@
             {/if}
             <div class="main">
               <div class="title">
-                <strong>{m.name}</strong>
+                <strong title={zhName(m.name) ? m.name : undefined}>{zhName(m.name) ?? m.name}</strong>
                 <span class="mono small muted">{m.version}</span>
                 {#if m.loader}<span class="tag">{LOADER_LABEL[m.loader] ?? m.loader}</span>{/if}
                 {#if up}<span class="tag accent">可更新到 {up.latest.versionNumber}</span>{/if}

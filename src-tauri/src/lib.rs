@@ -31,6 +31,12 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(state)
+        .register_asynchronous_uri_scheme_protocol("rcicon", |ctx, request, responder| {
+            let app = ctx.app_handle().clone();
+            tauri::async_runtime::spawn(async move {
+                responder.respond(content::serve_icon(app, request).await);
+            });
+        })
         .setup(|app| {
             // 保险：前端若因异常没有通知就绪，2 秒后仍然显示窗口
             let handle = app.handle().clone();
@@ -50,6 +56,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            content::content_translations,
             background::background_list,
             background::background_resolve,
             background::background_thumbnail,
