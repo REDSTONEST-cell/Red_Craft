@@ -482,7 +482,7 @@ textarea.input {
 
 /* ─── 形状：圆润（圆角、柔和阴影、浅色描边，类似 PCL2） ─── */
 
-:root[data-corner="rounded"] {
+:root:is([data-corner="rounded"], [data-corner="glass"]) {
   --radius: 8px;
   --radius-lg: 12px;
   --shadow: 0 6px 22px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08);
@@ -490,98 +490,98 @@ textarea.input {
   --line: color-mix(in srgb, var(--ink) 16%, transparent);
   --rule-strong: color-mix(in srgb, var(--ink) 22%, transparent);
 }
-:root[data-corner="rounded"][data-theme="dark"] {
+:root:is([data-corner="rounded"], [data-corner="glass"])[data-theme="dark"] {
   --shadow: 0 6px 22px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.3);
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.35);
 }
 /* 按钮：去掉硬阴影，改为柔和投影与浅描边，悬停时轻微上浮 */
-:root[data-corner="rounded"] .btn {
+:root:is([data-corner="rounded"], [data-corner="glass"]) .btn {
   transform: translateY(var(--lift));
 }
-:root[data-corner="rounded"] .btn::after {
+:root:is([data-corner="rounded"], [data-corner="glass"]) .btn::after {
   display: none;
 }
-:root[data-corner="rounded"] .btn:not(.ghost)::before {
+:root:is([data-corner="rounded"], [data-corner="glass"]) .btn:not(.ghost)::before {
   border-color: var(--line);
   box-shadow: var(--shadow-sm);
 }
-:root[data-corner="rounded"] .btn.primary::before {
+:root:is([data-corner="rounded"], [data-corner="glass"]) .btn.primary::before {
   border-color: transparent;
 }
-:root[data-corner="rounded"] .btn:active {
+:root:is([data-corner="rounded"], [data-corner="glass"]) .btn:active {
   --lift: 0px;
 }
-:root[data-corner="rounded"] :is(.input, select.input, textarea) {
+:root:is([data-corner="rounded"], [data-corner="glass"]) :is(.input, select.input, textarea) {
   border-width: 1px;
   border-color: var(--line);
 }
-:root[data-corner="rounded"] :is(.input, select.input, textarea):focus {
+:root:is([data-corner="rounded"], [data-corner="glass"]) :is(.input, select.input, textarea):focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 /* 浮层与卡片 */
-:root[data-corner="rounded"] :is(.modal, .toast, .task) {
+:root:is([data-corner="rounded"], [data-corner="glass"]) :is(.modal, .toast, .task) {
   border-radius: var(--radius-lg);
   border: 1px solid var(--line);
   box-shadow: var(--shadow);
   overflow: hidden;
 }
-:root[data-corner="rounded"] :is(.card, .box, .asset-grid article) {
+:root:is([data-corner="rounded"], [data-corner="glass"]) :is(.card, .box, .asset-grid article) {
   border-radius: var(--radius-lg);
   border-color: var(--line);
   box-shadow: var(--shadow-sm);
 }
-:root[data-corner="rounded"] :is(.loader, .hit, .row, .chip, .swatch, .code span) {
+:root:is([data-corner="rounded"], [data-corner="glass"]) :is(.loader, .hit, .row, .chip, .swatch, .code span) {
   border-radius: var(--radius);
 }
-:root[data-corner="rounded"] :is(.icon, .badge, .avatar, .brief article) {
+:root:is([data-corner="rounded"], [data-corner="glass"]) :is(.icon, .badge, .avatar, .brief article) {
   border-radius: var(--radius);
   border-color: var(--line);
   box-shadow: none;
 }
-:root[data-corner="rounded"] :is(.tag, .chip) {
+:root:is([data-corner="rounded"], [data-corner="glass"]) :is(.tag, .chip) {
   border-radius: 999px;
 }
-:root[data-corner="rounded"] .chip {
+:root:is([data-corner="rounded"], [data-corner="glass"]) .chip {
   padding-left: 12px;
   padding-right: 12px;
 }
 /* 分段选择、开关、进度条 */
-:root[data-corner="rounded"] .seg {
+:root:is([data-corner="rounded"], [data-corner="glass"]) .seg {
   border-radius: var(--radius);
   border-width: 1px;
   border-color: var(--line);
   overflow: hidden;
   box-shadow: var(--shadow-sm);
 }
-:root[data-corner="rounded"] .seg .thumb {
+:root:is([data-corner="rounded"], [data-corner="glass"]) .seg .thumb {
   border-radius: calc(var(--radius) - 1px);
   background: var(--accent);
 }
-:root[data-corner="rounded"] .seg button[aria-pressed="true"],
-:root[data-corner="rounded"] .seg button.active {
+:root:is([data-corner="rounded"], [data-corner="glass"]) .seg button[aria-pressed="true"],
+:root:is([data-corner="rounded"], [data-corner="glass"]) .seg button.active {
   color: var(--accent-ink);
 }
-:root[data-corner="rounded"] .track,
-:root[data-corner="rounded"] .track::before {
+:root:is([data-corner="rounded"], [data-corner="glass"]) .track,
+:root:is([data-corner="rounded"], [data-corner="glass"]) .track::before {
   border-radius: 999px;
 }
-:root[data-corner="rounded"] .track {
+:root:is([data-corner="rounded"], [data-corner="glass"]) .track {
   border-color: var(--line);
 }
-:root[data-corner="rounded"] .knob {
+:root:is([data-corner="rounded"], [data-corner="glass"]) .knob {
   border-radius: 50%;
   background: #fff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
-:root[data-corner="rounded"] :is(.bar, .bar .fill) {
+:root:is([data-corner="rounded"], [data-corner="glass"]) :is(.bar, .bar .fill) {
   border-radius: 999px;
 }
-:root[data-corner="rounded"] .bar {
+:root:is([data-corner="rounded"], [data-corner="glass"]) .bar {
   border-width: 1px;
   border-color: var(--line);
 }
-:root[data-corner="rounded"] .pixel {
+:root:is([data-corner="rounded"], [data-corner="glass"]) .pixel {
   border-radius: 3px;
   box-shadow: none;
 }
@@ -662,4 +662,114 @@ textarea.input {
   background: rgba(12, 11, 9, 0.38);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
+}
+
+/* ─── 形状：毛玻璃（在圆润的基础上：半透明虚化面板、细亮描边、无衬线标题，Apple 风格） ─── */
+
+:root[data-corner="glass"] {
+  --radius: 10px;
+  --radius-lg: 16px;
+  --serif: var(--sans);
+  --glass: color-mix(in srgb, var(--card) 58%, transparent);
+  --glass-strong: color-mix(in srgb, var(--card) 76%, transparent);
+  --glass-edge: rgba(255, 255, 255, 0.55);
+  --glass-blur: blur(22px) saturate(180%);
+  --line: rgba(0, 0, 0, 0.08);
+  --rule: rgba(0, 0, 0, 0.07);
+  --rule-strong: rgba(0, 0, 0, 0.12);
+  --shadow: 0 12px 40px rgba(0, 0, 0, 0.14), 0 2px 6px rgba(0, 0, 0, 0.06);
+  --shadow-sm: 0 4px 14px rgba(0, 0, 0, 0.08);
+}
+:root[data-corner="glass"][data-theme="dark"] {
+  --glass-edge: rgba(255, 255, 255, 0.1);
+  --line: rgba(255, 255, 255, 0.1);
+  --rule: rgba(255, 255, 255, 0.08);
+  --rule-strong: rgba(255, 255, 255, 0.14);
+  --shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+/* 没有自定义背景时铺一层柔和的渐变「壁纸」，让毛玻璃有可虚化的内容 */
+:root[data-corner="glass"] body {
+  background:
+    radial-gradient(1200px 800px at 8% 0%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 60%),
+    radial-gradient(900px 700px at 100% 20%, rgba(120, 160, 255, 0.28), transparent 60%),
+    radial-gradient(1000px 800px at 60% 110%, rgba(255, 140, 190, 0.22), transparent 60%),
+    var(--paper);
+}
+:root[data-corner="glass"][data-theme="dark"] body {
+  background:
+    radial-gradient(1200px 800px at 8% 0%, color-mix(in srgb, var(--accent) 28%, transparent), transparent 60%),
+    radial-gradient(900px 700px at 100% 20%, rgba(70, 100, 220, 0.3), transparent 60%),
+    radial-gradient(1000px 800px at 60% 110%, rgba(200, 70, 140, 0.22), transparent 60%),
+    #0d0c10;
+}
+/* 标题栏与侧栏：通透的玻璃 */
+:root[data-corner="glass"] :is(.titlebar, .sidebar) {
+  background: var(--glass);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-color: var(--line);
+}
+/* 卡片、列表行、输入框、分段选择、按钮：玻璃面板 */
+:root[data-corner="glass"] :is(.card, .box, .asset-grid article, .seg, .input, select.input, textarea, .brief article) {
+  background: var(--glass);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-edge);
+}
+:root[data-corner="glass"] .btn:not(.primary):not(.ghost)::before {
+  background: var(--glass-strong);
+  border: 1px solid var(--glass-edge);
+}
+:root[data-corner="glass"] :is(.hit, .row):hover {
+  background: color-mix(in srgb, var(--card) 45%, transparent);
+}
+/* 浮层：更实的玻璃，确保可读 */
+:root[data-corner="glass"] :is(.modal, .toast, .task) {
+  background: var(--glass-strong);
+  backdrop-filter: blur(30px) saturate(180%);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius-lg);
+}
+:root[data-corner="glass"] .backdrop {
+  background: rgba(0, 0, 0, 0.18);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+/* 标题更「Apple」：无衬线粗体，紧凑字距 */
+:root[data-corner="glass"] :is(h1, h2, .headline, .page-head h1) {
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+:root[data-corner="glass"] .kicker {
+  letter-spacing: 0.06em;
+}
+
+/* 毛玻璃 + 自定义背景：内容区整体是一块玻璃，文字恢复主题颜色，不再使用白字黑描边 */
+:root[data-corner="glass"].has-background .shell {
+  --ink: var(--control-ink);
+  --ink-2: var(--control-ink-2);
+  --muted: var(--control-muted);
+  --rule: var(--line);
+  --rule-strong: var(--line);
+  color: var(--ink);
+  text-shadow: none;
+}
+:root[data-corner="glass"].has-background .shell .kicker {
+  color: var(--accent);
+}
+:root[data-corner="glass"].has-background .shell :is(.titlebar, .sidebar) {
+  background: var(--glass);
+}
+:root[data-corner="glass"].has-background .content {
+  margin: 10px 12px 12px 10px;
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--card) 62%, transparent);
+  backdrop-filter: blur(26px) saturate(170%);
+  -webkit-backdrop-filter: blur(26px) saturate(170%);
+  border: 1px solid var(--glass-edge);
+  box-shadow: var(--shadow);
+}
+:root[data-corner="glass"].has-background .sidebar svg {
+  filter: none;
 }

@@ -28,7 +28,7 @@ export interface Settings {
   afterLaunch: AfterLaunch;
   theme: Theme;
   accent: string;
-  corner: "sharp" | "rounded";
+  corner: "sharp" | "rounded" | "glass";
   layout: "standard" | "minimal";
   selectedInstance: string | null;
   selectedAccount: string | null;

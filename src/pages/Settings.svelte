@@ -380,12 +380,13 @@
       </div>
     </div>
     <div class="row">
-      <div class="desc"><strong>形状</strong><span class="help">利落：直角与硬朗线条的报刊风；圆润：圆角与柔和阴影，类似 PCL2</span></div>
+      <div class="desc"><strong>形状</strong><span class="help">利落：直角与硬朗线条的报刊风；圆润：圆角与柔和阴影，类似 PCL2；毛玻璃：半透明虚化面板，Apple 风格</span></div>
       <Segmented
         value={s.corner}
         options={[
           { value: "sharp", label: "利落" },
           { value: "rounded", label: "圆润" },
+          { value: "glass", label: "毛玻璃" },
         ]}
         onchange={(v) => save({ corner: v })}
       />

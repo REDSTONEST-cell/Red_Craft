@@ -52,13 +52,14 @@ pub enum Theme {
     Dark,
 }
 
-/// 界面形状：利落（直角、硬阴影，报刊风）或圆润（圆角、柔和阴影，类似 PCL2）。
+/// 界面形状：利落（直角、硬阴影，报刊风）、圆润（圆角、柔和阴影，类似 PCL2）或毛玻璃（半透明虚化面板，Apple 风格）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum Corner {
     #[default]
     Sharp,
     Rounded,
+    Glass,
 }
 
 /// 界面布局：标准，或只突出主要内容、字号更大的极简。
