@@ -45,6 +45,18 @@ export interface Settings {
   preLaunchCommand: string;
   preLaunchWait: boolean;
   highPerformanceGpu: boolean;
+  autoCheckUpdate: boolean;
+  skippedUpdate: string;
+}
+
+export interface UpdateInfo {
+  version: string;
+  current: string;
+  notes: string;
+  pageUrl: string;
+  kind: "nsis" | "msi" | "portable" | "appImage" | "manual";
+  canInstall: boolean;
+  size: number;
 }
 
 export interface ExportEntry {
@@ -474,6 +486,9 @@ export const api = {
   installModpack: (source: PackSource, name: string | null) => call<number>("install_modpack", { source, name }),
   exportEntries: (instance: string) => call<ExportEntry[]>("export_entries", { instance }),
   exportModpack: (req: ExportRequest) => call<number>("export_modpack", { req }),
+  checkUpdate: () => call<UpdateInfo | null>("check_update"),
+  downloadUpdate: () => call<number>("download_update"),
+  applyUpdate: () => call<void>("apply_update"),
 
   modsList: (instance: string) => call<LocalMod[]>("mods_list", { instance }),
   modSetEnabled: (instance: string, filename: string, enabled: boolean) =>

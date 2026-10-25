@@ -814,3 +814,14 @@ textarea.input {
   -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-edge);
 }
+
+/* 毛玻璃 + 自定义背景：直接模糊背景视频 / 图片本身。
+   WebView2 播放视频时常走独立的硬件图层，面板的 backdrop-filter 采样不到视频画面，
+   只剩半透明；模糊媒体本身则在任何情况下都有磨砂效果。用户设置的模糊度更大时以用户设置为准。 */
+:root[data-corner="glass"].has-background .background-media .media {
+  --glass-media-blur: max(var(--blur), 28px);
+  inset: -64px;
+  width: calc(100% + 128px);
+  height: calc(100% + 128px);
+  filter: brightness(var(--brightness)) blur(var(--glass-media-blur));
+}

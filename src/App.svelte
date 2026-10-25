@@ -13,6 +13,8 @@
   import Accounts from "./pages/Accounts.svelte";
   import Settings from "./pages/Settings.svelte";
   import ModpackInstall from "./components/ModpackInstall.svelte";
+  import UpdateDialog from "./components/UpdateDialog.svelte";
+  import { checkUpdate } from "./lib/update.svelte";
   import { getCurrentWebview } from "@tauri-apps/api/webview";
   import type { ModpackInfo, PackSource } from "./lib/api";
   import { app, init, showError } from "./lib/state.svelte";
@@ -112,6 +114,8 @@
         // 注意：窗口隐藏时 requestAnimationFrame 不会触发，这里用 tick + setTimeout
         await tick();
         setTimeout(() => api.appReady().catch(() => {}), 16);
+        // 启动后稍等再检查更新，不影响启动速度
+        if (app.settings?.autoCheckUpdate) setTimeout(() => checkUpdate(false), 3000);
       });
   });
 
@@ -162,6 +166,7 @@
     </div>
   </div>
 {/if}
+<UpdateDialog />
 <ModpackInstall bind:open={dropOpen} source={dropSource} title={dropInfo?.name ?? ""} info={dropInfo} />
 
 <Toasts />

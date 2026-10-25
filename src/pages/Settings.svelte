@@ -7,6 +7,7 @@
   import Icon from "../components/Icon.svelte";
   import BackgroundPicker from "../components/BackgroundPicker.svelte";
   import { page } from "../lib/motion";
+  import { updater, checkUpdate } from "../lib/update.svelte";
 
   // 本地副本：文本框编辑时不立即写盘，失焦后保存
   let s = $state<Settings>(structuredClone($state.snapshot(app.settings!)));
@@ -495,6 +496,17 @@
         <strong>{app.info?.name} {app.info?.version}</strong>
         <span class="help">配置目录：<span class="mono">{app.info?.configDir}</span></span>
       </div>
+      <button class="btn sm" disabled={updater.checking} onclick={() => checkUpdate(true)}>
+        <span class:spin={updater.checking}><Icon name="refresh" size={12} /></span>
+        {updater.checking ? "检查中…" : "检查更新"}
+      </button>
+    </div>
+    <div class="row">
+      <div class="desc">
+        <strong>自动检查更新</strong>
+        <span class="help">启动时检查是否有新的正式版，发现新版本时先弹窗确认，确认后才下载并安装。</span>
+      </div>
+      <Toggle checked={s.autoCheckUpdate} onchange={(v) => save({ autoCheckUpdate: v, skippedUpdate: "" })} />
     </div>
   </section>
 </div>

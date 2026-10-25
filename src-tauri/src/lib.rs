@@ -12,6 +12,7 @@ mod secrets;
 mod settings;
 mod state;
 mod tasks;
+mod updater;
 mod ygg;
 mod zh_names;
 
@@ -39,6 +40,7 @@ pub fn run() {
             });
         })
         .setup(|app| {
+            updater::cleanup(&app.state::<AppState>());
             // 保险：前端若因异常没有通知就绪，2 秒后仍然显示窗口
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -118,6 +120,9 @@ pub fn run() {
             content::install_modpack,
             content::export_entries,
             content::export_modpack,
+            updater::check_update,
+            updater::download_update,
+            updater::apply_update,
             content::mods_list,
             content::mod_set_enabled,
             content::mod_delete,

@@ -1,6 +1,8 @@
 # Red Craft
 
-一个轻量、快速的 Minecraft Java 版启动器。Tauri 2 + Rust + Svelte 5，简洁报刊风界面。
+一个轻量、快速的 Minecraft Java 版启动器。Tauri 2 + Rust + Svelte 5，可选报刊风、圆润（类似 PCL2）与毛玻璃界面。
+
+当前正式版：**1.0.0**。下载见 [Releases](https://github.com/REDSTONEST-cell/Red_Craft/releases)。
 
 主要面向 Windows，同时支持 macOS 与 Linux。
 
@@ -15,7 +17,7 @@
 | 5 | Fabric / Quilt / Forge / NeoForge | ✅ |
 | 6 | Mod / 材质包 / 光影包 / 整合包下载（Modrinth、CurseForge）、前置依赖解析、已安装 Mod 管理 | ✅ |
 | 7 | 界面打磨与动效（含深色主题） | ✅ |
-| 8 | 打包（NSIS / MSI） | CI 已配置 |
+| 8 | 打包（NSIS / MSI / 单文件版 / dmg / deb / AppImage） | ✅ |
 
 已实现的功能：
 
@@ -38,8 +40,9 @@
 - **从其他启动器导入**：识别官方启动器、Prism Launcher、MultiMC、HMCL（全局账号），或手动选择 HMCL / PCL / .minecraft 文件夹；识别实例的游戏版本（含被重命名的版本）、加载器、Mod 与存档数量。导入时重新安装相同的版本与加载器（强制版本隔离），再复制用户数据，原文件不改动；可同时导入离线账号。一次导入多个实例时排队进行（同时最多 2 个）。
 - **OptiFine 与光影加载器**：新建实例时可选 OptiFine（BMCLAPI；原版用 OptiFine 自带补丁程序 + LaunchWrapper 安装，Forge 放进 mods 并自动选择推荐的 Forge 版本），或 Iris（Fabric / Quilt / NeoForge）/ Oculus（Forge）及其前置。
 - **自定义背景**：在「设置 → 外观」导入本地图片（JPG / PNG / WebP）或视频（MP4 / WebM），或扫描 Steam 中 Wallpaper Engine 的视频壁纸；可调亮度、透明度、模糊与遮罩，预览后保存；启动器隐藏或最小化时视频自动暂停。（感谢 @Windshakes 贡献）
-- **界面风格**：在「设置 → 外观」中可选形状（利落：直角硬朗的报刊风；圆润：圆角与柔和阴影，类似 PCL2；毛玻璃：半透明虚化面板，Apple 风格，可调节玻璃不透明度）与布局（标准；极简：去掉报头和装饰，只突出主要内容，字号更大）。默认为圆润 + 极简。
+- **界面风格**：在「设置 → 外观」中可选形状（利落：直角硬朗的报刊风；圆润：圆角与柔和阴影，类似 PCL2；毛玻璃：半透明虚化面板，Apple 风格，可调节玻璃不透明度；搭配自定义背景时直接模糊背景视频 / 图片，保证磨砂效果）与布局（标准；极简：去掉报头和装饰，只突出主要内容，字号更大）。默认为圆润 + 极简。
 - **单文件版**：Windows 提供免安装的单个 exe（`RedCraft_<版本>_portable.exe`，以 `portable` 特性编译），数据保存在 exe 所在目录的 `.minecraft` 中，类似 PCL。
+- **检查更新**：启动时检查 GitHub 上的最新正式版（可在设置中关闭），发现新版本时弹窗显示更新内容，确认后才下载；下载的文件用 Release 附带的 SHA256SUMS.txt 校验，GitHub 访问失败时经备用线路下载。单文件版与 AppImage 直接替换程序文件，Windows 安装版静默运行新安装包，完成后自动重启；macOS 与 deb 打开下载页。
 - **批量管理实例**：实例页进入批量管理后可多选（支持全选），批量补全文件、设置版本隔离或删除。
 - **启动**：同时支持新版 `arguments` 与旧版 `minecraftArguments`；处理 `legacy` / `pre-1.6` 旧版资源；启动前快速补全缺失文件（资源只比较大小，约 150ms）；自动进入服务器（1.20+ 用 Quick Play，旧版用 `--server/--port`）；内存自动分配；日志实时推送；崩溃时分析常见原因并给出中文解决办法；启动后可隐藏 / 保持 / 关闭启动器。
 - **界面**：无边框窗口 + 自定义标题栏；深色 / 浅色 / 跟随系统；主题色可自定义；动效只使用 transform / opacity，并尊重系统「减少动态效果」设置。

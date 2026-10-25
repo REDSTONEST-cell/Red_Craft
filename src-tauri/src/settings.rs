@@ -149,6 +149,10 @@ pub struct Settings {
     pub pre_launch_wait: bool,
     /// Windows：让 Java 使用高性能显卡
     pub high_performance_gpu: bool,
+    /// 启动时检查启动器更新（发现新版本时弹窗确认）
+    pub auto_check_update: bool,
+    /// 用户选择跳过的版本，不再提示
+    pub skipped_update: String,
 }
 
 impl Settings {
@@ -201,6 +205,8 @@ impl Default for Settings {
             pre_launch_command: String::new(),
             pre_launch_wait: true,
             high_performance_gpu: true,
+            auto_check_update: true,
+            skipped_update: String::new(),
         }
     }
 }

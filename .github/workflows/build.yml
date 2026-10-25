@@ -126,6 +126,12 @@ jobs:
           # 产物按 bundle/<类型>/ 分目录保存，这里收集所有文件
           mapfile -t files < <(find dist-release -type f)
           printf '%s\n' "${files[@]}"
+          # 校验文件：启动器自动更新时用它校验下载的安装包
+          for f in "${files[@]}"; do
+            echo "$(sha256sum "$f" | cut -d' ' -f1)  $(basename "$f")"
+          done > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          files+=(SHA256SUMS.txt)
           notes=".github/release-notes/${TAG}.md"
           [ -f "$notes" ] || notes=/dev/null
           # 0.x 版本标记为预发布

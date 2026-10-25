@@ -12,6 +12,7 @@ pub mod loader;
 pub mod migrate;
 pub mod paths;
 pub mod system;
+pub mod update;
 pub mod version;
 
 pub use error::{CoreError, ErrorInfo, Result};

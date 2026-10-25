@@ -178,12 +178,21 @@
   async function install() {
     if (!target) return;
     installing = true;
+    const instName = name.trim();
+    let id: number;
     try {
       const loader = choice === "vanilla" ? null : { kind: choice, version: loaderVersion };
-      const instName = name.trim();
       const optifine = shader === "optifine" ? optifinePicked : null;
-      const id = await api.installInstance(target.id, instName, loader, withApi, optifine, shader === "mod");
+      id = await api.installInstance(target.id, instName, loader, withApi, optifine, shader === "mod");
       dialog = false;
+    } catch (e) {
+      showError(e, "无法安装");
+      return;
+    } finally {
+      // 只在提交期间禁用；安装在后台进行，可以同时安装别的版本
+      installing = false;
+    }
+    try {
       const t = await waitTask(id);
       if (t.state === "done") {
         await refreshInstances();
@@ -191,8 +200,6 @@
       }
     } catch (e) {
       showError(e, "无法安装");
-    } finally {
-      installing = false;
     }
   }
 

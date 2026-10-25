@@ -30,19 +30,27 @@
   async function install() {
     if (!source) return;
     busy = true;
+    const wanted = name.trim();
+    let id: number;
     try {
-      const id = await api.installModpack(source, name.trim() || null);
+      id = await api.installModpack(source, wanted || null);
       open = false;
+    } catch (e) {
+      showError(e, "无法安装整合包");
+      return;
+    } finally {
+      // 只在提交期间禁用；安装在后台进行，可以同时安装别的整合包
+      busy = false;
+    }
+    try {
       const t = await waitTask(id);
       if (t.state === "done") {
         await refreshInstances();
-        const newest = app.instances.find((i) => i.id === name.trim()) ?? null;
+        const newest = app.instances.find((i) => i.id === wanted) ?? null;
         if (newest) await selectInstance(newest.id);
       }
     } catch (e) {
       showError(e, "无法安装整合包");
-    } finally {
-      busy = false;
     }
   }
 </script>

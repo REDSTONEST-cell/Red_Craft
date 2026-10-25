@@ -43,19 +43,22 @@
   async function confirm() {
     if (!plan || !version) return;
     busy = true;
+    let id: number;
     try {
       const roots = [{ projectId: version.projectId, versionId: version.id }];
       for (const o of plan.optional) {
         if (chosen[o.projectId]) roots.push({ projectId: o.projectId, versionId: o.version.id });
       }
-      const id = await api.contentInstall(platform, instance, contentType, roots);
+      id = await api.contentInstall(platform, instance, contentType, roots);
       open = false;
-      await waitTask(id);
     } catch (e) {
       showError(e, "安装失败");
+      return;
     } finally {
+      // 只在提交期间禁用按钮；下载在后台进行，可以继续安装别的资源
       busy = false;
     }
+    waitTask(id).catch((e) => showError(e, "安装失败"));
   }
 </script>
 
