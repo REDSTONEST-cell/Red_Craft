@@ -37,6 +37,7 @@
 - **外置登录**：支持 LittleSkin 等 authlib-injector 认证服务器。输入服务器地址自动识别（ALI），账号密码只用于登录、不保存；多角色时可选择角色；令牌保存在系统密钥库，启动前校验并自动刷新；启动时自动下载并校验 authlib-injector（BMCLAPI 镜像），注入 `-javaagent` 与预取的服务器元数据。
 - **从其他启动器导入**：识别官方启动器、Prism Launcher、MultiMC、HMCL（全局账号），或手动选择 HMCL / PCL / .minecraft 文件夹；识别实例的游戏版本（含被重命名的版本）、加载器、Mod 与存档数量。导入时重新安装相同的版本与加载器（强制版本隔离），再复制用户数据，原文件不改动；可同时导入离线账号。
 - **OptiFine 与光影加载器**：新建实例时可选 OptiFine（BMCLAPI；原版用 OptiFine 自带补丁程序 + LaunchWrapper 安装，Forge 放进 mods 并自动选择推荐的 Forge 版本），或 Iris（Fabric / Quilt / NeoForge）/ Oculus（Forge）及其前置。
+- **自定义背景**：在「设置 → 外观」导入本地图片（JPG / PNG / WebP）或视频（MP4 / WebM），或扫描 Steam 中 Wallpaper Engine 的视频壁纸；可调亮度、透明度、模糊与遮罩，预览后保存；启动器隐藏或最小化时视频自动暂停。（感谢 @Windshakes 贡献）
 - **启动**：同时支持新版 `arguments` 与旧版 `minecraftArguments`；处理 `legacy` / `pre-1.6` 旧版资源；启动前快速补全缺失文件（资源只比较大小，约 150ms）；自动进入服务器（1.20+ 用 Quick Play，旧版用 `--server/--port`）；内存自动分配；日志实时推送；崩溃时分析常见原因并给出中文解决办法；启动后可隐藏 / 保持 / 关闭启动器。
 - **界面**：无边框窗口 + 自定义标题栏；深色 / 浅色 / 跟随系统；主题色可自定义；动效只使用 transform / opacity，并尊重系统「减少动态效果」设置。
 
