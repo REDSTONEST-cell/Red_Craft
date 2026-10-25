@@ -643,3 +643,23 @@ textarea.input {
   min-width: 240px;
   font-size: 20px;
 }
+
+/* ─── 背景模式下的浮层：对话框、提示、任务面板等是实心底色，恢复主题前景色，不再使用白字黑描边 ─── */
+:root.has-background :is(.modal, .toast, .task, .report, .log) {
+  --ink: var(--control-ink);
+  --ink-2: var(--control-ink-2);
+  --muted: var(--control-muted);
+  --rule: var(--control-rule);
+  --rule-strong: var(--control-rule-strong);
+  color: var(--ink);
+  text-shadow: none;
+}
+:root.has-background .shell :is(.modal, .toast, .task) .kicker {
+  color: var(--accent);
+}
+/* 遮罩改为柔和的暗色虚化，避免浅色遮罩叠在动态背景上显得突兀 */
+:root.has-background .backdrop {
+  background: rgba(12, 11, 9, 0.38);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
