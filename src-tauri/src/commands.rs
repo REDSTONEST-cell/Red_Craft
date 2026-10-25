@@ -92,7 +92,7 @@ pub(crate) async fn manifest(state: &AppState, refresh: bool) -> AppResult<Versi
             return Ok(m.clone());
         }
     }
-    let m = VersionManifest::fetch(&state.http()?).await?;
+    let m = VersionManifest::fetch(&state.http_meta()?).await?;
     *guard = Some(m.clone());
     Ok(m)
 }
@@ -175,13 +175,13 @@ pub struct LoaderArg {
 /// 列出游戏版本可用的 OptiFine（正式版在前）。
 #[tauri::command]
 pub async fn optifine_versions(state: State<'_, AppState>, mc: String) -> AppResult<Vec<OptiFineVersion>> {
-    Ok(optifine::list(&state.http()?, &mc).await?)
+    Ok(optifine::list(&state.http_meta()?, &mc).await?)
 }
 
 /// 列出与游戏版本兼容的加载器版本。
 #[tauri::command]
 pub async fn loader_versions(state: State<'_, AppState>, kind: LoaderKind, mc: String) -> AppResult<Vec<LoaderVersion>> {
-    Ok(loader::list_versions(&state.http()?, kind, &mc).await?)
+    Ok(loader::list_versions(&state.http_meta()?, kind, &mc).await?)
 }
 
 /// 新建实例：原版，或原版 + 加载器；可同时安装 OptiFine（原版 / Forge）与光影 Mod（Iris / Oculus）。

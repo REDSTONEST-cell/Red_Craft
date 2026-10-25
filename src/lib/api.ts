@@ -11,7 +11,12 @@ export type Theme = "system" | "light" | "dark";
 export interface Settings {
   gameDir: string | null;
   downloadSource: DownloadSource;
+  versionSource: DownloadSource;
+  communitySource: DownloadSource;
   concurrency: number;
+  speedLimitKb: number;
+  modFilename: "original" | "zhPrefix" | "zhSuffix";
+  modTitle: "translated" | "filename";
   isolation: Isolation;
   javaPath: string | null;
   autoDownloadJava: boolean;
@@ -30,6 +35,7 @@ export interface Settings {
   accent: string;
   corner: "sharp" | "rounded" | "glass";
   layout: "standard" | "minimal";
+  glassOpacity: number;
   selectedInstance: string | null;
   selectedAccount: string | null;
   msClientId: string;
@@ -39,6 +45,24 @@ export interface Settings {
   preLaunchCommand: string;
   preLaunchWait: boolean;
   highPerformanceGpu: boolean;
+}
+
+export interface ExportEntry {
+  name: string;
+  isDir: boolean;
+  files: number;
+  size: number;
+  default: boolean;
+}
+
+export interface ExportRequest {
+  instance: string;
+  path: string;
+  name: string;
+  version: string;
+  summary: string;
+  entries: string[];
+  online: boolean;
 }
 
 export interface AppInfo {
@@ -448,6 +472,8 @@ export const api = {
 
   readModpackFile: (path: string) => call<ModpackInfo>("read_modpack_file", { path }),
   installModpack: (source: PackSource, name: string | null) => call<number>("install_modpack", { source, name }),
+  exportEntries: (instance: string) => call<ExportEntry[]>("export_entries", { instance }),
+  exportModpack: (req: ExportRequest) => call<number>("export_modpack", { req }),
 
   modsList: (instance: string) => call<LocalMod[]>("mods_list", { instance }),
   modSetEnabled: (instance: string, filename: string, enabled: boolean) =>

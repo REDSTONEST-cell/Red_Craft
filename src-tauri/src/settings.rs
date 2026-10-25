@@ -56,8 +56,8 @@ pub enum Theme {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum Corner {
-    #[default]
     Sharp,
+    #[default]
     Rounded,
     Glass,
 }
@@ -66,9 +66,33 @@ pub enum Corner {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum Layout {
-    #[default]
     Standard,
+    #[default]
     Minimal,
+}
+
+/// 下载 Mod 时的文件名格式（与 PCL 类似，可以在文件名里加上中文名）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum ModFilename {
+    /// 保持原文件名：create-1.21.1-6.0.4.jar
+    #[default]
+    Original,
+    /// [机械动力] create-1.21.1-6.0.4.jar
+    ZhPrefix,
+    /// create-1.21.1-6.0.4-机械动力.jar
+    ZhSuffix,
+}
+
+/// 已安装 Mod 列表的显示方式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum ModTitle {
+    /// 标题显示译名，详情显示文件名
+    #[default]
+    Translated,
+    /// 标题显示文件名，详情显示译名
+    Filename,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,8 +100,17 @@ pub enum Layout {
 pub struct Settings {
     /// 自定义游戏目录；为空时使用便携目录或标准 `.minecraft`
     pub game_dir: Option<PathBuf>,
+    /// 文件下载源（游戏文件、加载器）
     pub download_source: DownloadSource,
+    /// 版本列表源（版本、加载器、OptiFine 列表）
+    pub version_source: DownloadSource,
+    /// 社区资源来源（Modrinth / CurseForge 的搜索与文件下载）
+    pub community_source: DownloadSource,
     pub concurrency: usize,
+    /// 下载速度限制（KB/s），0 表示不限速
+    pub speed_limit_kb: u32,
+    pub mod_filename: ModFilename,
+    pub mod_title: ModTitle,
     pub isolation: Isolation,
     /// 为空表示自动选择
     pub java_path: Option<PathBuf>,
@@ -98,6 +131,8 @@ pub struct Settings {
     pub accent: String,
     pub corner: Corner,
     pub layout: Layout,
+    /// 毛玻璃面板的不透明度（0.2–0.95）
+    pub glass_opacity: f64,
     pub selected_instance: Option<String>,
     pub selected_account: Option<String>,
     /// 微软登录使用的 Azure 应用 Client ID；为空时使用编译时内置的值
@@ -132,7 +167,12 @@ impl Default for Settings {
         Settings {
             game_dir: None,
             download_source: DownloadSource::Auto,
+            version_source: DownloadSource::Auto,
+            community_source: DownloadSource::Auto,
             concurrency: 64,
+            speed_limit_kb: 0,
+            mod_filename: ModFilename::default(),
+            mod_title: ModTitle::default(),
             isolation: Isolation::ModdedAndNonRelease,
             java_path: None,
             auto_download_java: true,
@@ -151,6 +191,7 @@ impl Default for Settings {
             accent: "#E8590C".into(),
             corner: Corner::default(),
             layout: Layout::default(),
+            glass_opacity: 0.58,
             selected_instance: None,
             selected_account: None,
             ms_client_id: String::new(),
@@ -289,6 +330,9 @@ mod tests {
         assert_eq!(s.concurrency, 8);
         assert_eq!(s.accent, "#E8590C");
         assert_eq!(s.download_source, DownloadSource::Auto);
+        assert_eq!(s.corner, Corner::Rounded);
+        assert_eq!(s.layout, Layout::Minimal);
+        assert_eq!(s.speed_limit_kb, 0);
     }
 
     #[test]

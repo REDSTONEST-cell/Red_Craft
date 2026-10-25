@@ -7,12 +7,12 @@ pub const BMCLAPI: &str = "https://bmclapi2.bangbang93.com";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DownloadSource {
-    /// 优先官方源，失败后回退 BMCLAPI。
+    /// 优先使用官方源，加载缓慢或失败时换用镜像源。
     #[default]
     Auto,
-    /// 只使用官方源。
+    /// 尽量使用官方源：只有官方源失败时才换用镜像源。
     Official,
-    /// 优先 BMCLAPI，失败后回退官方源。
+    /// 尽量使用镜像源（BMCLAPI / MCIM），失败后回退官方源。
     Bmclapi,
 }
 
@@ -55,8 +55,8 @@ impl DownloadSource {
     pub fn candidates(self, url: &str) -> Vec<String> {
         let mirror = mirror_of(url);
         match (self, mirror) {
-            (DownloadSource::Official, _) | (_, None) => vec![url.to_string()],
-            (DownloadSource::Auto, Some(m)) => vec![url.to_string(), m],
+            (_, None) => vec![url.to_string()],
+            (DownloadSource::Auto | DownloadSource::Official, Some(m)) => vec![url.to_string(), m],
             (DownloadSource::Bmclapi, Some(m)) => vec![m, url.to_string()],
         }
     }
@@ -100,7 +100,9 @@ mod tests {
     #[test]
     fn candidate_order() {
         let url = "https://libraries.minecraft.net/x.jar";
-        assert_eq!(DownloadSource::Official.candidates(url), vec![url.to_string()]);
+        assert_eq!(DownloadSource::Official.candidates(url)[0], url);
+        assert_eq!(DownloadSource::Official.candidates(url).len(), 2);
+        assert_eq!(DownloadSource::Official.candidates("https://example.com/a"), vec!["https://example.com/a".to_string()]);
         assert_eq!(DownloadSource::Auto.candidates(url)[0], url);
         assert!(DownloadSource::Bmclapi.candidates(url)[0].starts_with(BMCLAPI));
     }

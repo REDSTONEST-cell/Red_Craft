@@ -1,6 +1,7 @@
 //! 资源下载：Mod、材质包、光影包、整合包。数据源为 Modrinth 与 CurseForge，两者统一为同一套模型。
 
 mod curseforge;
+pub mod export;
 mod index;
 pub mod local;
 pub mod media;

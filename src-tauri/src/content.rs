@@ -21,7 +21,7 @@ pub const FABRIC_API: &str = "P7dR8mSH";
 pub const QSL: &str = "qvIfYCYJ";
 
 pub fn client(state: &AppState, platform: Platform) -> AppResult<Client> {
-    let http = state.http()?;
+    let http = state.http_community()?;
     Ok(match platform {
         Platform::Modrinth => Client::Modrinth(Modrinth::new(http)),
         Platform::Curseforge => {
@@ -163,7 +163,7 @@ pub async fn content_install(
         return Err(AppError::msg("整合包需要通过「安装整合包」创建新实例", ""));
     }
     let ctx = instance_context(&state, &instance)?;
-    let installer = state.installer()?;
+    let downloader = state.community_downloader()?;
     let title = format!("安装{}到 {instance}", content_type.label());
     let app2 = app.clone();
     Ok(state.tasks.spawn(&app, title, move |reporter, cancel| async move {
@@ -183,10 +183,23 @@ pub async fn content_install(
             .filter(|i| !i.installed)
             .map(|i| (i.version, i.title))
             .collect();
+        let items = if content_type == ContentType::Mod { named(&state, items) } else { items };
         let folder = ctx.game_dir.join(content_type.folder());
-        install_files(&installer.downloader, &folder, &items, &reporter, &cancel).await?;
+        install_files(&downloader, &folder, &items, &reporter, &cancel).await?;
         Ok(())
     }))
+}
+
+/// 按设置的文件名格式给 Mod 文件名加上中文名。
+fn named(state: &AppState, mut items: Vec<(ContentVersion, String)>) -> Vec<(ContentVersion, String)> {
+    let format = state.settings().mod_filename;
+    for (version, title) in &mut items {
+        let primary = version.files.iter().position(|f| f.primary).unwrap_or(0);
+        if let Some(file) = version.files.get_mut(primary) {
+            file.filename = crate::zh_names::format_filename(format, title, &file.filename);
+        }
+    }
+    items
 }
 
 /// 新建 Fabric / Quilt 实例后自动安装 Fabric API / QSL（及其前置）。
@@ -291,10 +304,9 @@ async fn install_best(
     let installed = content::installed_projects(&ctx.game_dir.join("mods"), Platform::Modrinth, None).await;
     let src = FilteredClient { client: &client, filter };
     let plan = content::resolve(&src, vec![best], &installed).await?;
-    let items: Vec<(ContentVersion, String)> = plan.items.into_iter().map(|i| (i.version, i.title)).collect();
-    let installer = state.installer()?;
+    let items = named(state, plan.items.into_iter().map(|i| (i.version, i.title)).collect());
     reporter.stage(&format!("下载 {name}"));
-    install_files(&installer.downloader, &ctx.game_dir.join("mods"), &items, reporter, cancel).await?;
+    install_files(&state.community_downloader()?, &ctx.game_dir.join("mods"), &items, reporter, cancel).await?;
     Ok(())
 }
 
@@ -354,7 +366,7 @@ pub(crate) async fn loader_choice(
             version: loader.version.clone(),
         });
     }
-    let list = list_versions(&state.http()?, loader.kind, mc).await?;
+    let list = list_versions(&state.http_meta()?, loader.kind, mc).await?;
     let want = loader.version.as_str();
     let found = list
         .iter()
@@ -380,6 +392,7 @@ pub async fn install_modpack(
     name: Option<String>,
 ) -> AppResult<u64> {
     let installer = state.installer()?;
+    let community = state.community_downloader()?;
     let app2 = app.clone();
     Ok(state.tasks.spawn(&app, "安装整合包", move |reporter, cancel| async move {
         let state = app2.state::<AppState>();
@@ -397,8 +410,7 @@ pub async fn install_modpack(
                     .clone();
                 let path = tmp.join(&file.filename);
                 reporter.stage("下载整合包");
-                installer
-                    .downloader
+                community
                     .download_all(
                         vec![launcher_core::download::DownloadTask::new(&file.url, &path)
                             .sha1(file.sha1.clone())
@@ -420,7 +432,7 @@ pub async fn install_modpack(
         log::info!("安装整合包 {} {} 为实例 {name}", info.name, info.version);
 
         // 2. 游戏版本与加载器
-        let manifest = launcher_core::version::VersionManifest::fetch(&state.http()?).await?;
+        let manifest = launcher_core::version::VersionManifest::fetch(&state.http_meta()?).await?;
         let entry = manifest.find(&info.mc_version).cloned().ok_or_else(|| {
             AppError::msg(format!("版本列表中没有整合包需要的 Minecraft {}", info.mc_version), "请稍后重试。")
         })?;
@@ -434,8 +446,8 @@ pub async fn install_modpack(
         // 3. 文件与 overrides；失败时删除新建的实例
         let game_dir = installer.game.version_dir(&name);
         let result: AppResult<()> = async {
-            let cf = CurseForge::new(state.http()?, Some(state.settings().curseforge_api_key));
-            content::download_pack_files(&info, &game_dir, &installer.downloader, &cf, &reporter, &cancel).await?;
+            let cf = CurseForge::new(state.http_community()?, Some(state.settings().curseforge_api_key));
+            content::download_pack_files(&info, &game_dir, &community, &cf, &reporter, &cancel).await?;
             reporter.stage("解压整合包配置");
             let (p, i, g) = (pack_path.clone(), info.clone(), game_dir.clone());
             tauri::async_runtime::spawn_blocking(move || content::extract_overrides(&p, &i, &g))
@@ -452,6 +464,153 @@ pub async fn install_modpack(
         }
         result
     }))
+}
+
+// ───────────── 导出整合包 ─────────────
+
+/// 导出整合包时可以勾选的条目。
+#[tauri::command]
+pub async fn export_entries(
+    state: State<'_, AppState>,
+    instance: String,
+) -> AppResult<Vec<launcher_core::content::export::ExportEntry>> {
+    let ctx = instance_context(&state, &instance)?;
+    blocking(move || launcher_core::content::export::export_entries(&ctx.game_dir, &ctx.id))
+        .await?
+        .map_err(AppError::from)
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportRequest {
+    pub instance: String,
+    pub path: PathBuf,
+    pub name: String,
+    pub version: String,
+    pub summary: String,
+    pub entries: Vec<String>,
+    /// 能在 Modrinth 上找到的文件只写下载地址，整合包更小
+    pub online: bool,
+}
+
+/// 导出为 Modrinth 整合包（.mrpack），返回任务 id。
+#[tauri::command]
+pub async fn export_modpack(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    req: ExportRequest,
+) -> AppResult<u64> {
+    use launcher_core::content::export::{self, PackMeta};
+    let ctx = instance_context(&state, &req.instance)?;
+    let resolved = launcher_core::version::resolve_version(&state.game_dir(), &req.instance)?;
+    let loader = detect_loader(&resolved).map(|l| content::PackLoader {
+        kind: l.kind,
+        version: l.version,
+    });
+    let modrinth = Modrinth::new(state.http_community()?);
+    let title = format!("导出整合包 {}", req.name);
+    Ok(state
+        .tasks
+        .spawn(&app, title, move |reporter, cancel| async move {
+            reporter.stage("整理文件");
+            let (dir, entries, id) = (ctx.game_dir.clone(), req.entries.clone(), ctx.id.clone());
+            let files = blocking(move || export::collect_files(&dir, &entries, &id)).await?;
+            if files.is_empty() {
+                return Err(AppError::msg(
+                    "没有可以导出的文件",
+                    "请至少勾选一个包含文件的项目。",
+                ));
+            }
+
+            // 能在线下载的文件：计算哈希并向 Modrinth 查询
+            let (candidates, mut local): (Vec<String>, Vec<String>) = if req.online {
+                files
+                    .into_iter()
+                    .partition(|f| export::is_remote_candidate(f))
+            } else {
+                (Vec::new(), files)
+            };
+            let mut remote = Vec::new();
+            if !candidates.is_empty() {
+                reporter.stage(&format!("计算文件校验值（{} 个）", candidates.len()));
+                let dir = ctx.game_dir.clone();
+                let c2 = cancel.clone();
+                let hashed = blocking(move || {
+                    let mut out = Vec::new();
+                    for rel in candidates {
+                        if c2.is_cancelled() {
+                            break;
+                        }
+                        if let Ok((s1, s5, n)) = export::hash_file(&dir.join(&rel)) {
+                            out.push((rel, s1, s5, n));
+                        }
+                    }
+                    out
+                })
+                .await?;
+                cancel.check()?;
+                reporter.stage("在 Modrinth 上查找文件");
+                let hashes: Vec<String> = hashed.iter().map(|h| h.1.clone()).collect();
+                let mut found = std::collections::HashMap::new();
+                for chunk in hashes.chunks(500) {
+                    // 查询失败时全部打包进整合包，不影响导出
+                    match modrinth.versions_by_hash(chunk).await {
+                        Ok(map) => {
+                            for (hash, v) in map {
+                                if let Some(f) = v
+                                    .files
+                                    .iter()
+                                    .find(|f| f.sha1.as_deref() == Some(hash.as_str()))
+                                {
+                                    found.insert(hash, f.url.clone());
+                                }
+                            }
+                        }
+                        Err(e) => log::warn!("导出整合包：查询 Modrinth 失败：{e}"),
+                    }
+                }
+                let (r, l) = export::split_files(hashed, &found);
+                remote = r;
+                local.extend(l);
+            }
+
+            reporter.stage(&format!(
+                "打包文件（{} 个在线下载，{} 个打包）",
+                remote.len(),
+                local.len()
+            ));
+            let meta = PackMeta {
+                name: req.name.clone(),
+                version: req.version.clone(),
+                summary: req.summary.clone(),
+                mc_version: ctx.mc_version.clone(),
+                loader,
+            };
+            let (dir, out, r2, c2) = (
+                ctx.game_dir.clone(),
+                req.path.clone(),
+                reporter.clone(),
+                cancel.clone(),
+            );
+            blocking(move || {
+                export::write_mrpack(
+                    &dir,
+                    &out,
+                    &meta,
+                    &remote,
+                    &local,
+                    &mut |done, total| {
+                        if done % 20 == 0 || done == total {
+                            r2.stage(&format!("打包文件（{done}/{total}）"));
+                        }
+                    },
+                    &c2,
+                )
+            })
+            .await??;
+            log::info!("已导出整合包 {}", req.path.display());
+            Ok(())
+        }))
 }
 
 // ───────────── 已安装 Mod 管理 ─────────────
@@ -523,7 +682,7 @@ pub async fn mods_check_updates(state: State<'_, AppState>, instance: String) ->
     };
     let mut updates = Vec::new();
 
-    let modrinth = Modrinth::new(state.http()?);
+    let modrinth = Modrinth::new(state.http_community()?);
     let all: Vec<String> = hashes.values().cloned().collect();
     let current = modrinth.versions_by_hash(&all).await?;
     let latest = modrinth.latest_by_hash(&all, &filter).await?;
@@ -577,10 +736,10 @@ pub async fn mods_update(
 ) -> AppResult<u64> {
     ensure_not_running(&state, &instance)?;
     let dir = mods_dir(&state, &instance)?;
-    let installer = state.installer()?;
+    let downloader = state.community_downloader()?;
+    let items = named(&state, updates.iter().map(|u| (u.latest.clone(), u.title.clone())).collect());
     Ok(state.tasks.spawn(&app, format!("更新 {} 个 Mod", updates.len()), move |reporter, cancel| async move {
-        let items: Vec<(ContentVersion, String)> = updates.iter().map(|u| (u.latest.clone(), u.title.clone())).collect();
-        let installed = install_files(&installer.downloader, &dir, &items, &reporter, &cancel).await?;
+        let installed = install_files(&downloader, &dir, &items, &reporter, &cancel).await?;
         for (u, new_name) in updates.iter().zip(installed) {
             let was_disabled = u.filename.ends_with(".disabled");
             // 旧文件（包括同名但带 .disabled 的）在新文件下载完成后删除
@@ -623,7 +782,7 @@ pub async fn content_translations(
         }
     }
     if !missing.is_empty() {
-        let http = state.http()?;
+        let http = state.http_community()?;
         let fetched = launcher_core::content::media::translations(http.raw(), platform, &missing).await;
         if let Ok(mut cache) = state.translations.lock() {
             for (id, t) in &fetched {
@@ -654,7 +813,7 @@ pub async fn serve_icon(app: AppHandle, request: tauri::http::Request<Vec<u8>>) 
     let bytes = match tokio::fs::read(&file).await {
         Ok(b) if image_mime(&b).is_some() => Some(b),
         _ => {
-            let Ok(http) = state.http() else { return not_found() };
+            let Ok(http) = state.http_community() else { return not_found() };
             let fetched = fetch_icon(http.raw(), &url).await;
             if let Some(b) = &fetched {
                 let _ = tokio::fs::create_dir_all(&dir).await;

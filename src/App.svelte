@@ -12,6 +12,9 @@
   import Mods from "./pages/Mods.svelte";
   import Accounts from "./pages/Accounts.svelte";
   import Settings from "./pages/Settings.svelte";
+  import ModpackInstall from "./components/ModpackInstall.svelte";
+  import { getCurrentWebview } from "@tauri-apps/api/webview";
+  import type { ModpackInfo, PackSource } from "./lib/api";
   import { app, init, showError } from "./lib/state.svelte";
   import { api } from "./lib/api";
   import { page } from "./lib/motion";
@@ -21,8 +24,46 @@
   // 有任务面板时给页面底部留出空间，避免遮住内容
   const dockPad = $derived.by(() => {
     const n = app.tasks.filter((t) => t.state === "running" || t.state === "failed").length;
-    return n && app.page !== "launch" ? `${28 + n * 74}px` : undefined;
+    // 任务折叠在右下角的悬浮按钮里，只需给按钮留出位置
+    return n && app.page !== "launch" ? "88px" : undefined;
   });
+  // 把整合包文件拖进窗口即可导入
+  let dragging = $state(false);
+  let dropOpen = $state(false);
+  let dropSource = $state<PackSource | null>(null);
+  let dropInfo = $state<ModpackInfo | null>(null);
+  const isPack = (p: string) => /\.(mrpack|zip)$/i.test(p);
+
+  $effect(() => {
+    let unlisten: (() => void) | undefined;
+    let alive = true;
+    getCurrentWebview()
+      .onDragDropEvent(async (e) => {
+        const p = e.payload;
+        if (p.type === "enter") dragging = p.paths.some(isPack);
+        else if (p.type === "leave") dragging = false;
+        else if (p.type === "drop") {
+          const was = dragging;
+          dragging = false;
+          const file = p.paths.find(isPack);
+          if (!was || !file) return;
+          try {
+            dropInfo = await api.readModpackFile(file);
+            dropSource = { type: "file", path: file };
+            dropOpen = true;
+          } catch (err) {
+            showError(err, "无法读取整合包");
+          }
+        }
+      })
+      .then((u) => (alive ? (unlisten = u) : u()))
+      .catch(() => {});
+    return () => {
+      alive = false;
+      unlisten?.();
+    };
+  });
+
   let systemDark = $state(window.matchMedia("(prefers-color-scheme: dark)").matches);
 
   $effect(() => {
@@ -39,8 +80,12 @@
     const dark = theme === "dark" || (theme === "system" && systemDark);
     const root = document.documentElement;
     root.dataset.theme = dark ? "dark" : "light";
-    root.dataset.corner = s?.corner ?? "sharp";
-    root.dataset.layout = s?.layout ?? "standard";
+    root.dataset.corner = s?.corner ?? "rounded";
+    root.dataset.layout = s?.layout ?? "minimal";
+    // 毛玻璃不透明度：面板使用设定值，顶栏、侧栏等稍实一些
+    const glass = Math.min(0.95, Math.max(0.2, s?.glassOpacity ?? 0.58));
+    root.style.setProperty("--glass-pct", `${Math.round(glass * 100)}%`);
+    root.style.setProperty("--glass-strong-pct", `${Math.round(Math.min(0.97, glass + 0.18) * 100)}%`);
     const accent = s?.accent || "#E8590C";
     root.style.setProperty("--accent", accent);
     root.style.setProperty("--accent-ink", readableOn(accent));
@@ -109,11 +154,49 @@
   </div>
 </div>
 
+{#if dragging}
+  <div class="drop-hint" transition:page={{ y: 0, duration: 160 }}>
+    <div class="drop-card">
+      <strong>松开以导入整合包</strong>
+      <span>支持 Modrinth（.mrpack）与 CurseForge（.zip）整合包</span>
+    </div>
+  </div>
+{/if}
+<ModpackInstall bind:open={dropOpen} source={dropSource} title={dropInfo?.name ?? ""} info={dropInfo} />
+
 <Toasts />
 <LogViewer />
 <CrashDialog />
 
 <style>
+  .drop-hint {
+    position: fixed;
+    inset: var(--titlebar-h) 0 0 0;
+    z-index: 60;
+    display: grid;
+    place-items: center;
+    background: color-mix(in srgb, var(--accent) 16%, rgba(0, 0, 0, 0.35));
+    pointer-events: none;
+  }
+  .drop-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 34px 48px;
+    background: var(--card);
+    color: var(--ink);
+    border: 2px dashed var(--accent);
+    border-radius: var(--radius-lg, 0);
+    box-shadow: var(--shadow);
+  }
+  .drop-card strong {
+    font-size: 20px;
+  }
+  .drop-card span {
+    font-size: 12px;
+    color: var(--muted);
+  }
   .shell {
     position: relative;
     z-index: 2;

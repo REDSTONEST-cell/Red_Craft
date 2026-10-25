@@ -13,6 +13,7 @@ mod settings;
 mod state;
 mod tasks;
 mod ygg;
+mod zh_names;
 
 use state::AppState;
 use tauri::Manager;
@@ -115,6 +116,8 @@ pub fn run() {
             content::content_install,
             content::read_modpack_file,
             content::install_modpack,
+            content::export_entries,
+            content::export_modpack,
             content::mods_list,
             content::mod_set_enabled,
             content::mod_delete,

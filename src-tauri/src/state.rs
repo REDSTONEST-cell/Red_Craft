@@ -25,7 +25,7 @@ pub struct AppState {
     pub settings: RwLock<Settings>,
     pub accounts: RwLock<AccountStore>,
     pub tasks: Arc<Tasks>,
-    http: Mutex<Option<HttpClient>>,
+    http: Mutex<Option<Clients>>,
     pub manifest: tokio::sync::Mutex<Option<VersionManifest>>,
     pub java: Mutex<Option<Vec<JavaInstall>>>,
     /// 实例 id → 正在运行的游戏进程 pid
@@ -39,6 +39,18 @@ pub struct AppState {
     pub ms_browser: Mutex<HashMap<u64, (launcher_core::download::CancelToken, Option<launcher_core::auth::microsoft::BrowserLogin>)>>,
     /// 外置登录：等待选择角色的登录结果
     pub ygg_flows: Mutex<HashMap<u64, (launcher_core::auth::yggdrasil::YggServer, launcher_core::auth::yggdrasil::YggLogin)>>,
+}
+
+/// 三类下载源各用一个客户端，共用连接池与限速。
+#[derive(Clone)]
+struct Clients {
+    files: HttpClient,
+    meta: HttpClient,
+    community: HttpClient,
+}
+
+fn speed_limit(s: &Settings) -> u64 {
+    u64::from(s.speed_limit_kb) * 1024
 }
 
 impl AppState {
@@ -75,14 +87,20 @@ impl AppState {
         let changed_source = {
             let old = self.settings();
             old.download_source != new.download_source
+                || old.version_source != new.version_source
+                || old.community_source != new.community_source
         };
+        let rate = speed_limit(&new);
         write_json(&self.paths.settings_file(), &new)?;
         if let Ok(mut s) = self.settings.write() {
             *s = new;
         }
-        if changed_source {
-            if let Ok(mut h) = self.http.lock() {
+        if let Ok(mut h) = self.http.lock() {
+            if changed_source {
                 *h = None;
+            } else if let Some(c) = h.as_ref() {
+                // 限速立即对进行中的下载生效
+                c.files.limiter().set_rate(rate);
             }
         }
         Ok(())
@@ -109,21 +127,48 @@ impl AppState {
         GameDir::new(s.game_dir.unwrap_or_else(|| self.paths.default_game_dir.clone()))
     }
 
-    pub fn http(&self) -> AppResult<HttpClient> {
+    fn clients(&self) -> AppResult<Clients> {
         let mut guard = self
             .http
             .lock()
             .map_err(|_| AppError::msg("网络模块异常", "请重启启动器"))?;
-        if let Some(h) = guard.as_ref() {
-            return Ok(h.clone());
+        if let Some(c) = guard.as_ref() {
+            return Ok(c.clone());
         }
-        let h = HttpClient::new(self.settings().download_source)?;
-        *guard = Some(h.clone());
-        Ok(h)
+        let s = self.settings();
+        let files = HttpClient::new(s.download_source)?;
+        files.limiter().set_rate(speed_limit(&s));
+        let c = Clients {
+            meta: files.with_source(s.version_source),
+            community: files.with_source(s.community_source),
+            files,
+        };
+        *guard = Some(c.clone());
+        Ok(c)
+    }
+
+    /// 游戏文件、加载器、账号等使用的客户端（文件下载源）。
+    pub fn http(&self) -> AppResult<HttpClient> {
+        Ok(self.clients()?.files)
+    }
+
+    /// 版本列表、加载器列表使用的客户端（版本列表源）。
+    pub fn http_meta(&self) -> AppResult<HttpClient> {
+        Ok(self.clients()?.meta)
+    }
+
+    /// Modrinth / CurseForge 使用的客户端（社区资源来源）。
+    pub fn http_community(&self) -> AppResult<HttpClient> {
+        Ok(self.clients()?.community)
     }
 
     pub fn installer(&self) -> AppResult<Installer> {
         let downloader = Downloader::new(self.http()?, self.settings().concurrency);
         Ok(Installer::new(downloader, self.game_dir()))
+    }
+
+    /// 下载社区资源（Mod、资源包、整合包文件）使用的下载器。
+    pub fn community_downloader(&self) -> AppResult<Downloader> {
+        Ok(Downloader::new(self.http_community()?, self.settings().concurrency))
     }
 }

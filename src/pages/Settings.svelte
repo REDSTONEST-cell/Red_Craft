@@ -1,6 +1,6 @@
 <script lang="ts">
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
-  import { api, type JavaInstall, type Settings } from "../lib/api";
+  import { api, type DownloadSource, type JavaInstall, type Settings } from "../lib/api";
   import { app, refreshInstances, saveSettings, showError, toast } from "../lib/state.svelte";
   import Segmented from "../components/Segmented.svelte";
   import Toggle from "../components/Toggle.svelte";
@@ -63,6 +63,29 @@
     }
   }
 
+  // 与 PCL 相同的三种下载源策略
+  const sources: { value: DownloadSource; label: string }[] = [
+    { value: "bmclapi", label: "尽量使用镜像源" },
+    { value: "auto", label: "优先使用官方源，在加载缓慢时换用镜像源" },
+    { value: "official", label: "尽量使用官方源" },
+  ];
+
+  // 速度限制档位（KB/s），0 为不限速
+  const SPEED_STEPS = [256, 512, 1024, 2048, 3072, 5120, 8192, 12288, 20480, 0];
+  let speedStep = $state(nearestStep(s.speedLimitKb));
+  function nearestStep(kb: number) {
+    if (!kb) return SPEED_STEPS.length - 1;
+    let best = 0;
+    SPEED_STEPS.forEach((v, i) => {
+      if (v && Math.abs(v - kb) < Math.abs(SPEED_STEPS[best] - kb)) best = i;
+    });
+    return best;
+  }
+  function speedLabel(kb: number) {
+    if (!kb) return "不限速";
+    return kb >= 1024 ? `${+(kb / 1024).toFixed(1)} MB/s` : `${kb} KB/s`;
+  }
+
   const total = $derived(app.info?.memory.totalMb ?? 8192);
   const accents = ["#E8590C", "#C2410C", "#B45309", "#2F7D32", "#1D4ED8", "#7C3AED", "#BE185D", "#1B1A17"];
 </script>
@@ -109,18 +132,21 @@
     <h3>下载</h3>
     <div class="row">
       <div class="desc">
-        <strong>下载源</strong>
-        <span class="help">「自动」优先使用官方源，失败时切换到 BMCLAPI 镜像；国内网络较慢时可直接选择 BMCLAPI。</span>
+        <strong>文件下载源</strong>
+        <span class="help">游戏本体、依赖库、资源文件与加载器的下载。镜像源为 BMCLAPI。</span>
       </div>
-      <Segmented
-        value={s.downloadSource}
-        options={[
-          { value: "auto", label: "自动" },
-          { value: "official", label: "官方" },
-          { value: "bmclapi", label: "BMCLAPI" },
-        ]}
-        onchange={(v) => save({ downloadSource: v })}
-      />
+      <select class="input" value={s.downloadSource} onchange={(e) => save({ downloadSource: e.currentTarget.value as DownloadSource })}>
+        {#each sources as o}<option value={o.value}>{o.label}</option>{/each}
+      </select>
+    </div>
+    <div class="row">
+      <div class="desc">
+        <strong>版本列表源</strong>
+        <span class="help">Minecraft 版本、Forge / Fabric 等加载器与 OptiFine 的版本列表。</span>
+      </div>
+      <select class="input" value={s.versionSource} onchange={(e) => save({ versionSource: e.currentTarget.value as DownloadSource })}>
+        {#each sources as o}<option value={o.value}>{o.label}</option>{/each}
+      </select>
     </div>
     <div class="row">
       <div class="desc">
@@ -137,6 +163,16 @@
           onchange={() => save({ concurrency: s.concurrency })}
         />
         <span class="mono val">{s.concurrency}</span>
+      </div>
+    </div>
+    <div class="row">
+      <div class="desc">
+        <strong>速度限制</strong>
+        <span class="help">限制所有下载任务的总速度，修改后立即生效。</span>
+      </div>
+      <div class="ctl range">
+        <input type="range" min="0" max={SPEED_STEPS.length - 1} step="1" bind:value={speedStep} onchange={() => save({ speedLimitKb: SPEED_STEPS[speedStep] })} />
+        <span class="mono val wide-val">{speedLabel(SPEED_STEPS[speedStep])}</span>
       </div>
     </div>
   </section>
@@ -266,6 +302,36 @@
 
   <section>
     <h3>账号与资源</h3>
+    <div class="row">
+      <div class="desc">
+        <strong>社区资源来源</strong>
+        <span class="help">Modrinth / CurseForge 的搜索、图标与文件下载。镜像源为 MCIM。</span>
+      </div>
+      <select class="input" value={s.communitySource} onchange={(e) => save({ communitySource: e.currentTarget.value as DownloadSource })}>
+        {#each sources as o}<option value={o.value}>{o.label}</option>{/each}
+      </select>
+    </div>
+    <div class="row">
+      <div class="desc">
+        <strong>文件名格式</strong>
+        <span class="help">下载 Mod 时在文件名中加入中文名，方便在文件夹中辨认（仅限收录了译名的 Mod）。</span>
+      </div>
+      <select class="input" value={s.modFilename} onchange={(e) => save({ modFilename: e.currentTarget.value as Settings["modFilename"] })}>
+        <option value="original">create-1.21.1-6.0.4</option>
+        <option value="zhPrefix">[机械动力] create-1.21.1-6.0.4</option>
+        <option value="zhSuffix">create-1.21.1-6.0.4-机械动力</option>
+      </select>
+    </div>
+    <div class="row">
+      <div class="desc">
+        <strong>Mod 管理样式</strong>
+        <span class="help">已安装 Mod 列表中标题与详情的显示内容。</span>
+      </div>
+      <select class="input" value={s.modTitle} onchange={(e) => save({ modTitle: e.currentTarget.value as Settings["modTitle"] })}>
+        <option value="translated">标题显示译名，详情显示文件名</option>
+        <option value="filename">标题显示文件名，详情显示译名</option>
+      </select>
+    </div>
     <div class="row col">
       <div class="desc">
         <strong>微软登录 Client ID</strong>
@@ -391,6 +457,23 @@
         onchange={(v) => save({ corner: v })}
       />
     </div>
+    {#if s.corner === "glass"}
+      <div class="row" transition:page={{ y: 6 }}>
+        <div class="desc"><strong>玻璃不透明度</strong><span class="help">数值越低越通透；弹出的窗口始终保持较高不透明度以保证可读性</span></div>
+        <div class="ctl range">
+          <input
+            type="range"
+            min="20"
+            max="95"
+            step="1"
+            value={Math.round(s.glassOpacity * 100)}
+            oninput={(e) => (app.settings!.glassOpacity = s.glassOpacity = +e.currentTarget.value / 100)}
+            onchange={() => save({ glassOpacity: s.glassOpacity })}
+          />
+          <span class="mono val">{Math.round(s.glassOpacity * 100)}%</span>
+        </div>
+      </div>
+    {/if}
     <div class="row">
       <div class="desc"><strong>布局</strong><span class="help">极简：去掉报头与装饰，只突出主要内容，字号更大</span></div>
       <Segmented
@@ -472,6 +555,9 @@
     min-width: 70px;
     text-align: right;
     font-size: 12px;
+  }
+  .wide-val {
+    min-width: 84px;
   }
   select.input {
     min-width: 260px;

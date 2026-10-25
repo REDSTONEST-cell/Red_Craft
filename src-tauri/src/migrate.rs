@@ -1,6 +1,8 @@
 //! 从其他启动器导入实例与离线账号。
 
 use std::path::PathBuf;
+use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 
 use launcher_core::auth::Account;
 use launcher_core::content::PackLoader;
@@ -63,6 +65,14 @@ fn unique_name(state: &AppState, name: &str) -> String {
         .unwrap_or(base)
 }
 
+/// 同时进行的导入数量。一次导入几十个实例时其余的排队，避免同时下载把网络和磁盘占满。
+const PARALLEL_IMPORTS: usize = 2;
+
+fn import_queue() -> Arc<tokio::sync::Semaphore> {
+    static QUEUE: OnceLock<Arc<tokio::sync::Semaphore>> = OnceLock::new();
+    QUEUE.get_or_init(|| Arc::new(tokio::sync::Semaphore::new(PARALLEL_IMPORTS))).clone()
+}
+
 /// 每个实例一个后台任务：安装相同的游戏版本与加载器（强制版本隔离），再复制用户数据。返回任务 id。
 #[tauri::command]
 pub async fn import_instances(app: AppHandle, state: State<'_, AppState>, items: Vec<ImportItem>) -> AppResult<Vec<u64>> {
@@ -87,6 +97,16 @@ pub async fn import_instances(app: AppHandle, state: State<'_, AppState>, items:
         let installer = state.installer()?;
         let app2 = app.clone();
         let id = state.tasks.spawn(&app, format!("导入 {name}"), move |reporter, cancel| async move {
+            // 排队：等待空位，期间可以取消
+            reporter.stage("排队中");
+            let acquire = import_queue().acquire_owned();
+            tokio::pin!(acquire);
+            let _permit = loop {
+                tokio::select! {
+                    p = &mut acquire => break p.map_err(|e| AppError::msg(e.to_string(), ""))?,
+                    _ = tokio::time::sleep(Duration::from_millis(250)) => cancel.check()?,
+                }
+            };
             let state = app2.state::<AppState>();
             let choice = match &item.loader {
                 Some(l) => Some(

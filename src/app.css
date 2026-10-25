@@ -520,7 +520,7 @@ textarea.input {
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 /* 浮层与卡片 */
-:root:is([data-corner="rounded"], [data-corner="glass"]) :is(.modal, .toast, .task) {
+:root:is([data-corner="rounded"], [data-corner="glass"]) :is(.modal, .toast, .task-panel) {
   border-radius: var(--radius-lg);
   border: 1px solid var(--line);
   box-shadow: var(--shadow);
@@ -645,7 +645,7 @@ textarea.input {
 }
 
 /* ─── 背景模式下的浮层：对话框、提示、任务面板等是实心底色，恢复主题前景色，不再使用白字黑描边 ─── */
-:root.has-background :is(.modal, .toast, .task, .report, .log) {
+:root.has-background :is(.modal, .toast, .task-panel, .task-fab, .report, .log) {
   --ink: var(--control-ink);
   --ink-2: var(--control-ink-2);
   --muted: var(--control-muted);
@@ -654,7 +654,7 @@ textarea.input {
   color: var(--ink);
   text-shadow: none;
 }
-:root.has-background .shell :is(.modal, .toast, .task) .kicker {
+:root.has-background :is(.modal, .toast, .task-panel) .kicker {
   color: var(--accent);
 }
 /* 遮罩改为柔和的暗色虚化，避免浅色遮罩叠在动态背景上显得突兀 */
@@ -670,8 +670,11 @@ textarea.input {
   --radius: 10px;
   --radius-lg: 16px;
   --serif: var(--sans);
-  --glass: color-mix(in srgb, var(--card) 58%, transparent);
-  --glass-strong: color-mix(in srgb, var(--card) 76%, transparent);
+  /* 不透明度由设置中的「玻璃不透明度」控制（App.svelte 设置 --glass-pct） */
+  --glass: color-mix(in srgb, var(--card) var(--glass-pct, 58%), transparent);
+  --glass-strong: color-mix(in srgb, var(--card) var(--glass-strong-pct, 76%), transparent);
+  /* 二级窗口不随设置变透明，避免与下面页面的文字叠在一起 */
+  --glass-modal: color-mix(in srgb, var(--card) 94%, transparent);
   --glass-edge: rgba(255, 255, 255, 0.55);
   --glass-blur: blur(22px) saturate(180%);
   --line: rgba(0, 0, 0, 0.08);
@@ -723,18 +726,27 @@ textarea.input {
 :root[data-corner="glass"] :is(.hit, .row):hover {
   background: color-mix(in srgb, var(--card) 45%, transparent);
 }
-/* 浮层：更实的玻璃，确保可读 */
-:root[data-corner="glass"] :is(.modal, .toast, .task) {
-  background: var(--glass-strong);
-  backdrop-filter: blur(30px) saturate(180%);
-  -webkit-backdrop-filter: blur(30px) saturate(180%);
+/* 浮层：几乎不透明的玻璃，只透出一点颜色，确保可读 */
+:root[data-corner="glass"] :is(.modal, .toast, .task-panel) {
+  background: var(--glass-modal);
+  backdrop-filter: blur(40px) saturate(180%);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
   border: 1px solid var(--glass-edge);
   border-radius: var(--radius-lg);
 }
+/* 二级窗口里的卡片、输入框等不再叠加半透明，直接使用窗口底色 */
+:root[data-corner="glass"] .modal :is(.card, .box, .seg, .input, select.input, textarea) {
+  background: color-mix(in srgb, var(--card) 70%, transparent);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
 :root[data-corner="glass"] .backdrop {
-  background: rgba(0, 0, 0, 0.18);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(14px) saturate(120%);
+  -webkit-backdrop-filter: blur(14px) saturate(120%);
+}
+:root[data-corner="glass"][data-theme="dark"] .backdrop {
+  background: rgba(0, 0, 0, 0.58);
 }
 /* 标题更「Apple」：无衬线粗体，紧凑字距 */
 :root[data-corner="glass"] :is(h1, h2, .headline, .page-head h1) {
@@ -764,7 +776,7 @@ textarea.input {
 :root[data-corner="glass"].has-background .content {
   margin: 10px 12px 12px 10px;
   border-radius: var(--radius-lg);
-  background: color-mix(in srgb, var(--card) 62%, transparent);
+  background: color-mix(in srgb, var(--card) var(--glass-pct, 62%), transparent);
   backdrop-filter: blur(26px) saturate(170%);
   -webkit-backdrop-filter: blur(26px) saturate(170%);
   border: 1px solid var(--glass-edge);
@@ -772,4 +784,33 @@ textarea.input {
 }
 :root[data-corner="glass"].has-background .sidebar svg {
   filter: none;
+}
+:root:is([data-corner="rounded"], [data-corner="glass"]) .task-fab {
+  border-color: var(--line);
+}
+:root[data-corner="glass"] .task-fab {
+  background: var(--glass-strong);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-edge);
+}
+
+/* 圆润 / 毛玻璃：背景来源按钮的选中态改为描边高亮（原来的底部下划线与圆角按钮错位） */
+:root:is([data-corner="rounded"], [data-corner="glass"]) .background-picker .btn.active {
+  box-shadow: none;
+  color: var(--accent);
+}
+:root:is([data-corner="rounded"], [data-corner="glass"]) .background-picker .btn.active::before {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--card));
+}
+:root:is([data-corner="rounded"], [data-corner="glass"]) .batch-bar {
+  border-color: var(--line);
+  border-radius: var(--radius-lg);
+}
+:root[data-corner="glass"] .batch-bar {
+  background: var(--glass-strong);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-edge);
 }

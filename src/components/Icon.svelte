@@ -6,6 +6,7 @@
     play: "M5 3h2v1h2v1h2v1h2v1h1v2h-1v1h-2v1h-2v1H7v1H5z",
     box: "M2 4h12v2H2zM3 6h10v7H3zm2 2v1h6V8z",
     download: "M7 2h2v6h2v1h-1v1H9v1H7v-1H6V9H5V8h2zM2 12h2v1h8v-1h2v3H2z",
+    upload: "M7 11h2V5h2V4h-1V3H9V2H7v1H6v1H5v1h2zM2 12h2v1h8v-1h2v3H2z",
     cube: "M7 1h2v1h2v1h2v1h1v8h-1v1h-2v1H9v1H7v-1H5v-1H3v-1H2V4h1V3h2V2h2zM4 5v6h1v1h2V7H6V6H5V5zm8 0h-1v1h-1v1H9v5h2v-1h1z",
     user: "M5 2h6v1h1v5h-1v1H5V8H4V3h1zm1 2v2h1V4zm3 0v2h1V4zM3 10h10v1h1v3H2v-3h1z",
     gear: "M7 1h2v2h2V2h1v1h1v1h-1v2h2v2h-2v2h1v1h-1v1h-1v-1H9v2H7v-2H5v1H4v-1H3v-1h1V8H2V6h2V4H3V3h1V2h1v1h2zm0 5v1H6v2h1v1h2V9h1V7H9V6z",

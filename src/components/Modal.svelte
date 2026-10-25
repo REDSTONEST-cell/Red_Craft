@@ -26,6 +26,13 @@
     onclose?.();
   }
 
+  // 挂到 #app 根部：毛玻璃模式的内容面板使用了 backdrop-filter，会让面板内的 fixed 元素
+  // 以面板而不是窗口定位，遮罩就盖不住标题栏下方和侧栏
+  function portal(node: HTMLElement) {
+    (document.getElementById("app") ?? document.body).appendChild(node);
+    return { destroy: () => node.remove() };
+  }
+
   function onKey(e: KeyboardEvent) {
     if (open && e.key === "Escape") close();
   }
@@ -34,6 +41,7 @@
 <svelte:window onkeydown={onKey} />
 
 {#if open}
+  <div class="layer" use:portal>
   <div class="backdrop" transition:fade onclick={close} role="presentation"></div>
   <div class="center">
     <div class="modal" style:width="{width}px" transition:pop role="dialog" aria-modal="true" aria-label={title}>
@@ -52,9 +60,15 @@
       {/if}
     </div>
   </div>
+  </div>
 {/if}
 
 <style>
+  .layer {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+  }
   .backdrop {
     position: fixed;
     inset: var(--titlebar-h) 0 0 0;

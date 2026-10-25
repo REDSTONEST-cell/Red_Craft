@@ -2,7 +2,7 @@
   import { zhName } from "../lib/zh";
   // 已安装 Mod：启用 / 禁用、删除、检查更新。
   import { api, type LocalMod, type ModUpdate } from "../lib/api";
-  import { showError, toast, waitTask } from "../lib/state.svelte";
+  import { app, showError, toast, waitTask } from "../lib/state.svelte";
   import { bytes, LOADER_LABEL } from "../lib/format";
   import VirtualList from "./VirtualList.svelte";
   import Toggle from "./Toggle.svelte";
@@ -102,6 +102,8 @@
       updating = false;
     }
   }
+  // Mod 管理样式：标题显示译名或文件名
+  const byFile = $derived(app.settings?.modTitle === "filename");
 </script>
 
 <div class="wrap">
@@ -140,13 +142,21 @@
             {/if}
             <div class="main">
               <div class="title">
-                <strong title={zhName(m.name) ? m.name : undefined}>{zhName(m.name) ?? m.name}</strong>
+                {#if byFile}
+                  <strong class="mono-title" title={m.filename}>{m.filename}</strong>
+                {:else}
+                  <strong title={zhName(m.name) ? m.name : undefined}>{zhName(m.name) ?? m.name}</strong>
+                {/if}
                 <span class="mono small muted">{m.version}</span>
                 {#if m.loader}<span class="tag">{LOADER_LABEL[m.loader] ?? m.loader}</span>{/if}
                 {#if up}<span class="tag accent">可更新到 {up.latest.versionNumber}</span>{/if}
               </div>
               <p class="desc" title={m.description}>{m.description || m.filename}</p>
-              <p class="file mono small muted">{m.filename} · {bytes(m.size)}</p>
+              {#if byFile}
+                <p class="file small muted">{zhName(m.name) ? `${zhName(m.name)}（${m.name}）` : m.name} · {bytes(m.size)}</p>
+              {:else}
+                <p class="file mono small muted">{m.filename} · {bytes(m.size)}</p>
+              {/if}
             </div>
             {#if up}
               <button class="btn sm" disabled={updating} onclick={() => update([up])}>更新</button>
@@ -244,6 +254,10 @@
     gap: 8px;
     white-space: nowrap;
     overflow: hidden;
+  }
+  .title .mono-title {
+    font-family: var(--mono);
+    font-size: 13px;
   }
   .title strong {
     font-family: var(--serif);

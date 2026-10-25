@@ -236,10 +236,15 @@ impl Downloader {
         let candidates = self.http.candidates(&task.url);
         let mut last_err = None;
         'attempts: for attempt in 0..self.retries {
-            for url in &candidates {
+            for (i, url) in candidates.iter().enumerate() {
                 cancel.check()?;
                 let mut written = 0u64;
-                match self.fetch_to(url, task, counters, cancel, &mut written).await {
+                // 官方优先模式下，第一个（官方）地址缓慢时可以换用后面的镜像
+                let can_switch = i == 0 && candidates.len() > 1 && self.http.checks_slowness();
+                match self
+                    .fetch_to(url, task, counters, cancel, &mut written, can_switch)
+                    .await
+                {
                     Ok(()) => return Ok(()),
                     Err(CoreError::Cancelled) => return Err(CoreError::Cancelled),
                     Err(e) => {
@@ -267,14 +272,22 @@ impl Downloader {
         counters: &Counters,
         cancel: &CancelToken,
         written: &mut u64,
+        can_switch: bool,
     ) -> Result<()> {
-        let resp = self
-            .http
-            .raw()
-            .get(url)
-            .send()
-            .await
-            .map_err(|e| CoreError::network(url, e))?;
+        let slow = || {
+            self.http.mark_official_slow();
+            CoreError::InvalidData(format!("{url} 下载缓慢，换用镜像源"))
+        };
+        let send = self.http.raw().get(url).send();
+        let resp = if can_switch {
+            match tokio::time::timeout(SLOW_RESPONSE, send).await {
+                Ok(r) => r,
+                Err(_) => return Err(slow()),
+            }
+        } else {
+            send.await
+        }
+        .map_err(|e| CoreError::network(url, e))?;
         if !resp.status().is_success() {
             return Err(CoreError::HttpStatus {
                 url: url.to_string(),
@@ -287,6 +300,8 @@ impl Downloader {
             }
         }
 
+        let expected_len = task.size.or(resp.content_length()).unwrap_or(0);
+        let started = Instant::now();
         let part = part_path(&task.path);
         let mut file = tokio::fs::File::create(&part).await.at(&part)?;
         let mut hasher = Sha1::new();
@@ -298,12 +313,26 @@ impl Downloader {
                 return Err(CoreError::Cancelled);
             }
             let chunk = chunk.map_err(|e| CoreError::network(url, e))?;
+            self.http.limiter().take(chunk.len() as u64).await;
             hasher.update(&chunk);
             file.write_all(&chunk).await.at(&part)?;
             let n = chunk.len() as u64;
             *written += n;
             counters.done_bytes.fetch_add(n, Ordering::Relaxed);
             counters.net_bytes.fetch_add(n, Ordering::Relaxed);
+            // 大文件持续低速：放弃官方源，换用镜像（限速时不判断）
+            if can_switch && self.http.limiter().rate() == 0 {
+                let secs = started.elapsed().as_secs_f64();
+                let remaining = expected_len.saturating_sub(*written);
+                if secs > SLOW_CHECK_AFTER
+                    && remaining > SLOW_MIN_REMAINING
+                    && (*written as f64 / secs) < SLOW_SPEED
+                {
+                    drop(file);
+                    let _ = tokio::fs::remove_file(&part).await;
+                    return Err(slow());
+                }
+            }
         }
         file.flush().await.at(&part)?;
         drop(file);
@@ -323,6 +352,15 @@ impl Downloader {
         Ok(())
     }
 }
+
+/// 官方源响应超过这个时间视为缓慢。
+const SLOW_RESPONSE: Duration = Duration::from_secs(6);
+/// 开始下载多久后检查速度（秒）。
+const SLOW_CHECK_AFTER: f64 = 4.0;
+/// 低于这个速度（字节/秒）视为缓慢。
+const SLOW_SPEED: f64 = 64.0 * 1024.0;
+/// 剩余不足这个大小时不再切换，直接下完。
+const SLOW_MIN_REMAINING: u64 = 512 * 1024;
 
 fn part_path(path: &Path) -> PathBuf {
     let mut name = path.file_name().unwrap_or_default().to_os_string();
