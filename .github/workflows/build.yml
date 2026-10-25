@@ -128,7 +128,9 @@ jobs:
           printf '%s\n' "${files[@]}"
           # 校验文件：启动器自动更新时用它校验下载的安装包
           for f in "${files[@]}"; do
-            echo "$(sha256sum "$f" | cut -d' ' -f1)  $(basename "$f")"
+            # GitHub 上传时会把文件名中的空格换成点，这里写上传后的名字
+            name="$(basename "$f")"
+            echo "$(sha256sum "$f" | cut -d' ' -f1)  ${name// /.}"
           done > SHA256SUMS.txt
           cat SHA256SUMS.txt
           files+=(SHA256SUMS.txt)

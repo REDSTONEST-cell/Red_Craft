@@ -124,12 +124,13 @@ pub async fn latest_release(http: &reqwest::Client) -> Result<Release> {
 }
 
 /// 解析 SHA256SUMS.txt，返回文件名对应的哈希（小写）。
+/// GitHub 上传时会把文件名中的空格换成点，比较时两边都这样处理。
 pub fn sum_for(sums: &str, file: &str) -> Option<String> {
+    let norm = |s: &str| s.trim().trim_start_matches('*').replace(' ', ".");
+    let want = norm(file);
     sums.lines().find_map(|line| {
-        let mut parts = line.split_whitespace();
-        let hash = parts.next()?;
-        let name = parts.next()?.trim_start_matches('*');
-        (name == file && hash.len() == 64).then(|| hash.to_ascii_lowercase())
+        let (hash, name) = line.trim().split_once(char::is_whitespace)?;
+        (hash.len() == 64 && norm(name) == want).then(|| hash.to_ascii_lowercase())
     })
 }
 
@@ -183,9 +184,14 @@ mod tests {
 
         let h = "a".repeat(64);
         let sums = format!("{h}  RedCraft_1.0.1_portable.exe\n{}  *other.msi\n", "b".repeat(64));
-        assert_eq!(sum_for(&sums, "RedCraft_1.0.1_portable.exe"), Some(h));
+        assert_eq!(sum_for(&sums, "RedCraft_1.0.1_portable.exe"), Some(h.clone()));
         assert_eq!(sum_for(&sums, "other.msi"), Some("b".repeat(64)));
         assert_eq!(sum_for(&sums, "missing"), None);
+        // 文件名带空格（1.0.0 的 SHA256SUMS.txt）与 GitHub 改名后的资产名
+        let spaced = format!("{h}  Red Craft_1.0.0_x64-setup.exe\n");
+        assert_eq!(sum_for(&spaced, "Red.Craft_1.0.0_x64-setup.exe"), Some(h.clone()));
+        let dotted = format!("{h}  Red.Craft_1.0.0_x64-setup.exe\n");
+        assert_eq!(sum_for(&dotted, "Red.Craft_1.0.0_x64-setup.exe"), Some(h));
     }
 
     #[test]
