@@ -223,7 +223,7 @@ pub fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
 pub struct AppPaths {
     /// 设置与账号等文件所在目录
     pub config_dir: PathBuf,
-    /// 启动器所在目录有 `.minecraft` 时为便携模式
+    /// 便携模式：启动器所在目录有 `.minecraft`，或使用便携版单文件 exe
     pub portable: bool,
     /// 未自定义时使用的游戏目录
     pub default_game_dir: PathBuf,
@@ -236,6 +236,10 @@ impl AppPaths {
             .and_then(|p| p.parent().map(Path::to_path_buf));
         if let Some(dir) = exe_dir {
             let local = dir.join(".minecraft");
+            // 便携版：第一次运行时在 exe 旁边创建 .minecraft；目录不可写时退回标准位置
+            if cfg!(feature = "portable") && !local.exists() {
+                let _ = std::fs::create_dir_all(&local);
+            }
             if local.is_dir() {
                 return AppPaths {
                     config_dir: local.join("redcraft"),

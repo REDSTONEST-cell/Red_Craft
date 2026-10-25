@@ -83,11 +83,22 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm tauri build --bundles ${{ matrix.bundles }}
+      - name: 构建便携版单文件 exe
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          pnpm tauri build --no-bundle --features portable
+          version=$(node -p "require('./package.json').version")
+          exe=$(ls target/release/*.exe | grep -iv "build-script" | head -1)
+          echo "便携版来源：$exe"
+          mkdir -p target/release/portable
+          cp "$exe" "target/release/portable/RedCraft_${version}_portable.exe"
       - uses: actions/upload-artifact@v7
         with:
           name: RedCraft-${{ matrix.name }}
           path: |
             target/release/bundle/nsis/*.exe
+            target/release/portable/*.exe
             target/release/bundle/msi/*.msi
             target/release/bundle/dmg/*.dmg
             target/release/bundle/deb/*.deb

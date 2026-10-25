@@ -12,6 +12,10 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+[features]
+# 便携版单文件 exe：数据始终保存在 exe 所在目录（类似 PCL）
+portable = []
+
 [dependencies]
 launcher-core.workspace = true
 tauri = { version = "2", features = ["protocol-asset"] }
