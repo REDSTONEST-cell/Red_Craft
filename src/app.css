@@ -87,6 +87,59 @@ body {
 
 #app {
   height: 100%;
+  isolation: isolate;
+  --control-ink: var(--ink);
+  --control-ink-2: var(--ink-2);
+  --control-muted: var(--muted);
+  --control-rule: var(--rule);
+  --control-rule-strong: var(--rule-strong);
+}
+
+/* 设置背景后，文字和导航直接覆盖在视频/图片上，只有可交互控件保留实心底色。 */
+:root.has-background :is(.titlebar, .sidebar, .card) {
+  background: transparent;
+}
+
+/* 视频帧明暗变化大，用白色前景 + 深色描边保证可读性。 */
+:root.has-background .shell {
+  --ink: #ffffff;
+  --ink-2: #f4f6fa;
+  --muted: #e0e6ef;
+  color: var(--ink);
+  text-shadow: -1px 0 1px #000, 1px 0 1px #000, 0 -1px 1px #000,
+    0 1px 1px #000, 0 2px 4px rgba(0, 0, 0, 0.9);
+}
+
+/* 背景模式下保留结构性分隔线（页头下划线、报头双线、页脚上边线等），
+   用半透明白色适配视频；细微的纸色分隔线仍隐去，避免画面被切碎。
+   以下规则全部限定在 has-background，未设置背景的界面保持原报刊风。 */
+:root.has-background .shell { --rule: transparent; --rule-strong: rgba(255, 255, 255, 0.58); }
+:root.has-background #app .shell :is(.chip, .avatar-empty) { border-color: transparent; }
+
+/* 实心控件保留当前主题的前景色和按钮配色，避免白字落到纸色控件上。 */
+:root.has-background .shell :is(.btn:not(.ghost), .input, select, textarea, .seg,
+  .java, .asset-grid article, .background-picker .status,
+  .background-picker .error, .background-picker .empty, .toggle .track) {
+  --ink: var(--control-ink);
+  --ink-2: var(--control-ink-2);
+  --muted: var(--control-muted);
+  --rule: var(--control-rule);
+  --rule-strong: var(--control-rule-strong);
+  text-shadow: none;
+}
+:root.has-background .shell :is(.input, select, textarea, .java, .asset-grid article,
+  .background-picker .status, .background-picker .empty) {
+  color: var(--ink);
+}
+:root.has-background .shell > .titlebar .ctl:not(.close):hover {
+  color: var(--control-ink);
+  text-shadow: none;
+}
+:root.has-background .shell .kicker {
+  color: color-mix(in srgb, var(--accent) 65%, white);
+}
+:root.has-background .sidebar svg {
+  filter: drop-shadow(0 1px 1px #000);
 }
 
 ::selection {

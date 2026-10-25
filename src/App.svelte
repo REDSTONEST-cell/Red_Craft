@@ -1,5 +1,6 @@
 <script lang="ts">
   import TitleBar from "./components/TitleBar.svelte";
+  import BackgroundLayer from "./components/BackgroundLayer.svelte";
   import Sidebar from "./components/Sidebar.svelte";
   import Toasts from "./components/Toasts.svelte";
   import TaskDock from "./components/TaskDock.svelte";
@@ -76,6 +77,7 @@
 
 <svelte:window oncontextmenu={onContext} />
 
+<BackgroundLayer />
 <div class="shell">
   <TitleBar />
   <div class="body">
@@ -111,6 +113,8 @@
 
 <style>
   .shell {
+    position: relative;
+    z-index: 2;
     height: 100%;
     display: flex;
     flex-direction: column;

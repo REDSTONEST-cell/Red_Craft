@@ -5,6 +5,7 @@
   import Segmented from "../components/Segmented.svelte";
   import Toggle from "../components/Toggle.svelte";
   import Icon from "../components/Icon.svelte";
+  import BackgroundPicker from "../components/BackgroundPicker.svelte";
   import { page } from "../lib/motion";
 
   // 本地副本：文本框编辑时不立即写盘，失焦后保存
@@ -378,6 +379,7 @@
         <input type="color" class="picker" value={s.accent} onchange={(e) => save({ accent: e.currentTarget.value })} title="自定义颜色" />
       </div>
     </div>
+    <BackgroundPicker />
   </section>
 
   <section>
