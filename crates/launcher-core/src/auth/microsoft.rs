@@ -326,7 +326,7 @@ fn parse_request_query(request_line: &str) -> Option<std::collections::HashMap<S
     )
 }
 
-const LOGIN_PAGE: &str = "<!doctype html><html lang=\"zh-CN\"><meta charset=\"utf-8\"><title>Red Craft</title>\
+const LOGIN_PAGE: &str = "<!doctype html><html lang=\"zh-CN\"><meta charset=\"utf-8\"><title>RCL</title>\
 <body style=\"margin:0;height:100vh;display:grid;place-items:center;background:#f4efe6;color:#1b1a17;font-family:serif\">\
 <div style=\"text-align:center\"><div style=\"width:14px;height:14px;background:#e8590c;box-shadow:3px 3px 0 #1b1a17;margin:0 auto 18px\"></div>\
 <h1 style=\"margin:0 0 8px\">{TITLE}</h1><p style=\"color:#7a7266;font-family:sans-serif\">{BODY}</p></div></body></html>";
@@ -396,9 +396,9 @@ pub async fn finish_browser_login(
         };
         let ok = params.contains_key("code") && params.get("state") == Some(&login.state);
         let (title, body) = if ok {
-            ("登录成功", "可以关闭这个页面，回到 Red Craft 了。")
+            ("登录成功", "可以关闭这个页面，回到 RCL 了。")
         } else {
-            ("登录未完成", "请回到 Red Craft 查看原因。")
+            ("登录未完成", "请回到 RCL 查看原因。")
         };
         let html = LOGIN_PAGE.replace("{TITLE}", title).replace("{BODY}", body);
         let resp = format!(

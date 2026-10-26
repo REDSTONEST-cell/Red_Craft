@@ -171,7 +171,7 @@ mod tests {
         let json = r#"{"tag_name":"v1.0.1","html_url":"https://github.com/x/y/releases/tag/v1.0.1","assets":[
             {"name":"Red.Craft_1.0.1_x64-setup.exe","browser_download_url":"https://e/a","size":1},
             {"name":"Red.Craft_1.0.1_x64_zh-CN.msi","browser_download_url":"https://e/b","size":2},
-            {"name":"RedCraft_1.0.1_portable.exe","browser_download_url":"https://e/c","size":3},
+            {"name":"RCL_1.0.1_portable.exe","browser_download_url":"https://e/c","size":3},
             {"name":"Red.Craft_1.0.1_amd64.AppImage","browser_download_url":"https://e/d","size":4},
             {"name":"SHA256SUMS.txt","browser_download_url":"https://e/s","size":5}]}"#;
         let r: Release = serde_json::from_str(json).unwrap();
@@ -183,8 +183,8 @@ mod tests {
         assert!(r.sums_asset().is_some());
 
         let h = "a".repeat(64);
-        let sums = format!("{h}  RedCraft_1.0.1_portable.exe\n{}  *other.msi\n", "b".repeat(64));
-        assert_eq!(sum_for(&sums, "RedCraft_1.0.1_portable.exe"), Some(h.clone()));
+        let sums = format!("{h}  RCL_1.0.1_portable.exe\n{}  *other.msi\n", "b".repeat(64));
+        assert_eq!(sum_for(&sums, "RCL_1.0.1_portable.exe"), Some(h.clone()));
         assert_eq!(sum_for(&sums, "other.msi"), Some("b".repeat(64)));
         assert_eq!(sum_for(&sums, "missing"), None);
         // 文件名带空格（1.0.0 的 SHA256SUMS.txt）与 GitHub 改名后的资产名

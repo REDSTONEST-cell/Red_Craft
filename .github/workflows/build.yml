@@ -92,7 +92,7 @@ jobs:
           exe=$(ls target/release/*.exe | grep -iv "build-script" | head -1)
           echo "便携版来源：$exe"
           mkdir -p target/release/portable
-          cp "$exe" "target/release/portable/RedCraft_${version}_portable.exe"
+          cp "$exe" "target/release/portable/RCL_${version}_portable.exe"
       - uses: actions/upload-artifact@v7
         with:
           name: RedCraft-${{ matrix.name }}
@@ -139,4 +139,4 @@ jobs:
           # 0.x 版本标记为预发布
           pre=""
           case "$TAG" in v0.*) pre="--prerelease" ;; esac
-          gh release create "$TAG" "${files[@]}" --target "$GITHUB_SHA" --title "Red Craft ${TAG}" --notes-file "$notes" $pre
+          gh release create "$TAG" "${files[@]}" --target "$GITHUB_SHA" --title "RCL ${TAG}" --notes-file "$notes" $pre

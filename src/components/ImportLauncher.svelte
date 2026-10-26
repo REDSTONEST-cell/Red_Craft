@@ -99,7 +99,7 @@
   </div>
   <p class="muted small">
     支持官方启动器、HMCL、PCL 的 .minecraft 文件夹（也可以选启动器所在的文件夹），以及 Prism Launcher / MultiMC 的数据目录。
-    导入时会在 Red Craft 中重新安装相同的游戏版本和加载器，再复制 Mod、存档、配置等数据，原文件不会被修改。
+    导入时会在 RCL 中重新安装相同的游戏版本和加载器，再复制 Mod、存档、配置等数据，原文件不会被修改。
   </p>
 
   {#if scanning}

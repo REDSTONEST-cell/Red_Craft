@@ -17,7 +17,7 @@ pub mod version;
 
 pub use error::{CoreError, ErrorInfo, Result};
 
-pub const LAUNCHER_NAME: &str = "Red Craft";
+pub const LAUNCHER_NAME: &str = "RCL";
 /// 用于 User-Agent 与 `${launcher_name}` 的标识（不含空格）
 pub const LAUNCHER_ID: &str = "RedCraft";
 pub const LAUNCHER_VERSION: &str = env!("CARGO_PKG_VERSION");

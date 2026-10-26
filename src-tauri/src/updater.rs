@@ -75,6 +75,39 @@ fn updates_dir(state: &AppState) -> PathBuf {
     state.paths.config_dir.join("updates")
 }
 
+/// 从 1.0.x（产品名 Red Craft）升级后，旧安装目录里留有新程序的副本（见 windows/hooks.nsh）。
+/// 从那里启动时，转去打开新安装的 RCL 并删除旧目录。返回 true 表示已转交，应直接退出。
+pub fn redirect_legacy_install() -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        if cfg!(feature = "portable") {
+            return false;
+        }
+        let Some(exe) = current_exe() else { return false };
+        let Some(dir) = exe.parent() else { return false };
+        if dir.file_name().is_none_or(|n| n != "Red Craft") || dir.join("uninstall.exe").exists() {
+            return false;
+        }
+        let (Some(parent), Some(name)) = (dir.parent(), exe.file_name()) else { return false };
+        let new = parent.join("RCL").join(name);
+        if !new.is_file() {
+            return false;
+        }
+        if std::process::Command::new(&new).spawn().is_err() {
+            return false;
+        }
+        let _ = std::process::Command::new("cmd")
+            .raw_arg(format!("/C ping -n 3 127.0.0.1 >nul & rmdir /s /q \"{}\"", dir.display()))
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn();
+        return true;
+    }
+    #[allow(unreachable_code)]
+    false
+}
+
 /// 启动时清理上次更新留下的旧文件与安装包。
 pub fn cleanup(state: &AppState) {
     if let Some(t) = replace_target(install_kind()) {
@@ -127,7 +160,7 @@ pub async fn download_update(app: AppHandle, state: State<'_, AppState>) -> AppR
     let http = state.http()?;
     let dir = updates_dir(&state);
     let concurrency = state.settings().concurrency;
-    let title = format!("下载 Red Craft {}", release.tag_name.trim_start_matches('v'));
+    let title = format!("下载 RCL {}", release.tag_name.trim_start_matches('v'));
     Ok(state.tasks.spawn(&app, title, move |reporter, cancel| async move {
         // 校验值（官方 API 返回的地址，经代理下载的文件也能校验）
         reporter.stage("获取校验信息");

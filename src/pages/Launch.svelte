@@ -68,7 +68,7 @@
       <span>Minecraft Java 版启动器</span>
     </div>
     <hr class="rule-double" />
-    <h1 class="title">Red Craft</h1>
+    <h1 class="title">Red Craft Launcher</h1>
     <hr class="rule-double" />
   </header>
 

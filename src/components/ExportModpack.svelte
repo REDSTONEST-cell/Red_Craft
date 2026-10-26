@@ -134,7 +134,7 @@
       <Toggle checked={online} onchange={(v) => (online = v)} />
     </div>
     <p class="muted small">
-      导出为 Modrinth 整合包（.mrpack），Red Craft、PCL、HMCL、Prism 等启动器都可以导入。已选 {chosen.length} 项，约 {bytes(total)}。
+      导出为 Modrinth 整合包（.mrpack），RCL、PCL、HMCL、Prism 等启动器都可以导入。已选 {chosen.length} 项，约 {bytes(total)}。
     </p>
   </div>
   {#snippet actions()}

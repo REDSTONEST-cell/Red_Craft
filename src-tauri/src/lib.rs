@@ -20,10 +20,13 @@ use state::AppState;
 use tauri::Manager;
 
 pub fn run() {
+    if updater::redirect_legacy_install() {
+        return;
+    }
     let state = AppState::load();
     logger::init(&state.paths.config_dir);
     log::info!(
-        "Red Craft {} 启动，游戏目录 {}，便携模式 {}",
+        "RCL {} 启动，游戏目录 {}，便携模式 {}",
         launcher_core::LAUNCHER_VERSION,
         state.game_dir().root().display(),
         state.paths.portable
@@ -132,5 +135,5 @@ pub fn run() {
             launch::kill_game,
         ])
         .run(tauri::generate_context!())
-        .expect("启动 Red Craft 失败");
+        .expect("启动 RCL 失败");
 }
