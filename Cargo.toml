@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/launcher-core", "src-tauri"]
 
 [workspace.package]
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/REDSTONEST-cell/Red_Craft"
@@ -18,7 +18,8 @@ thiserror = "2"
 log = "0.4"
 
 [profile.release]
-opt-level = "s"
+# 以速度优先：校验哈希、解压、解析 JSON 都在热点路径上
+opt-level = 3
 lto = true
 codegen-units = 1
 panic = "abort"

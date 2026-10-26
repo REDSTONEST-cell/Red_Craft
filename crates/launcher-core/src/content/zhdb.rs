@@ -24,6 +24,8 @@ pub struct ZhEntry {
 
 pub struct ZhDb {
     entries: Vec<ZhEntry>,
+    /// 每个条目的各个中文名：(原样, 去掉空白并转小写后的形式, 字符数)，加载时预先算好
+    names: Vec<Vec<(String, String, i64)>>,
     by_slug: HashMap<String, usize>,
     by_name: HashMap<String, usize>,
 }
@@ -87,6 +89,11 @@ fn fields(b: &[u8]) -> Vec<(u64, Result<u64, &[u8]>)> {
     out
 }
 
+/// 去掉空白并转小写。
+fn normalize(s: &str) -> String {
+    s.chars().filter(|c| !c.is_whitespace()).flat_map(char::to_lowercase).collect()
+}
+
 fn has_cjk(s: &str) -> bool {
     s.chars().any(|c| ('\u{3400}'..='\u{9fff}').contains(&c) || ('\u{f900}'..='\u{faff}').contains(&c))
 }
@@ -137,6 +144,19 @@ impl ZhDb {
             (e.zh, e.en) = split_name(&full);
             entries.push(e);
         }
+        let names = entries
+            .iter()
+            .map(|e| {
+                e.zh.split('/')
+                    .map(|n| {
+                        let norm = normalize(n);
+                        let len = norm.chars().count() as i64;
+                        (n.trim().to_string(), norm, len)
+                    })
+                    .filter(|(_, norm, _)| !norm.is_empty())
+                    .collect()
+            })
+            .collect();
         let mut by_slug = HashMap::new();
         let mut by_name = HashMap::new();
         for (i, e) in entries.iter().enumerate() {
@@ -148,7 +168,7 @@ impl ZhDb {
                 by_name.entry(k).or_insert(i);
             }
         }
-        ZhDb { entries, by_slug, by_name }
+        ZhDb { entries, names, by_slug, by_name }
     }
 
     pub fn len(&self) -> usize {
@@ -175,32 +195,25 @@ impl ZhDb {
 
     /// 中文关键词搜索：返回按匹配程度排序的候选（最多 `limit` 个）。
     pub fn search(&self, query: &str, limit: usize) -> Vec<ZhMatch> {
-        let q: String = query.chars().filter(|c| !c.is_whitespace()).flat_map(char::to_lowercase).collect();
+        let q = normalize(query);
         if q.is_empty() || !has_cjk(&q) {
             return Vec::new();
         }
         let qn = q.chars().count() as i64;
         let mut scored: Vec<(i64, usize, &str)> = Vec::new();
-        for (i, e) in self.entries.iter().enumerate() {
-            if e.zh.is_empty() {
-                continue;
-            }
+        for (i, (e, names)) in self.entries.iter().zip(&self.names).enumerate() {
             let mut best = 0i64;
             let mut best_name = "";
-            for name in e.zh.split('/') {
-                let n: String = name.chars().filter(|c| !c.is_whitespace()).flat_map(char::to_lowercase).collect();
-                if n.is_empty() {
-                    continue;
-                }
-                let nn = n.chars().count() as i64;
+            for (name, n, nn) in names {
+                let (n, nn) = (n.as_str(), *nn);
                 let diff = (nn - qn).abs();
                 let s = if n == q {
                     1000
-                } else if n.starts_with(&q) {
+                } else if n.starts_with(q.as_str()) {
                     700 - diff * 8
-                } else if n.contains(&q) {
+                } else if n.contains(q.as_str()) {
                     500 - diff * 8
-                } else if nn >= 2 && q.contains(&n) {
+                } else if nn >= 2 && q.contains(n) {
                     // 搜索词更长，例如「万用皮肤补丁mod」
                     400 - diff * 8
                 } else {
@@ -214,7 +227,7 @@ impl ZhDb {
                 };
                 if s > best {
                     best = s;
-                    best_name = name.trim();
+                    best_name = name.as_str();
                 }
             }
             if best > 0 {
@@ -229,7 +242,7 @@ impl ZhDb {
             .take(limit)
             .map(|(_, i, name)| {
                 let e = &self.entries[i];
-                let n: String = name.chars().filter(|c| !c.is_whitespace()).flat_map(char::to_lowercase).collect();
+                let n = normalize(name);
                 ZhMatch {
                     wiki_id: e.wiki_id,
                     zh: name.to_string(),

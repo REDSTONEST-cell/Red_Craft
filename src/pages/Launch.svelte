@@ -22,7 +22,9 @@
   const launching = $derived(!!task && task.state === "running");
   let news = $state<VersionList | null>(null);
 
+  // 简讯栏只在标准布局显示；极简布局不必在启动时请求版本清单
   $effect(() => {
+    if (app.settings?.layout === "minimal" || news) return;
     api
       .versionList(false)
       .then((v) => (news = v))

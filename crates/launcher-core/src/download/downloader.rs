@@ -303,7 +303,8 @@ impl Downloader {
         let expected_len = task.size.or(resp.content_length()).unwrap_or(0);
         let started = Instant::now();
         let part = part_path(&task.path);
-        let mut file = tokio::fs::File::create(&part).await.at(&part)?;
+        // 写入缓冲：tokio 的每次文件写入都要切换到阻塞线程池，攒到 256KB 再写可以大幅减少切换
+        let mut file = tokio::io::BufWriter::with_capacity(256 * 1024, tokio::fs::File::create(&part).await.at(&part)?);
         let mut hasher = Sha1::new();
         let mut stream = resp.bytes_stream();
         while let Some(chunk) = stream.next().await {

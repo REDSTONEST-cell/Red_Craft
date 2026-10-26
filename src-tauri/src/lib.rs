@@ -49,6 +49,10 @@ pub fn run() {
         })
         .setup(|app| {
             updater::cleanup(&app.state::<AppState>());
+            // 后台预加载 Mod 中文名数据库，第一次中文搜索时无需等待
+            std::thread::spawn(|| {
+                launcher_core::content::zhdb::db();
+            });
             // 保险：前端若因异常没有通知就绪，2 秒后仍然显示窗口
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
