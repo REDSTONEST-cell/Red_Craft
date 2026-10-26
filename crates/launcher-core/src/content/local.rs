@@ -31,6 +31,9 @@ pub struct LocalMod {
     pub size: u64,
     /// 通过启动器安装的记录（平台、项目）
     pub source: Option<IndexEntry>,
+    /// 中文名（来自 Mod 中文名数据库）
+    #[serde(default)]
+    pub zh_name: Option<String>,
 }
 
 const MAX_ICON: u64 = 256 * 1024;
@@ -246,6 +249,7 @@ pub fn scan_mods(folder: &Path) -> Vec<LocalMod> {
     });
     for m in &mut mods {
         m.source = index.files.get(base_name(&m.filename)).cloned();
+        m.zh_name = super::zhdb::db().zh_name(&m.name, Some(&m.mod_id)).map(str::to_string);
     }
     mods.sort_by_key(|m| m.name.to_lowercase());
     mods

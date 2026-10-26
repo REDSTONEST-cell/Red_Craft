@@ -27,7 +27,8 @@
 - **便携模式**：启动器所在目录存在 `.minecraft` 时自动使用它，配置也保存在其中。
 - **Java**：扫描 JAVA_HOME、PATH、Windows 注册表、常见安装目录、官方启动器自带的 runtime；按版本 JSON 的 `javaVersion` 自动选择，没有合适的就从 Mojang Java runtime 清单下载（目录布局与官方启动器一致，可互相复用）。
 - **模组加载器**：新建实例时可选 Fabric / Quilt / Forge / NeoForge，只列出支持所选游戏版本的加载器版本；Fabric / Quilt 直接使用官方 profile，Forge / NeoForge 先用启动器（支持镜像）预下载依赖库，再以无界面方式运行官方安装器；1.12.2 及更早的 Forge 直接解析安装配置，不运行安装器。加载器版本 JSON 通过 inheritsFrom 继承原版。
-- **资源下载**：Mod、材质包、光影包，数据源可选 Modrinth 或 CurseForge，按实例的游戏版本与加载器筛选（虚拟滚动、滚动加载）；只列出兼容的版本；安装前自动递归解析必需前置（处理循环依赖、去重、已安装的跳过、只给项目没给版本时选兼容的最新版），可选依赖供勾选，已安装的冲突项给出警告；更新时自动替换旧文件。Modrinth 走 MCIM 镜像，CurseForge 没有 API Key 时通过 MCIM 镜像访问。新建 Fabric / Quilt 实例时自动安装兼容的最新 Fabric API / QSL。
+- **资源下载**：Mod、材质包、光影包，可聚合搜索 Modrinth 与 CurseForge（同一个项目只显示一次，按名称相似度与下载量重排），也可只搜其中一个，按实例的游戏版本与加载器筛选（虚拟滚动、滚动加载）；只列出兼容的版本；安装前自动递归解析必需前置（处理循环依赖、去重、已安装的跳过、只给项目没给版本时选兼容的最新版），可选依赖供勾选，已安装的冲突项给出警告；更新时自动替换旧文件。Modrinth 走 MCIM 镜像，CurseForge 没有 API Key 时通过 MCIM 镜像访问。新建 Fabric / Quilt 实例时自动安装兼容的最新 Fabric API / QSL。
+- **中文搜索**：内置约 2.7 万条 Mod 的中文名数据库，输入中文名（如「万用皮肤补丁」）会换成英文名搜索，能确定是哪个 Mod 时直接置顶，并列出其他可能的匹配；搜索结果与已安装 Mod 显示中文名，简介的中文翻译缓存到本地。
 - **整合包**：支持 Modrinth（.mrpack）与 CurseForge 整合包，可在资源页直接安装、从本地导入，或直接把整合包文件拖进启动器窗口；自动安装对应的游戏版本与加载器（简写的 Forge 版本号会换成完整版本），下载全部文件（CurseForge 按项目类型放入 mods / resourcepacks / shaderpacks），解压 overrides，并作为开启版本隔离的独立实例。也可以把实例导出为 Modrinth 整合包：勾选要打包的内容（默认 Mod、配置、资源包、光影与游戏设置，不含存档），能在 Modrinth 上找到的 Mod / 资源包 / 光影包只记录下载地址，其余文件打包进 overrides。
 - **游戏日志**：原版日志配置输出的 log4j XML 会被还原成普通文本行（含多行消息与异常堆栈）。
 - **已安装 Mod 管理**：读取 jar 中的 `fabric.mod.json` / `quilt.mod.json` / `mods.toml` / `neoforge.mods.toml` / `mcmod.info` 显示名称、版本、作者与图标；启用 / 禁用（改后缀 `.disabled`）、删除、检查更新（Modrinth 用文件 SHA1 调 `/version_files/update`，从 CurseForge 安装的按安装记录查询）、单个或全部更新（禁用的 Mod 更新后仍保持禁用）。可选下载时在文件名中加入中文名（如 `[机械动力] create-1.21.1-6.0.4.jar`），以及列表标题显示译名或文件名。
@@ -46,6 +47,13 @@
 - **批量管理实例**：实例页进入批量管理后可多选（支持全选），批量补全文件、设置版本隔离或删除。
 - **启动**：同时支持新版 `arguments` 与旧版 `minecraftArguments`；处理 `legacy` / `pre-1.6` 旧版资源；启动前快速补全缺失文件（资源只比较大小，约 150ms）；自动进入服务器（1.20+ 用 Quick Play，旧版用 `--server/--port`）；内存自动分配；日志实时推送；崩溃时分析常见原因并给出中文解决办法；启动后可隐藏 / 保持 / 关闭启动器。
 - **界面**：无边框窗口 + 自定义标题栏；深色 / 浅色 / 跟随系统；主题色可自定义；动效只使用 transform / opacity，并尊重系统「减少动态效果」设置。
+
+## 致谢与第三方数据
+
+- Mod 中文名数据库（`crates/launcher-core/assets/mcmod.buf`）原样取自 [PCL（Plain Craft Launcher）](https://github.com/PCL-Community/PCL-CE)，经 PCL 作者龙腾猫跃许可使用；数据原始来源为 [MC 百科（mcmod.cn）](https://www.mcmod.cn)。该文件不适用本仓库的 MIT 许可证，权利归原作者所有，详见 `crates/launcher-core/assets/README.md`。
+- 中文搜索与聚合搜索的思路参考了 PCL。
+- 下载镜像由 [BMCLAPI](https://bmclapidoc.bangbang93.com/) 与 [MCIM](https://mod.mcimirror.top) 提供，资源简介的中文翻译来自 MCIM。
+- 自定义背景功能由 @Windshakes 贡献。
 
 ## 开发
 

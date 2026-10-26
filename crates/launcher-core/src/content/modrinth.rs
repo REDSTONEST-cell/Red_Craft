@@ -240,6 +240,7 @@ impl Modrinth {
                     downloads: h.downloads,
                     categories: if h.display_categories.is_empty() { h.categories } else { h.display_categories },
                     updated: h.date_modified,
+                    zh_name: None,
                 })
                 .collect(),
         })
@@ -259,6 +260,7 @@ impl Modrinth {
             downloads: p.downloads,
             categories: p.categories,
             updated: p.updated,
+            zh_name: None,
         })
     }
 

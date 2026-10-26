@@ -72,5 +72,15 @@
   ["YUNG's Better Mineshafts", "YUNG 的更好的废弃矿井"],
   ["Continuity", "连接纹理"],
   ["Iron's Spells 'n Spellbooks", "铁魔法"],
-  ["Timeless and Classics Zero", "永恒枪械工坊：零", "tacz"]
+  ["Timeless and Classics Zero", "永恒枪械工坊：零", "tacz"],
+  ["BSL Shaders", "BSL 光影", "bsl-shaders"],
+  ["Complementary Reimagined", "互补光影", "complementary-reimagined"],
+  ["Complementary Unbound", "互补光影 Unbound", "complementary-unbound"],
+  ["Sildur's Vibrant Shaders", "Sildur 光影", "sildurs-vibrant-shaders"],
+  ["MakeUp - Ultra Fast", "MakeUp 光影", "makeup-ultra-fast-shaders"],
+  ["Solas Shader", "Solas 光影", "solas-shader"],
+  ["Photon Shader", "光子光影", "photon-shader"],
+  ["Fresh Animations", "新鲜动画", "fresh-animations"],
+  ["Faithful 32x", "Faithful 高清材质", "faithful-32x"],
+  ["Stay True", "Stay True 材质", "stay-true"]
 ]

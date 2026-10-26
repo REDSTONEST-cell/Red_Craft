@@ -5,6 +5,8 @@ pub mod export;
 mod index;
 pub mod local;
 pub mod media;
+pub mod zhdb;
+pub mod aggregate;
 mod modpack;
 mod modrinth;
 mod resolve;
@@ -106,6 +108,9 @@ pub struct ProjectHit {
     pub categories: Vec<String>,
     pub content_type: ContentType,
     pub updated: String,
+    /// 中文名（来自 Mod 中文名数据库或常用译名表）
+    #[serde(default)]
+    pub zh_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -40,7 +40,7 @@
   const typeLabel: Record<string, string> = { release: "正式", beta: "测试", alpha: "早期" };
 </script>
 
-<Modal bind:open title={project ? (zhName(project.title, project.slug) ?? project.title) : ""} kicker={project?.platform === "curseforge" ? "CURSEFORGE" : "MODRINTH"} width={720}>
+<Modal bind:open title={project ? (project.zhName ?? zhName(project.title, project.slug) ?? project.title) : ""} kicker={project?.platform === "curseforge" ? "CURSEFORGE" : "MODRINTH"} width={720}>
   {#if project}
     <div class="head">
       {#if project.iconUrl}<img src={iconSrc(project.iconUrl)} alt="" class="icon" />{:else}<span class="icon blank"></span>{/if}

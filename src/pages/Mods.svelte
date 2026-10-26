@@ -9,6 +9,8 @@
     type Platform,
     type ProjectHit,
     type SortBy,
+    type SearchPlatform,
+    type ZhMatch,
   } from "../lib/api";
   import { app, selectedInstance, showError, toast } from "../lib/state.svelte";
   import { count, date, LOADER_LABEL } from "../lib/format";
@@ -20,7 +22,7 @@
   import InstalledMods from "../components/InstalledMods.svelte";
   import Icon from "../components/Icon.svelte";
   import Toggle from "../components/Toggle.svelte";
-  import { iconSrc, zhName, zhQuery } from "../lib/zh";
+  import { iconSrc, zhName } from "../lib/zh";
 
   function stored<T extends string>(key: string, fallback: T): T {
     try {
@@ -37,7 +39,8 @@
     }
   }
 
-  let platform = $state<Platform>(stored("rc.platform", "modrinth"));
+  // 默认聚合搜索两个平台（与 PCL 相同）
+  let platform = $state<SearchPlatform>(stored("rc.searchPlatform", "all"));
   type Tab = ContentType | "installed";
   let tab = $state<Tab>(stored("rc.contentTab", "mod") as Tab);
   // 搜索用的类型（「已安装」标签不搜索）
@@ -53,10 +56,19 @@
   let loading = $state(false);
   let error = $state<{ message: string; hint: string } | null>(null);
   let generation = 0;
-  // 中文关键词转换后的提示，例如「机械动力 → Create」
-  const converted = $derived(tab === "installed" ? null : zhQuery(query));
+  // 中文关键词转换后的提示，例如「万用皮肤补丁 → CustomSkinLoader」，以及其他可能的匹配
+  let converted = $state<ZhMatch | null>(null);
+  let alternatives = $state<ZhMatch[]>([]);
+  // 两个平台各自的分页位置
+  let cursor = { modrinthOffset: 0, curseforgeOffset: 0, modrinthTotal: null as number | null, curseforgeTotal: null as number | null };
+  const hasMore = $derived.by(() => {
+    void hits.length;
+    const mr = platform !== "curseforge" && (cursor.modrinthTotal === null || cursor.modrinthOffset < cursor.modrinthTotal);
+    const cf = platform !== "modrinth" && (cursor.curseforgeTotal === null || cursor.curseforgeOffset < cursor.curseforgeTotal);
+    return mr || cf;
+  });
 
-  $effect(() => store("rc.platform", platform));
+  $effect(() => store("rc.searchPlatform", platform));
   $effect(() => store("rc.contentTab", tab));
 
   // 实例变化时获取它的游戏版本与加载器
@@ -72,25 +84,55 @@
 
   const useFilter = $derived(compatibleOnly && searchType !== "modpack" && !!ctx);
 
+  // 同一个项目只显示一次：同平台按 id，跨平台按名称
+  const nameKey = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+  function appendUnique(list: ProjectHit[], add: ProjectHit[]) {
+    const ids = new Set(list.map((h) => `${h.platform}:${h.id}`));
+    const names = new Set(list.map((h) => nameKey(h.title)));
+    const out = [...list];
+    for (const h of add) {
+      if (ids.has(`${h.platform}:${h.id}`) || names.has(nameKey(h.title))) continue;
+      ids.add(`${h.platform}:${h.id}`);
+      names.add(nameKey(h.title));
+      out.push(h);
+    }
+    return out;
+  }
+
   async function search(reset: boolean) {
     if (tab === "installed") return;
-    if (!reset && (loading || hits.length >= total)) return;
+    if (!reset && (loading || !hasMore)) return;
     const gen = ++generation;
     loading = true;
     error = null;
+    if (reset) cursor = { modrinthOffset: 0, curseforgeOffset: 0, modrinthTotal: null, curseforgeTotal: null };
     try {
-      const res = await api.contentSearch(platform, {
-        query: converted?.query ?? query.trim(),
-        contentType: searchType,
-        gameVersion: useFilter ? ctx!.mcVersion : null,
-        loader: useFilter ? ctx!.loader : null,
-        sort,
-        offset: reset ? 0 : hits.length,
-        limit: 20,
+      const res = await api.contentSearch({
+        platform,
+        query: {
+          query: query.trim(),
+          contentType: searchType,
+          gameVersion: useFilter ? ctx!.mcVersion : null,
+          loader: useFilter ? ctx!.loader : null,
+          sort,
+          offset: 0,
+          limit: 20,
+        },
+        ...cursor,
       });
       if (gen !== generation) return;
-      hits = reset ? res.hits : [...hits, ...res.hits];
-      total = res.total;
+      cursor = {
+        modrinthOffset: res.modrinthOffset,
+        curseforgeOffset: res.curseforgeOffset,
+        modrinthTotal: res.modrinthTotal,
+        curseforgeTotal: res.curseforgeTotal,
+      };
+      hits = reset ? appendUnique([], res.hits) : appendUnique(hits, res.hits);
+      total = (platform !== "curseforge" ? (res.modrinthTotal ?? 0) : 0) + (platform !== "modrinth" ? (res.curseforgeTotal ?? 0) : 0);
+      if (reset) {
+        converted = res.converted;
+        alternatives = res.alternatives;
+      }
       translate(res.hits, gen);
     } catch (e) {
       if (gen !== generation) return;
@@ -102,16 +144,20 @@
     }
   }
 
-  // 补充简介的中文翻译（失败时保持英文）
+  // 补充简介的中文翻译（失败时保持英文）；聚合时两个平台分别请求
   async function translate(list: ProjectHit[], gen: number) {
-    if (!list.length) return;
-    const p = list[0].platform;
-    try {
-      const map = await api.contentTranslations(p, list.map((h) => h.id));
-      if (gen !== generation) return;
-      hits = hits.map((h) => (h.platform === p && map[h.id] ? { ...h, zhDescription: map[h.id] } : h));
-    } catch {
-      /* 翻译不可用时保持英文 */
+    for (const p of ["modrinth", "curseforge"] as Platform[]) {
+      const ids = list.filter((h) => h.platform === p).map((h) => h.id);
+      if (!ids.length) continue;
+      api
+        .contentTranslations(p, ids)
+        .then((map) => {
+          if (gen !== generation) return;
+          hits = hits.map((h) => (h.platform === p && map[h.id] ? { ...h, zhDescription: map[h.id] } : h));
+        })
+        .catch(() => {
+          /* 翻译不可用时保持英文 */
+        });
     }
   }
 
@@ -186,6 +232,7 @@
       <Segmented
         bind:value={platform}
         options={[
+          { value: "all", label: "聚合" },
           { value: "modrinth", label: "Modrinth" },
           { value: "curseforge", label: "CurseForge" },
         ]}
@@ -198,7 +245,7 @@
     {#if tab !== "installed"}
     <div class="search">
       <Icon name="search" size={14} />
-      <input class="input" placeholder={`搜索${tabs.find((t) => t.value === tab)?.label}，支持常见中文名…`} bind:value={query} />
+      <input class="input" placeholder={tab === "mod" ? "搜索 Mod，支持中文名…" : `搜索${tabs.find((t) => t.value === tab)?.label}，支持常见中文名…`} bind:value={query} />
     </div>
     <select class="input sort" bind:value={sort}>
       <option value="relevance">相关度</option>
@@ -234,7 +281,7 @@
     {:else}
       <VirtualList items={hits} rowHeight={84} key={(h) => `${h.platform}:${h.id}`} onEnd={() => search(false)}>
         {#snippet row(h)}
-          {@const zh = zhName(h.title, h.slug)}
+          {@const zh = h.zhName ?? zhName(h.title, h.slug)}
           <button class="hit" onclick={() => openDetail(h)}>
             {#if h.iconUrl}
               <img src={iconSrc(h.iconUrl)} alt="" loading="lazy" class="icon" />
@@ -246,6 +293,7 @@
                 <strong>{zh ?? h.title}</strong>
                 {#if zh}<span class="en">{h.title}</span>{/if}
                 {#if h.author}<span class="muted small">by {h.author}</span>{/if}
+                {#if platform === "all"}<span class="src" class:cf={h.platform === "curseforge"}>{h.platform === "curseforge" ? "CF" : "MR"}</span>{/if}
               </div>
               <p class="desc" title={h.zhDescription ? h.description : undefined}>{h.zhDescription ?? h.description}</p>
               <div class="meta">
@@ -260,7 +308,16 @@
     {/if}
   </div>
   <div class="foot muted small">
-    {#if converted}已按「{converted.from}」搜索 {converted.query} · {/if}
+    {#if converted}
+      已按「{converted.zh}」搜索 {converted.keyword}
+      {#if alternatives.length}
+        · 也可能是：
+        {#each alternatives as alt (alt.wikiId + alt.zh)}
+          <button class="alt" onclick={() => (query = alt.zh)} title={alt.en}>{alt.zh}</button>
+        {/each}
+      {/if}
+      ·
+    {/if}
     {#if loading}加载中…{:else if total}共 {count(total)} 个结果，已显示 {hits.length} 个{/if}
   </div>
   {/if}
@@ -277,7 +334,7 @@
 {#if current && instanceId}
   <InstallPlan
     bind:open={planOpen}
-    {platform}
+    platform={current.platform}
     instance={instanceId}
     contentType={current.contentType}
     version={planVersion}
@@ -404,5 +461,28 @@
   .foot {
     padding-top: 6px;
     min-height: 22px;
+  }
+  .alt {
+    border: 0;
+    background: none;
+    padding: 0 2px;
+    color: var(--accent);
+    font: inherit;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .src {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 1px 5px;
+    border-radius: 4px;
+    color: #1b7f4a;
+    background: color-mix(in srgb, #1bd96a 16%, transparent);
+  }
+  .src.cf {
+    color: #c2410c;
+    background: color-mix(in srgb, #f16436 16%, transparent);
   }
 </style>

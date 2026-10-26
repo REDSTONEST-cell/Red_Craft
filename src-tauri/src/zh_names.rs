@@ -31,9 +31,42 @@ fn names() -> &'static HashMap<String, String> {
     })
 }
 
-/// 返回 Mod 的中文名；没有收录时返回 `None`。
+/// 返回 Mod 的中文名：先查 Mod 中文名数据库，再查常用译名表；没有收录时返回 `None`。
 pub fn zh_name(title: &str) -> Option<&'static str> {
-    names().get(&key(title)).map(String::as_str)
+    launcher_core::content::zhdb::db()
+        .zh_name(title, None)
+        .or_else(|| table_name(title, None))
+}
+
+/// 常用译名表（覆盖材质包、光影等非 Mod 资源）。
+pub fn table_name(title: &str, slug: Option<&str>) -> Option<&'static str> {
+    slug.and_then(|s| names().get(&key(s)))
+        .or_else(|| names().get(&key(title)))
+        .map(String::as_str)
+}
+
+/// 常用译名表中的中文名 → 英文名（用于非 Mod 资源的中文搜索）。返回 (英文名, 中文名)。
+pub fn table_query(query: &str) -> Option<(String, String)> {
+    static ROWS: OnceLock<Vec<(String, String)>> = OnceLock::new();
+    let rows = ROWS.get_or_init(|| {
+        let rows: Vec<Vec<String>> = serde_json::from_str(TABLE).unwrap_or_default();
+        rows.into_iter().filter_map(|r| Some((r.first()?.clone(), r.get(1)?.clone()))).collect()
+    });
+    let q: String = query.chars().filter(|c| !c.is_whitespace()).collect();
+    if q.is_empty() {
+        return None;
+    }
+    let mut best: Option<&(String, String)> = None;
+    for row in rows {
+        let zh: String = row.1.chars().filter(|c| !c.is_whitespace()).collect();
+        if zh == q {
+            return Some(row.clone());
+        }
+        if (zh.contains(&q) || q.contains(&zh)) && best.is_none_or(|b| row.1.chars().count() < b.1.chars().count()) {
+            best = Some(row);
+        }
+    }
+    best.cloned()
 }
 
 /// 按文件名格式加上中文名：`[机械动力] create-6.0.4.jar` 或 `create-6.0.4-机械动力.jar`。

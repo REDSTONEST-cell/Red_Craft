@@ -219,6 +219,7 @@ impl From<RawMod> for ProjectHit {
             categories: m.categories.into_iter().map(|c| c.name).collect(),
             content_type: type_of_class(m.class_id.unwrap_or(6)),
             updated: m.date_modified,
+            zh_name: None,
         }
     }
 }
@@ -287,6 +288,17 @@ impl CurseForge {
             total: raw.pagination.total_count.min(10_000),
             hits: raw.data.into_iter().map(ProjectHit::from).collect(),
         })
+    }
+
+    /// 按 slug 精确查找项目（slug 与类别一起唯一确定一个项目）。
+    pub async fn project_by_slug(&self, slug: &str, content_type: ContentType) -> Result<Option<ProjectHit>> {
+        let path = format!(
+            "/mods/search?gameId={MINECRAFT}&classId={}&slug={}",
+            class_id(content_type),
+            super::modrinth_enc(slug)
+        );
+        let raw: RawSearch = self.get(&path, "CurseForge 搜索结果").await?;
+        Ok(raw.data.into_iter().next().map(ProjectHit::from))
     }
 
     pub async fn project(&self, id: &str) -> Result<ProjectHit> {

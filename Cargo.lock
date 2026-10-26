@@ -2187,6 +2187,7 @@ version = "1.0.0"
 dependencies = [
  "base64 0.22.1",
  "dirs 6.0.0",
+ "flate2",
  "futures-util",
  "getrandom 0.3.4",
  "hex",
@@ -3234,6 +3235,7 @@ name = "red-craft"
 version = "1.0.0"
 dependencies = [
  "dirs 6.0.0",
+ "futures-util",
  "image",
  "keyring",
  "launcher-core",

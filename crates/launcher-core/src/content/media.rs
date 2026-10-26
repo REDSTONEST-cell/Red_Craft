@@ -106,6 +106,17 @@ pub async fn translations(http: &reqwest::Client, platform: Platform, ids: &[Str
         .collect()
 }
 
+/// 单个项目简介的中文翻译（批量接口不可用时的备用）。
+pub async fn translation(http: &reqwest::Client, platform: Platform, id: &str) -> Option<String> {
+    let p = match platform {
+        Platform::Modrinth => "modrinth",
+        Platform::Curseforge => "curseforge",
+    };
+    let resp = http.get(format!("{MCIM}/translate/{p}/{id}")).timeout(Duration::from_secs(8)).send().await.ok()?;
+    let t: Translation = resp.json().await.ok()?;
+    t.translated.map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

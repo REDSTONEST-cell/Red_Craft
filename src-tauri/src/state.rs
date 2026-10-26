@@ -20,7 +20,7 @@ pub struct AppState {
     /// 上一次通知前端的背景窗口可见性，用于合并频繁的窗口事件
     pub background_visible: Mutex<Option<bool>>,
     /// 资源简介的中文翻译缓存：「平台:id」→ 译文
-    pub translations: Mutex<HashMap<String, String>>,
+    pub translations: Mutex<HashMap<String, (String, u64)>>,
     pub paths: AppPaths,
     pub settings: RwLock<Settings>,
     pub accounts: RwLock<AccountStore>,

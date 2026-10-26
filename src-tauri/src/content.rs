@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use launcher_core::content::{
     self, best_of, install_files, installed_projects, Client, ContentType, ContentVersion, CurseForge, FilteredClient,
-    Modrinth, Plan, Platform, ProjectHit, SearchQuery, SearchResult, VersionFilter,
+    Modrinth, Plan, Platform, ProjectHit, SearchQuery, SearchResult, SortBy, VersionFilter,
 };
 use launcher_core::download::CancelToken;
 use launcher_core::install::Reporter;
@@ -71,8 +71,213 @@ fn filter_for(ctx: &InstanceContext, content_type: ContentType) -> VersionFilter
 }
 
 #[tauri::command]
-pub async fn content_search(state: State<'_, AppState>, platform: Platform, query: SearchQuery) -> AppResult<SearchResult> {
-    Ok(client(&state, platform)?.search(&query).await?)
+pub async fn content_search(state: State<'_, AppState>, req: SearchRequest) -> AppResult<SearchResponse> {
+    use launcher_core::content::aggregate::{clean_keywords, merge, rerank};
+    use launcher_core::content::zhdb::{self, ZhMatch};
+
+    let raw = req.query.query.trim().to_string();
+    let is_zh = raw.chars().any(|c| ('\u{3400}'..='\u{9fff}').contains(&c));
+    // 1. 中文关键词：Mod 查中文名数据库，其他资源查常用译名表，换成英文名搜索
+    let mut converted: Option<ZhMatch> = None;
+    let mut alternatives: Vec<ZhMatch> = Vec::new();
+    if is_zh {
+        if req.query.content_type == ContentType::Mod {
+            let mut found = zhdb::db().search(&raw, 6);
+            if !found.is_empty() {
+                let best = found.remove(0);
+                alternatives = found.into_iter().filter(|m| m.zh != best.zh).take(4).collect();
+                converted = Some(best);
+            }
+        }
+        if converted.is_none() {
+            if let Some((en, zh)) = crate::zh_names::table_query(&raw) {
+                converted = Some(ZhMatch {
+                    wiki_id: 0,
+                    exact: zh == raw,
+                    zh,
+                    keyword: en.clone(),
+                    en,
+                    curseforge_slug: None,
+                    modrinth_slug: None,
+                });
+            }
+        }
+    }
+    let keyword = clean_keywords(converted.as_ref().map(|c| c.keyword.as_str()).unwrap_or(&raw));
+    log::info!("资源搜索：{raw} → {keyword}（{:?}）", req.platform);
+
+    // 2. 按平台搜索（聚合时两个平台同时请求）
+    let mut q = req.query.clone();
+    q.query = keyword.clone();
+    let want_mr = req.platform != SearchPlatform::Curseforge;
+    let want_cf = req.platform != SearchPlatform::Modrinth;
+    let first_page = req.modrinth_offset == 0 && req.curseforge_offset == 0;
+    let fetch = |platform: Platform, offset: u32| {
+        let state = &state;
+        let mut q = q.clone();
+        q.offset = offset;
+        async move {
+            let c = client(state, platform)?;
+            AppResult::Ok(c.search(&q).await?)
+        }
+    };
+    let skip = |offset: u32, total: Option<u64>| total.is_some_and(|t| u64::from(offset) >= t);
+    let (mr, cf) = tokio::join!(
+        async { if want_mr && !skip(req.modrinth_offset, req.modrinth_total) { Some(fetch(Platform::Modrinth, req.modrinth_offset).await) } else { None } },
+        async { if want_cf && !skip(req.curseforge_offset, req.curseforge_total) { Some(fetch(Platform::Curseforge, req.curseforge_offset).await) } else { None } },
+    );
+    // 聚合时一个平台失败不影响另一个；两个都失败（或单平台失败）才报错
+    let mut error = None;
+    let mut take = |r: Option<AppResult<SearchResult>>| match r {
+        Some(Ok(v)) => Some(v),
+        Some(Err(e)) => {
+            log::warn!("资源搜索失败：{e}");
+            error.get_or_insert(e);
+            None
+        }
+        None => None,
+    };
+    let (mr, cf) = (take(mr), take(cf));
+    if mr.is_none() && cf.is_none() {
+        if let Some(e) = error {
+            return Err(e);
+        }
+    }
+    let modrinth_total = mr.as_ref().map(|r| r.total).or(req.modrinth_total);
+    let curseforge_total = cf.as_ref().map(|r| r.total).or(req.curseforge_total);
+    let mut mr_hits = mr.map(|r| r.hits).unwrap_or_default();
+    let mut cf_hits = cf.map(|r| r.hits).unwrap_or_default();
+    let modrinth_offset = req.modrinth_offset + mr_hits.len() as u32;
+    let curseforge_offset = req.curseforge_offset + cf_hits.len() as u32;
+
+    // 3. 中文名能确定是哪个 Mod 时，把它放到第一位（不在结果里就按 slug 单独获取）
+    if first_page && req.query.content_type == ContentType::Mod {
+        if let Some(c) = converted.as_ref().filter(|c| c.exact || alternatives.is_empty()) {
+            if let (true, Some(slug)) = (want_mr, c.modrinth_slug.as_deref()) {
+                pin(&mut mr_hits, slug, || async {
+                    let client = client(&state, Platform::Modrinth).ok()?;
+                    client.project(slug).await.ok()
+                })
+                .await;
+            }
+            if let (true, Some(slug)) = (want_cf, c.curseforge_slug.as_deref()) {
+                pin(&mut cf_hits, slug, || async {
+                    let cf = CurseForge::new(state.http_community().ok()?, Some(state.settings().curseforge_api_key));
+                    cf.project_by_slug(slug, ContentType::Mod).await.ok().flatten()
+                })
+                .await;
+            }
+        }
+    }
+
+    // 4. 中文名
+    for h in mr_hits.iter_mut().chain(cf_hits.iter_mut()) {
+        h.zh_name = zh_name_for(h);
+    }
+
+    // 5. 合并与排序
+    let zh_query = converted.as_ref().map(|_| raw.as_str());
+    let pinned = first_page && converted.as_ref().is_some_and(|c| c.exact || alternatives.is_empty());
+    let hits = match req.platform {
+        SearchPlatform::All => merge_keep_first(mr_hits, cf_hits, pinned, |a, b| merge(a, b, req.query.sort, &keyword, zh_query)),
+        _ => {
+            let mut hits = if want_mr { mr_hits } else { cf_hits };
+            if req.query.sort == SortBy::Relevance && !pinned {
+                rerank(&mut hits, &keyword, zh_query);
+            }
+            hits
+        }
+    };
+    Ok(SearchResponse {
+        hits,
+        modrinth_offset,
+        curseforge_offset,
+        modrinth_total,
+        curseforge_total,
+        converted,
+        alternatives,
+    })
+}
+
+/// 资源的中文名：Mod 查中文名数据库，其他资源查常用译名表。
+fn zh_name_for(h: &ProjectHit) -> Option<String> {
+    let db = if h.content_type == ContentType::Mod {
+        launcher_core::content::zhdb::db().zh_name(&h.title, Some(&h.slug))
+    } else {
+        None
+    };
+    db.or_else(|| crate::zh_names::table_name(&h.title, Some(&h.slug))).map(str::to_string)
+}
+
+/// 把 slug 对应的项目移到第一位；不在结果中时用 `fetch` 获取后插入。
+async fn pin<F, Fut>(hits: &mut Vec<ProjectHit>, slug: &str, fetch: F)
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Option<ProjectHit>>,
+{
+    if let Some(i) = hits.iter().position(|h| h.slug.eq_ignore_ascii_case(slug)) {
+        let h = hits.remove(i);
+        hits.insert(0, h);
+    } else if let Some(h) = fetch().await {
+        hits.insert(0, h);
+    }
+}
+
+/// 聚合合并；已置顶的结果保持在最前面。
+fn merge_keep_first(
+    mut mr: Vec<ProjectHit>,
+    mut cf: Vec<ProjectHit>,
+    pinned: bool,
+    merge: impl FnOnce(Vec<ProjectHit>, Vec<ProjectHit>) -> Vec<ProjectHit>,
+) -> Vec<ProjectHit> {
+    if !pinned {
+        return merge(mr, cf);
+    }
+    let head = if !mr.is_empty() { Some(mr.remove(0)) } else if !cf.is_empty() { Some(cf.remove(0)) } else { None };
+    let mut rest = merge(mr, cf);
+    if let Some(h) = head {
+        rest.retain(|x| !launcher_core::content::aggregate::same_project(x, &h));
+        rest.insert(0, h);
+    }
+    rest
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SearchPlatform {
+    All,
+    Modrinth,
+    Curseforge,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchRequest {
+    pub platform: SearchPlatform,
+    pub query: SearchQuery,
+    #[serde(default)]
+    pub modrinth_offset: u32,
+    #[serde(default)]
+    pub curseforge_offset: u32,
+    /// 上一页得到的总数（已到末尾的平台不再请求）
+    #[serde(default)]
+    pub modrinth_total: Option<u64>,
+    #[serde(default)]
+    pub curseforge_total: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchResponse {
+    pub hits: Vec<ProjectHit>,
+    pub modrinth_offset: u32,
+    pub curseforge_offset: u32,
+    pub modrinth_total: Option<u64>,
+    pub curseforge_total: Option<u64>,
+    /// 中文搜索时实际使用的英文名
+    pub converted: Option<launcher_core::content::zhdb::ZhMatch>,
+    /// 其他可能的中文名匹配
+    pub alternatives: Vec<launcher_core::content::zhdb::ZhMatch>,
 }
 
 #[tauri::command]
@@ -101,7 +306,9 @@ pub async fn content_versions(
 
 #[tauri::command]
 pub async fn content_project(state: State<'_, AppState>, platform: Platform, project_id: String) -> AppResult<ProjectHit> {
-    Ok(client(&state, platform)?.project(&project_id).await?)
+    let mut p = client(&state, platform)?.project(&project_id).await?;
+    p.zh_name = zh_name_for(&p);
+    Ok(p)
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -761,20 +968,49 @@ pub async fn mods_update(
 
 // ───────────── 图标与中文简介 ─────────────
 
-/// 批量获取简介的中文翻译（MCIM）。按平台与 id 缓存在内存中，失败的 id 下次再试。
+/// 简介翻译的本地缓存：「平台:id」→ (译文, 获取时间)，保存 30 天。
+const TRANSLATION_TTL: u64 = 30 * 24 * 3600;
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+
+fn translation_cache_file(state: &AppState) -> PathBuf {
+    state.paths.config_dir.join("cache").join("translations.json")
+}
+
+/// 第一次使用时从磁盘读入缓存（过期的丢弃）。
+fn load_translation_cache(state: &AppState) {
+    static LOADED: std::sync::Once = std::sync::Once::new();
+    LOADED.call_once(|| {
+        let saved: std::collections::HashMap<String, (String, u64)> =
+            crate::settings::read_json(&translation_cache_file(state)).unwrap_or_default();
+        let now = now_secs();
+        if let Ok(mut cache) = state.translations.lock() {
+            for (k, (t, at)) in saved {
+                if now.saturating_sub(at) < TRANSLATION_TTL {
+                    cache.insert(k, (t, at));
+                }
+            }
+        }
+    });
+}
+
+/// 批量获取简介的中文翻译（MCIM），缓存在内存与磁盘中；批量接口失败时逐个获取。
 #[tauri::command]
 pub async fn content_translations(
     state: State<'_, AppState>,
     platform: Platform,
     ids: Vec<String>,
 ) -> AppResult<std::collections::HashMap<String, String>> {
+    load_translation_cache(&state);
     let key = |id: &str| format!("{platform:?}:{id}");
     let mut out = std::collections::HashMap::new();
     let mut missing = Vec::new();
     if let Ok(cache) = state.translations.lock() {
         for id in ids {
             match cache.get(&key(&id)) {
-                Some(t) => {
+                Some((t, _)) => {
                     out.insert(id, t.clone());
                 }
                 None => missing.push(id),
@@ -783,10 +1019,32 @@ pub async fn content_translations(
     }
     if !missing.is_empty() {
         let http = state.http_community()?;
-        let fetched = launcher_core::content::media::translations(http.raw(), platform, &missing).await;
-        if let Ok(mut cache) = state.translations.lock() {
-            for (id, t) in &fetched {
-                cache.insert(key(id), t.clone());
+        let mut fetched = launcher_core::content::media::translations(http.raw(), platform, &missing).await;
+        if fetched.is_empty() {
+            // 批量接口失败或没有结果：逐个请求（PCL 的方式），最多同时 8 个
+            use futures_util::stream::{self, StreamExt};
+            let raw = http.raw().clone();
+            fetched = stream::iter(missing.iter().cloned())
+                .map(|id| {
+                    let raw = raw.clone();
+                    async move { launcher_core::content::media::translation(&raw, platform, &id).await.map(|t| (id, t)) }
+                })
+                .buffer_unordered(8)
+                .filter_map(|x| async move { x })
+                .collect()
+                .await;
+        }
+        if !fetched.is_empty() {
+            let now = now_secs();
+            let snapshot = state.translations.lock().ok().map(|mut cache| {
+                for (id, t) in &fetched {
+                    cache.insert(key(id), (t.clone(), now));
+                }
+                cache.clone()
+            });
+            if let Some(snapshot) = snapshot {
+                let file = translation_cache_file(&state);
+                let _ = tauri::async_runtime::spawn_blocking(move || crate::settings::write_json(&file, &snapshot)).await;
             }
         }
         out.extend(fetched);

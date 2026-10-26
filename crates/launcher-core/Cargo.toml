@@ -21,6 +21,7 @@ regex-lite = "0.1"
 dirs = "6"
 base64 = "0.22"
 sha2 = "0.10"
+flate2 = "1"
 getrandom = "0.3"
 toml = { version = "0.8", default-features = false, features = ["parse"] }
 

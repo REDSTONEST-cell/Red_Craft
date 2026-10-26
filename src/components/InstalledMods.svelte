@@ -145,7 +145,7 @@
                 {#if byFile}
                   <strong class="mono-title" title={m.filename}>{m.filename}</strong>
                 {:else}
-                  <strong title={zhName(m.name) ? m.name : undefined}>{zhName(m.name) ?? m.name}</strong>
+                  <strong title={(m.zhName ?? zhName(m.name)) ? m.name : undefined}>{m.zhName ?? zhName(m.name) ?? m.name}</strong>
                 {/if}
                 <span class="mono small muted">{m.version}</span>
                 {#if m.loader}<span class="tag">{LOADER_LABEL[m.loader] ?? m.loader}</span>{/if}
@@ -153,7 +153,7 @@
               </div>
               <p class="desc" title={m.description}>{m.description || m.filename}</p>
               {#if byFile}
-                <p class="file small muted">{zhName(m.name) ? `${zhName(m.name)}（${m.name}）` : m.name} · {bytes(m.size)}</p>
+                <p class="file small muted">{(m.zhName ?? zhName(m.name)) ? `${m.zhName ?? zhName(m.name)}（${m.name}）` : m.name} · {bytes(m.size)}</p>
               {:else}
                 <p class="file mono small muted">{m.filename} · {bytes(m.size)}</p>
               {/if}

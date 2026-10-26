@@ -133,6 +133,38 @@ export interface LoaderVersion {
 }
 
 export type Platform = "modrinth" | "curseforge";
+/** 搜索来源：聚合两个平台，或只搜一个 */
+export type SearchPlatform = "all" | Platform;
+
+/** 中文搜索匹配到的 Mod（来自 Mod 中文名数据库） */
+export interface ZhMatch {
+  wikiId: number;
+  zh: string;
+  en: string;
+  keyword: string;
+  curseforgeSlug: string | null;
+  modrinthSlug: string | null;
+  exact: boolean;
+}
+
+export interface SearchRequest {
+  platform: SearchPlatform;
+  query: SearchQuery;
+  modrinthOffset: number;
+  curseforgeOffset: number;
+  modrinthTotal: number | null;
+  curseforgeTotal: number | null;
+}
+
+export interface SearchResponse {
+  hits: ProjectHit[];
+  modrinthOffset: number;
+  curseforgeOffset: number;
+  modrinthTotal: number | null;
+  curseforgeTotal: number | null;
+  converted: ZhMatch | null;
+  alternatives: ZhMatch[];
+}
 export type ContentType = "mod" | "resourcepack" | "shader" | "modpack";
 export type SortBy = "relevance" | "downloads" | "updated" | "newest";
 
@@ -156,6 +188,8 @@ export interface ProjectHit {
   iconUrl: string | null;
   /** 简介的中文翻译（MCIM），搜索后由前端补充 */
   zhDescription?: string;
+  /** 中文名（后端从 Mod 中文名数据库或常用译名表填入） */
+  zhName?: string | null;
   downloads: number;
   categories: string[];
   contentType: ContentType;
@@ -245,6 +279,7 @@ export interface LocalMod {
   loader: string;
   size: number;
   source: { platform: Platform; projectId: string; versionId: string; title: string; versionNumber: string } | null;
+  zhName?: string | null;
 }
 
 export interface ModUpdate {
@@ -471,8 +506,7 @@ export const api = {
 
   contentTranslations: (platform: Platform, ids: string[]) =>
     call<Record<string, string>>("content_translations", { platform, ids }),
-  contentSearch: (platform: Platform, query: SearchQuery) =>
-    call<{ hits: ProjectHit[]; total: number }>("content_search", { platform, query }),
+  contentSearch: (req: SearchRequest) => call<SearchResponse>("content_search", { req }),
   contentInstance: (id: string) => call<InstanceContext>("content_instance", { id }),
   contentVersions: (platform: Platform, projectId: string, contentType: ContentType, instance: string | null) =>
     call<ContentVersion[]>("content_versions", { platform, projectId, contentType, instance }),
