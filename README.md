@@ -1,4 +1,4 @@
-# Red Craft
+# RCL（Red Craft Launcher）
 
 一个轻量、快速的 Minecraft Java 版启动器。Tauri 2 + Rust + Svelte 5，可选报刊风、圆润（类似 PCL2）与毛玻璃界面。
 
@@ -42,7 +42,7 @@
 - **OptiFine 与光影加载器**：新建实例时可选 OptiFine（BMCLAPI；原版用 OptiFine 自带补丁程序 + LaunchWrapper 安装，Forge 放进 mods 并自动选择推荐的 Forge 版本），或 Iris（Fabric / Quilt / NeoForge）/ Oculus（Forge）及其前置。
 - **自定义背景**：在「设置 → 外观」导入本地图片（JPG / PNG / WebP）或视频（MP4 / WebM），或扫描 Steam 中 Wallpaper Engine 的视频壁纸；可调亮度、透明度、模糊与遮罩，预览后保存；启动器隐藏或最小化时视频自动暂停。（感谢 @Windshakes 贡献）
 - **界面风格**：在「设置 → 外观」中可选形状（利落：直角硬朗的报刊风；圆润：圆角与柔和阴影，类似 PCL2；毛玻璃：半透明虚化面板，Apple 风格，可调节玻璃不透明度；搭配自定义背景时直接模糊背景视频 / 图片，保证磨砂效果）与布局（标准；极简：去掉报头和装饰，只突出主要内容，字号更大）。默认为圆润 + 极简。
-- **单文件版**：Windows 提供免安装的单个 exe（`RedCraft_<版本>_portable.exe`，以 `portable` 特性编译），数据保存在 exe 所在目录的 `.minecraft` 中，类似 PCL。
+- **单文件版**：Windows 提供免安装的单个 exe（`RCL_<版本>_portable.exe`，以 `portable` 特性编译），数据保存在 exe 所在目录的 `.minecraft` 中，类似 PCL。
 - **检查更新**：启动时检查 GitHub 上的最新正式版（可在设置中关闭），发现新版本时弹窗显示更新内容，确认后才下载；下载的文件用 Release 附带的 SHA256SUMS.txt 校验，GitHub 访问失败时经备用线路下载。单文件版与 AppImage 直接替换程序文件，Windows 安装版静默运行新安装包，完成后自动重启；macOS 与 deb 打开下载页。
 - **批量管理实例**：实例页进入批量管理后可多选（支持全选），批量补全文件、设置版本隔离或删除。
 - **启动**：同时支持新版 `arguments` 与旧版 `minecraftArguments`；处理 `legacy` / `pre-1.6` 旧版资源；启动前快速补全缺失文件（资源只比较大小，约 150ms）；自动进入服务器（1.20+ 用 Quick Play，旧版用 `--server/--port`）；内存自动分配；日志实时推送；崩溃时分析常见原因并给出中文解决办法；启动后可隐藏 / 保持 / 关闭启动器。
@@ -125,7 +125,7 @@ Release 配置已开启 `lto = true`、`opt-level = "s"`、`codegen-units = 1`�
 微软登录默认使用浏览器授权（授权码 + PKCE，启动器在本机临时监听回调端口），也可以改用设备码流程（Device Code Flow）。需要你自己在 Azure 注册一个应用：
 
 1. 打开 <https://portal.azure.com>，进入「Microsoft Entra ID」→「应用注册」→「新注册」。
-2. 名称随意（例如 `Red Craft`）；「受支持的帐户类型」选择 **「任何组织目录中的帐户和个人 Microsoft 帐户」** 或 **「仅个人 Microsoft 帐户」**（必须包含个人账户，否则普通玩家无法登录）。
+2. 名称随意（例如 `RCL`）；「受支持的帐户类型」选择 **「任何组织目录中的帐户和个人 Microsoft 帐户」** 或 **「仅个人 Microsoft 帐户」**（必须包含个人账户，否则普通玩家无法登录）。
 3. 「重定向 URI」留空即可（设备码流程不需要），点击「注册」。
 4. 在应用的「身份验证」页面，把 **「允许公共客户端流」** 设为「是」并保存。
    然后点 **「添加平台」→「移动和桌面应用程序」**，在自定义重定向 URI 中填写 **`http://localhost`** 并保存。
