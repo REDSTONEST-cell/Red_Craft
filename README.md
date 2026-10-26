@@ -50,7 +50,6 @@
 
 ## 致谢与第三方数据
 
-- Mod 中文名数据库（`crates/launcher-core/assets/mcmod.buf`）原样取自 [PCL（Plain Craft Launcher）](https://github.com/PCL-Community/PCL-CE)，经 PCL 作者龙腾猫跃许可使用；数据原始来源为 [MC 百科（mcmod.cn）](https://www.mcmod.cn)。该文件不适用本仓库的 MIT 许可证，权利归原作者所有，详见 `crates/launcher-core/assets/README.md`。
 - 中文搜索与聚合搜索的思路参考了 PCL。
 - 下载镜像由 [BMCLAPI](https://bmclapidoc.bangbang93.com/) 与 [MCIM](https://mod.mcimirror.top) 提供，资源简介的中文翻译来自 MCIM。
 - 自定义背景功能由 @Windshakes 贡献。
