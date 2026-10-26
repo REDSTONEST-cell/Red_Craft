@@ -1,7 +1,7 @@
 <script lang="ts">
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
-  import { api, type DownloadSource, type JavaInstall, type Settings } from "../lib/api";
-  import { app, refreshInstances, saveSettings, showError, toast } from "../lib/state.svelte";
+  import { api, type DownloadSource, type JavaInstall, type MemoryStatus, type Settings } from "../lib/api";
+  import { app, memoryToast, refreshInstances, saveSettings, showError, toast } from "../lib/state.svelte";
   import Segmented from "../components/Segmented.svelte";
   import Toggle from "../components/Toggle.svelte";
   import Icon from "../components/Icon.svelte";
@@ -88,6 +88,35 @@
   }
 
   const total = $derived(app.info?.memory.totalMb ?? 8192);
+
+  // 内存使用情况：设置页打开时每 2 秒刷新一次
+  let mem = $state<MemoryStatus | null>(null);
+  let optimizing = $state(false);
+  const gb = (mb: number) => `${(mb / 1024).toFixed(1)} GB`;
+  async function refreshMemory() {
+    try {
+      mem = await api.memoryStatus();
+    } catch {
+      /* 忽略 */
+    }
+  }
+  $effect(() => {
+    void [s.memoryAuto, s.maxMemoryMb, app.settings?.selectedInstance];
+    refreshMemory();
+    const timer = setInterval(refreshMemory, 2000);
+    return () => clearInterval(timer);
+  });
+  async function optimizeNow() {
+    optimizing = true;
+    try {
+      memoryToast(await api.optimizeMemory(true));
+      await refreshMemory();
+    } catch (e) {
+      showError(e, "内存优化失败");
+    } finally {
+      optimizing = false;
+    }
+  }
   const accents = ["#E8590C", "#C2410C", "#B45309", "#2F7D32", "#1D4ED8", "#7C3AED", "#BE185D", "#1B1A17"];
 </script>
 
@@ -224,6 +253,26 @@
 
   <section>
     <h3>内存</h3>
+    {#if mem}
+      {@const used = mem.totalMb - mem.availableMb}
+      {@const game = Math.min(mem.gameMb, Math.max(0, mem.totalMb - used))}
+      <div class="mem">
+        <div class="mem-bar" role="img" aria-label="内存使用情况">
+          <span class="seg used" style:width="{(used / mem.totalMb) * 100}%"></span>
+          <span class="seg game" style:width="{(game / mem.totalMb) * 100}%"></span>
+        </div>
+        <div class="mem-legend">
+          <div style:width="{Math.max(30, (used / mem.totalMb) * 100)}%">
+            <span class="k">已使用内存</span>
+            <span class="v mono">{gb(used)} / {gb(mem.totalMb)}</span>
+          </div>
+          <div>
+            <span class="k">游戏分配</span>
+            <span class="v mono">{gb(mem.gameMb)}</span>
+          </div>
+        </div>
+      </div>
+    {/if}
     <div class="row">
       <div class="desc">
         <strong>自动分配</strong>
@@ -250,6 +299,20 @@
         </div>
       </div>
     {/if}
+    <div class="row">
+      <div class="desc">
+        <strong>启动游戏前进行内存优化</strong>
+        <span class="help">
+          {#if mem && !mem.supported}仅支持 Windows。{:else}启动前整理系统内存，让游戏拿到更多可用内存；以管理员身份运行启动器时效果更好。{/if}
+        </span>
+      </div>
+      <div class="ctl">
+        {#if mem?.supported}
+          <button class="btn sm" disabled={optimizing} onclick={optimizeNow}>{optimizing ? "优化中…" : "立即优化"}</button>
+        {/if}
+        <Toggle checked={s.optimizeMemory} disabled={mem ? !mem.supported : false} onchange={(v) => save({ optimizeMemory: v })} />
+      </div>
+    </div>
     <div class="row">
       <div class="desc"><strong>最小内存（MB）</strong></div>
       <input class="input num" type="number" min="0" step="256" bind:value={s.minMemoryMb} onchange={() => save({ minMemoryMb: s.minMemoryMb })} />
@@ -567,6 +630,44 @@
     min-width: 70px;
     text-align: right;
     font-size: 12px;
+  }
+  .mem {
+    padding: 12px 0 14px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .mem-bar {
+    display: flex;
+    height: 6px;
+    border-radius: 3px;
+    overflow: hidden;
+    background: color-mix(in srgb, var(--accent) 14%, var(--rule));
+  }
+  .mem-bar .seg {
+    height: 100%;
+    transition: width var(--t-mid) var(--ease-out);
+  }
+  .mem-bar .used {
+    background: var(--accent);
+  }
+  .mem-bar .game {
+    background: color-mix(in srgb, var(--accent) 45%, transparent);
+  }
+  .mem-legend {
+    display: flex;
+    margin-top: 8px;
+  }
+  .mem-legend > div {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: none;
+  }
+  .mem-legend .k {
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .mem-legend .v {
+    font-size: 15px;
   }
   .wide-val {
     min-width: 84px;

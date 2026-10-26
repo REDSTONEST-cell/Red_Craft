@@ -9,6 +9,7 @@ pub mod instance;
 pub mod java;
 pub mod launch;
 pub mod loader;
+pub mod memopt;
 pub mod migrate;
 pub mod paths;
 pub mod system;

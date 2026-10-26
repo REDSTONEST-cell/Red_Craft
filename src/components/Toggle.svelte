@@ -1,11 +1,16 @@
 <script lang="ts">
-  let { checked = $bindable(false), label, onchange }: { checked: boolean; label?: string; onchange?: (v: boolean) => void } =
-    $props();
+  let {
+    checked = $bindable(false),
+    label,
+    disabled = false,
+    onchange,
+  }: { checked: boolean; label?: string; disabled?: boolean; onchange?: (v: boolean) => void } = $props();
 </script>
 
-<label class="toggle">
+<label class="toggle" class:disabled>
   <input
     type="checkbox"
+    {disabled}
     bind:checked
     onchange={() => onchange?.(checked)}
   />
@@ -20,6 +25,10 @@
     gap: 10px;
     cursor: pointer;
     font-size: 13px;
+  }
+  .toggle.disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
   }
   input {
     position: absolute;

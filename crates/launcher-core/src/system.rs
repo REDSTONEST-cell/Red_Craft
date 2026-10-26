@@ -1,6 +1,6 @@
 //! 系统信息：物理内存。
 
-#[derive(Debug, Clone, Copy, Default, serde::Serialize)]
+#[derive(Debug, Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MemoryInfo {
     pub total_mb: u64,

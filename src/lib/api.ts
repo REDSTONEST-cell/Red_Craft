@@ -46,7 +46,23 @@ export interface Settings {
   preLaunchWait: boolean;
   highPerformanceGpu: boolean;
   autoCheckUpdate: boolean;
+  optimizeMemory: boolean;
   skippedUpdate: string;
+}
+
+export interface MemoryStatus {
+  totalMb: number;
+  availableMb: number;
+  /** 启动当前实例时分配给游戏的内存 */
+  gameMb: number;
+  /** 是否支持内存优化（仅 Windows） */
+  supported: boolean;
+}
+
+export interface OptimizeResult {
+  before: { totalMb: number; availableMb: number };
+  after: { totalMb: number; availableMb: number };
+  full: boolean;
 }
 
 export interface UpdateInfo {
@@ -520,6 +536,8 @@ export const api = {
   installModpack: (source: PackSource, name: string | null) => call<number>("install_modpack", { source, name }),
   exportEntries: (instance: string) => call<ExportEntry[]>("export_entries", { instance }),
   exportModpack: (req: ExportRequest) => call<number>("export_modpack", { req }),
+  memoryStatus: () => call<MemoryStatus>("memory_status"),
+  optimizeMemory: (elevate: boolean) => call<OptimizeResult>("optimize_memory", { elevate }),
   checkUpdate: () => call<UpdateInfo | null>("check_update"),
   downloadUpdate: () => call<number>("download_update"),
   applyUpdate: () => call<void>("apply_update"),

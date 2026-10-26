@@ -7,6 +7,7 @@ mod content;
 mod error;
 mod launch;
 mod logger;
+mod memory;
 mod migrate;
 mod secrets;
 mod settings;
@@ -20,6 +21,10 @@ use state::AppState;
 use tauri::Manager;
 
 pub fn run() {
+    // 以管理员身份运行的内存优化助手：只做优化然后退出
+    if memory::run_helper_if_requested() {
+        return;
+    }
     if updater::redirect_legacy_install() {
         return;
     }
@@ -123,6 +128,8 @@ pub fn run() {
             content::install_modpack,
             content::export_entries,
             content::export_modpack,
+            memory::memory_status,
+            memory::optimize_memory,
             updater::check_update,
             updater::download_update,
             updater::apply_update,

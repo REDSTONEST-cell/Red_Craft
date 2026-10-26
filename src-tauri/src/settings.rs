@@ -151,6 +151,8 @@ pub struct Settings {
     pub high_performance_gpu: bool,
     /// 启动时检查启动器更新（发现新版本时弹窗确认）
     pub auto_check_update: bool,
+    /// 启动游戏前进行内存优化（Windows）
+    pub optimize_memory: bool,
     /// 用户选择跳过的版本，不再提示
     pub skipped_update: String,
 }
@@ -206,6 +208,7 @@ impl Default for Settings {
             pre_launch_wait: true,
             high_performance_gpu: true,
             auto_check_update: true,
+            optimize_memory: false,
             skipped_update: String::new(),
         }
     }

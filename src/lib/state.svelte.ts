@@ -10,6 +10,7 @@ import {
   type AppInfo,
   type GameExit,
   type InstanceInfo,
+  type OptimizeResult,
   type LogLine,
   type Settings,
   type TaskEvent,
@@ -201,11 +202,24 @@ function markRunning(id: string, running: boolean) {
   if (inst) inst.running = running;
 }
 
+/** 内存优化结果提示，例如「内存优化完成，可用内存增加了 1.6 GB」。 */
+export function memoryToast(r: OptimizeResult) {
+  const freed = r.after.availableMb - r.before.availableMb;
+  const gb = (mb: number) => `${(mb / 1024).toFixed(1)} GB`;
+  toast(
+    "ok",
+    freed > 64 ? `内存优化完成，可用内存增加了 ${gb(freed)}` : "内存优化完成",
+    `当前可用 ${gb(r.after.availableMb)}${r.full ? "" : "（以管理员身份运行可进一步优化）"}`,
+  );
+}
+
 export async function init() {
   await Promise.all([
     onTask(onTaskEvent),
     onGame(onGameEvent),
     listen("accounts-changed", () => refreshAccounts()),
+    // 启动前内存优化的结果
+    listen<OptimizeResult>("memory-optimized", (e) => memoryToast(e.payload)),
   ]);
   const [info, settings] = await Promise.all([api.appInfo(), api.getSettings()]);
   app.info = info;

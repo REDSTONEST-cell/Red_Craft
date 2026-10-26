@@ -89,11 +89,10 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
         .unwrap_or_else(|| resolved.chain.last().cloned().unwrap_or_default());
     let java_override = config.java_path.clone().or(settings.java_path.clone());
 
-    let memory = system::memory();
-    let max_memory_mb = match config.max_memory_mb {
-        Some(m) if m > 0 => m,
-        _ if settings.memory_auto => system::auto_memory_mb(memory, modded),
-        _ => settings.max_memory_mb,
+    let fixed_memory_mb = match config.max_memory_mb {
+        Some(m) if m > 0 => Some(m),
+        _ if settings.memory_auto => None,
+        _ => Some(settings.max_memory_mb),
     };
     let jvm_args = config.jvm_args.clone().unwrap_or(settings.jvm_args.clone());
     let server = config.server.clone().filter(|s| !s.is_empty()).unwrap_or(settings.server.clone());
@@ -117,6 +116,23 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
             AccountKind::Offline => LaunchAuth::offline(&account.name),
         };
         cancel.check()?;
+
+        // 启动前内存优化（Windows）：先整理内存，再按优化后的可用内存自动分配
+        if settings.optimize_memory && launcher_core::memopt::supported() {
+            reporter.stage("优化内存");
+            if let Ok(r) = tauri::async_runtime::spawn_blocking(launcher_core::memopt::optimize).await {
+                log::info!(
+                    "内存优化（{}）：可用内存 {} MB → {} MB",
+                    if r.full { "完整" } else { "普通" },
+                    r.before.available_mb,
+                    r.after.available_mb
+                );
+                let _ = app2.emit("memory-optimized", r);
+            }
+            cancel.check()?;
+        }
+        let max_memory_mb = fixed_memory_mb.unwrap_or_else(|| system::auto_memory_mb(system::memory(), modded));
+        log::info!("分配给游戏的内存：{max_memory_mb} MB");
 
         // 选择 Java
         reporter.stage("选择 Java");
