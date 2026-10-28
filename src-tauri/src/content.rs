@@ -9,7 +9,7 @@ use launcher_core::content::{
 };
 use launcher_core::download::CancelToken;
 use launcher_core::install::Reporter;
-use launcher_core::instance::{detect_loader, LoaderKind};
+use launcher_core::instance::{detect_loader, minecraft_version, LoaderKind};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 
@@ -49,7 +49,7 @@ pub fn instance_context(state: &AppState, id: &str) -> AppResult<InstanceContext
     let mc_version = config
         .mc_version
         .clone()
-        .unwrap_or_else(|| resolved.chain.last().cloned().unwrap_or_default());
+        .unwrap_or_else(|| minecraft_version(&game, id).unwrap_or_else(|| resolved.chain.last().cloned().unwrap_or_default()));
     let release = resolved.json.kind == "release";
     let isolated = config
         .isolation

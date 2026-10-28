@@ -118,7 +118,7 @@ pub fn detect_loader(resolved: &ResolvedVersion) -> Option<LoaderInfo> {
 #[serde(rename_all = "camelCase")]
 pub struct InstanceSummary {
     pub id: String,
-    /// Minecraft 版本（继承链最底层的 id）
+    /// Minecraft 版本（优先读取元数据，回退到继承链最底层的 id）
     pub mc_version: String,
     /// `release` / `snapshot` / `old_beta` / `old_alpha`
     pub kind: String,
@@ -139,6 +139,48 @@ impl InstanceSummary {
     }
 }
 
+/// 其他启动器允许重命名版本文件夹，此时版本名不再是游戏版本号。依次尝试：
+/// `clientVersion`（PCL / 官方）、HMCL 的 `patches` 中的 game、jar 内的 `version.json`（1.14+）。
+pub fn minecraft_version(game: &GameDir, id: &str) -> Option<String> {
+    let mut cur = id.to_string();
+    // 沿继承链找到最底层的版本
+    for _ in 0..8 {
+        let json: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(game.version_json(&cur)).ok()?).ok()?;
+        if let Some(v) = json
+            .get("clientVersion")
+            .and_then(serde_json::Value::as_str)
+            .filter(|v| !v.is_empty())
+        {
+            return Some(v.to_string());
+        }
+        if let Some(v) = json
+            .get("patches")
+            .and_then(serde_json::Value::as_array)
+            .and_then(|p| {
+                p.iter()
+                    .find(|x| x.get("id").and_then(serde_json::Value::as_str) == Some("game"))
+            })
+            .and_then(|g| g.get("version").and_then(serde_json::Value::as_str))
+        {
+            return Some(v.to_string());
+        }
+        match json.get("inheritsFrom").and_then(serde_json::Value::as_str) {
+            Some(parent) if game.version_json(parent).is_file() => cur = parent.to_string(),
+            Some(parent) => return Some(parent.to_string()),
+            None => break,
+        }
+    }
+    let jar = std::fs::File::open(game.version_jar(&cur)).ok()?;
+    let mut zip = zip::ZipArchive::new(jar).ok()?;
+    let mut text = String::new();
+    std::io::Read::read_to_string(&mut zip.by_name("version.json").ok()?, &mut text).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&text).ok()?;
+    v.get("id")
+        .and_then(serde_json::Value::as_str)
+        .map(|s| s.split(" / ").next().unwrap_or(s).to_string())
+}
+
 /// 扫描所有实例（阻塞调用）。
 pub fn scan_instances(game: &GameDir) -> Vec<InstanceSummary> {
     let Ok(rd) = std::fs::read_dir(game.versions()) else {
@@ -153,7 +195,8 @@ pub fn scan_instances(game: &GameDir) -> Vec<InstanceSummary> {
         })
         .map(|id| match resolve_version(game, &id) {
             Ok(r) => InstanceSummary {
-                mc_version: r.chain.last().cloned().unwrap_or_else(|| id.clone()),
+                mc_version: minecraft_version(game, &id)
+                    .unwrap_or_else(|| r.chain.last().cloned().unwrap_or_else(|| id.clone())),
                 kind: r.json.kind.clone(),
                 loader: detect_loader(&r),
                 release_time: r.json.release_time.clone(),
@@ -249,6 +292,65 @@ mod tests {
         assert_eq!(detect_loader(&r).unwrap().kind, LoaderKind::Quilt);
         let r = resolved(r#"{"id":"a","mainClass":"net.minecraft.client.main.Main"}"#);
         assert_eq!(detect_loader(&r), None);
+    }
+
+    #[test]
+    fn scan_uses_game_version_for_standalone_and_renamed_instances() {
+        let dir = tempfile::tempdir().unwrap();
+        let game = GameDir::new(dir.path());
+        let cases = [
+            (
+                "26.3-Fabric 0.19.5",
+                r#"{"clientVersion":"26.3","libraries":[{"name":"net.fabricmc:fabric-loader:0.19.5"}]}"#,
+                "26.3",
+            ),
+            (
+                "我的生存",
+                r#"{"patches":[{"id":"game","version":"1.21.1"}]}"#,
+                "1.21.1",
+            ),
+            ("1.20.1", r#"{}"#, "1.20.1"),
+            ("26.3-custom", r#"{"inheritsFrom":"26.3-Fabric 0.19.5"}"#, "26.3"),
+        ];
+        for (id, json, _) in &cases {
+            std::fs::create_dir_all(game.version_dir(id)).unwrap();
+            let mut json: serde_json::Value = serde_json::from_str(json).unwrap();
+            json["id"] = (*id).into();
+            std::fs::write(game.version_json(id), json.to_string()).unwrap();
+        }
+        let list = scan_instances(&game);
+        for (id, _, expected) in cases {
+            let instance = list.iter().find(|i| i.id == id).unwrap();
+            assert_eq!(instance.mc_version, expected, "{id}");
+        }
+        assert_eq!(
+            list.iter()
+                .find(|i| i.id == "26.3-Fabric 0.19.5")
+                .unwrap()
+                .loader
+                .as_ref()
+                .unwrap()
+                .kind,
+            LoaderKind::Fabric
+        );
+    }
+
+    #[test]
+    fn scan_reads_game_version_from_standalone_client_jar() {
+        use std::io::Write;
+
+        let dir = tempfile::tempdir().unwrap();
+        let game = GameDir::new(dir.path());
+        let id = "26.3-Fabric 0.19.5";
+        std::fs::create_dir_all(game.version_dir(id)).unwrap();
+        std::fs::write(game.version_json(id), format!(r#"{{"id":"{id}"}}"#)).unwrap();
+        let mut jar = zip::ZipWriter::new(std::fs::File::create(game.version_jar(id)).unwrap());
+        jar.start_file("version.json", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        jar.write_all(br#"{"id":"26.3"}"#).unwrap();
+        jar.finish().unwrap();
+
+        assert_eq!(scan_instances(&game)[0].mc_version, "26.3");
     }
 
     #[test]
