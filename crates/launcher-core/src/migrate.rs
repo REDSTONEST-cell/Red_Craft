@@ -10,7 +10,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::error::{CoreError, IoContext, Result};
-use crate::instance::{scan_instances, LoaderInfo, LoaderKind};
+use crate::instance::{minecraft_version, scan_instances, LoaderInfo, LoaderKind};
 use crate::paths::GameDir;
 
 /// 来源启动器类型。
@@ -218,7 +218,7 @@ fn scan_minecraft_dir(mc_dir: &Path) -> Result<ScanResult> {
             .clone()
             .map(|e| format!("版本文件无法解析：{e}"))
             .or_else(|| s.mc_version.is_empty().then(|| "无法识别游戏版本".to_string()));
-        let mc_version = real_mc_version(&game, &s.id).unwrap_or_else(|| s.mc_version.clone());
+        let mc_version = minecraft_version(&game, &s.id).unwrap_or_else(|| s.mc_version.clone());
         instances.push(ImportInstance {
             name: s.id.clone(),
             mc_version,
@@ -245,38 +245,6 @@ fn scan_minecraft_dir(mc_dir: &Path) -> Result<ScanResult> {
         instances,
         offline_accounts: accounts,
     })
-}
-
-/// 其他启动器允许重命名版本文件夹，此时版本名不再是游戏版本号。依次尝试：
-/// `clientVersion`（PCL / 官方）、HMCL 的 `patches` 中的 game、jar 内的 `version.json`（1.14+）。
-fn real_mc_version(game: &GameDir, id: &str) -> Option<String> {
-    let mut cur = id.to_string();
-    // 沿继承链找到最底层的版本
-    for _ in 0..8 {
-        let json: Value = serde_json::from_str(&std::fs::read_to_string(game.version_json(&cur)).ok()?).ok()?;
-        if let Some(v) = json.get("clientVersion").and_then(Value::as_str).filter(|v| !v.is_empty()) {
-            return Some(v.to_string());
-        }
-        if let Some(v) = json
-            .get("patches")
-            .and_then(Value::as_array)
-            .and_then(|p| p.iter().find(|x| x.get("id").and_then(Value::as_str) == Some("game")))
-            .and_then(|g| g.get("version").and_then(Value::as_str))
-        {
-            return Some(v.to_string());
-        }
-        match json.get("inheritsFrom").and_then(Value::as_str) {
-            Some(parent) if game.version_json(parent).is_file() => cur = parent.to_string(),
-            Some(parent) => return Some(parent.to_string()),
-            None => break,
-        }
-    }
-    let jar = std::fs::File::open(game.version_jar(&cur)).ok()?;
-    let mut zip = zip::ZipArchive::new(jar).ok()?;
-    let mut text = String::new();
-    std::io::Read::read_to_string(&mut zip.by_name("version.json").ok()?, &mut text).ok()?;
-    let v: Value = serde_json::from_str(&text).ok()?;
-    v.get("id").and_then(Value::as_str).map(|s| s.split(" / ").next().unwrap_or(s).to_string())
 }
 
 /// HMCL 的离线账号：`accounts.json`（全局）或 `hmcl.json` / `.hmcl.json` 中的 `accounts`。
