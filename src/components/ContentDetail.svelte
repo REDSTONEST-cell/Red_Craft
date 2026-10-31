@@ -60,7 +60,7 @@
   {:else if versions.length === 0}
     <div class="empty">
       <h3>没有兼容的版本</h3>
-      <p>这个项目没有适用于当前实例游戏版本{instance ? "和加载器" : ""}的版本。</p>
+      <p>{#if instance}这个项目没有适用于「{instance}」的游戏版本和加载器的文件。{:else}这个项目暂时没有可下载的文件。{/if}</p>
     </div>
   {:else}
     <div class="list">

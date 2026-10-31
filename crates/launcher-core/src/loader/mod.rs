@@ -62,7 +62,7 @@ pub async fn install_instance(
     let mc = entry.id.as_str();
     if name == mc {
         return Err(CoreError::InvalidData(format!(
-            "安装了加载器的实例不能命名为「{mc}」，这个名称要留给原版"
+            "安装了加载器的版本不能命名为「{mc}」，这个名称要留给原版"
         )));
     }
 

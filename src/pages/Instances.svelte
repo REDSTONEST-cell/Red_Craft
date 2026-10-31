@@ -50,7 +50,7 @@
     const id = confirmDelete.id;
     try {
       await api.deleteInstance(id);
-      toast("ok", `已删除实例 ${id}`);
+      toast("ok", `已删除版本 ${id}`);
       deleteOpen = false;
       await refreshInstances();
     } catch (e) {
@@ -92,7 +92,7 @@
         showError(e, `补全 ${i.id} 失败`);
       }
     }
-    if (started) toast("ok", `已开始补全 ${started} 个实例`, "进度见右下角的任务按钮");
+    if (started) toast("ok", `已开始补全 ${started} 个版本`, "进度见右下角的任务按钮");
   }
 
   async function batchIsolation(value: "default" | "on" | "off") {
@@ -102,7 +102,7 @@
         const config = await api.getInstanceConfig(i.id);
         await api.saveInstanceConfig(i.id, { ...config, isolation: value === "default" ? null : value === "on" });
       }
-      toast("ok", `已更新 ${pickedList.length} 个实例的版本隔离`);
+      toast("ok", `已更新 ${pickedList.length} 个版本的版本隔离设置`);
       await refreshInstances();
     } catch (e) {
       showError(e, "批量设置失败");
@@ -127,7 +127,7 @@
     }
     batchBusy = false;
     batchDeleteOpen = false;
-    if (done) toast("ok", `已删除 ${done} 个实例`);
+    if (done) toast("ok", `已删除 ${done} 个版本`);
     await refreshInstances();
     if (!app.instances.length) selecting = false;
   }
@@ -171,7 +171,7 @@
     try {
       await api.saveInstanceConfig(editing.id, next);
       editOpen = false;
-      toast("ok", "实例设置已保存");
+      toast("ok", "版本设置已保存");
       refreshInstances();
     } catch (e) {
       showError(e, "保存失败");
@@ -181,8 +181,8 @@
 
 <div class="page-head">
   <div>
-    <div class="kicker">INSTANCES</div>
-    <h1>游戏实例</h1>
+    <div class="kicker">VERSIONS</div>
+    <h1>版本列表</h1>
     <div class="sub" title={app.info?.gameDir}>共 {app.instances.length} 个 · 游戏目录 <span class="mono">{app.info?.gameDir}</span></div>
   </div>
   <div class="tools">
@@ -194,14 +194,14 @@
     {/if}
     <button class="btn" onclick={importPack}><Icon name="box" size={14} /> 导入整合包</button>
     <button class="btn" onclick={() => (migrateOpen = true)}><Icon name="link" size={14} /> 从其他启动器导入</button>
-    <button class="btn primary" onclick={() => (app.page = "download")}><Icon name="plus" size={14} /> 新建实例</button>
+    <button class="btn primary" onclick={() => (app.page = "download")}><Icon name="plus" size={14} /> 安装新版本</button>
   </div>
 </div>
 
 {#if app.instancesLoaded && app.instances.length === 0}
   <div class="empty">
     <h3>这里还空着</h3>
-    <p>在「下载」页面安装一个版本，或者从其他启动器导入已有的实例。</p>
+    <p>在「下载」页面安装一个 Minecraft 版本，或者从其他启动器导入已有的游戏。</p>
     <button class="btn" style="margin-top:14px" onclick={() => (migrateOpen = true)}>从其他启动器导入</button>
   </div>
 {:else}
@@ -296,7 +296,7 @@
           >
             <Icon name="upload" size={14} />
           </button>
-          <button class="btn sm icon" title="实例设置" onclick={() => openSettings(inst)}>
+          <button class="btn sm icon" title="版本设置" onclick={() => openSettings(inst)}>
             <Icon name="gear" size={14} />
           </button>
           <button
@@ -315,8 +315,8 @@
   </div>
 {/if}
 
-<Modal bind:open={batchDeleteOpen} title={`删除 ${pickedList.length} 个实例？`} kicker="DELETE" width={460}>
-  <p>将删除以下实例的整个版本目录，<strong>其中开启版本隔离的实例会连同存档、Mod 与配置一起删除</strong>。此操作无法撤销。</p>
+<Modal bind:open={batchDeleteOpen} title={`删除 ${pickedList.length} 个版本？`} kicker="DELETE" width={460}>
+  <p>将删除以下版本的整个目录，<strong>其中开启了版本隔离的会连同存档、Mod 与配置一起删除</strong>。此操作无法撤销。</p>
   <ul class="del-list">
     {#each pickedList as i (i.id)}
       <li>
@@ -325,7 +325,7 @@
       </li>
     {/each}
   </ul>
-  {#if pickedRunning.length}<p class="muted small">运行中的实例不会被删除，请先关闭游戏。</p>{/if}
+  {#if pickedRunning.length}<p class="muted small">运行中的版本不会被删除，请先关闭游戏。</p>{/if}
   {#snippet actions()}
     <button class="btn" onclick={() => (batchDeleteOpen = false)}>取消</button>
     <button class="btn primary" disabled={batchBusy || pickedList.length === pickedRunning.length} onclick={batchDelete}>
@@ -336,7 +336,7 @@
 
 <ModpackInstall bind:open={packOpen} source={packSource} title={packInfo?.name ?? ""} info={packInfo} />
 
-<Modal bind:open={deleteOpen} title="删除实例？" kicker="DELETE" width={420}>
+<Modal bind:open={deleteOpen} title="删除版本？" kicker="DELETE" width={420}>
   <p>
     将删除 <strong>{confirmDelete?.id}</strong> 的整个版本目录{#if confirmDelete?.isolated}，<strong>包括其中的存档、Mod 与配置</strong>{/if}。此操作无法撤销。
   </p>
@@ -346,7 +346,7 @@
   {/snippet}
 </Modal>
 
-<Modal bind:open={editOpen} title={`实例设置 · ${editing?.id ?? ""}`} kicker="SETTINGS" width={520}>
+<Modal bind:open={editOpen} title={`版本设置 · ${editing?.id ?? ""}`} kicker="SETTINGS" width={520}>
   {#if config}
     <div class="form">
       <div class="field">
@@ -359,7 +359,7 @@
             { value: "off", label: "关闭" },
           ]}
         />
-        <span class="help">开启后，此实例的存档、Mod、配置都保存在 versions/{editing?.id} 中，互不影响。</span>
+        <span class="help">开启后，这个版本的存档、Mod、配置都保存在 versions/{editing?.id} 中，互不影响。</span>
       </div>
       <div class="field">
         <label for="mem">最大内存（MB）</label>

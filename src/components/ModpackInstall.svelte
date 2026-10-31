@@ -58,7 +58,7 @@
 <Modal bind:open title={`安装整合包 · ${info?.name ?? title}`} kicker="MODPACK" width={500}>
   {#if info}
     <dl class="meta">
-      <dt>版本</dt><dd>{info.version || "—"}</dd>
+      <dt>整合包版本</dt><dd>{info.version || "—"}</dd>
       <dt>游戏版本</dt><dd>Minecraft {info.mcVersion}</dd>
       <dt>加载器</dt><dd>{info.loader ? `${LOADER_LABEL[info.loader.kind]} ${info.loader.version}` : "原版"}</dd>
       <dt>文件</dt><dd>{info.fileCount} 个</dd>
@@ -66,10 +66,10 @@
     </dl>
   {/if}
   <div class="field">
-    <label for="pack-name">实例名称</label>
+    <label for="pack-name">版本名称</label>
     <input id="pack-name" class="input" bind:value={name} maxlength="64" />
     <span class="help">
-      {#if exists}已有同名实例，安装时会自动在名称后加编号。{:else}整合包会安装为独立的新实例（自动开启版本隔离）。{/if}
+      {#if exists}已有同名版本，安装时会自动在名称后加编号。{:else}整合包会安装为一个独立的新版本（自动开启版本隔离）。{/if}
     </span>
   </div>
   {#snippet actions()}

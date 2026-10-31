@@ -267,15 +267,15 @@
   </div>
 </div>
 
-<Modal bind:open={dialog} title={`安装 ${target?.id ?? ""}`} kicker="NEW INSTANCE" width={620}>
+<Modal bind:open={dialog} title={`安装 ${target?.id ?? ""}`} kicker="NEW VERSION" width={620}>
   <div class="form">
     <div class="field">
-      <label for="inst-name">实例名称</label>
+      <label for="inst-name">版本名称</label>
       <input id="inst-name" class="input" bind:value={name} maxlength="64" oninput={() => (nameTouched = true)} />
       {#if nameExists}
-        <span class="help" style="color:var(--danger)">已存在同名实例，请换一个名称。</span>
+        <span class="help" style="color:var(--danger)">已存在同名版本，请换一个名称。</span>
       {:else}
-        <span class="help">实例会保存在 versions/{name || "…"} 目录中。</span>
+        <span class="help">会保存在 versions/{name || "…"} 目录中。</span>
       {/if}
     </div>
     <div class="field">

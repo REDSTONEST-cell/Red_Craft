@@ -54,7 +54,7 @@ fn unique_name(state: &AppState, name: &str) -> String {
         .collect::<String>()
         .trim_matches(|c: char| c == '.' || c.is_whitespace())
         .to_string();
-    let base = if base.is_empty() { "导入的实例".to_string() } else { base };
+    let base = if base.is_empty() { "导入的版本".to_string() } else { base };
     let game = state.game_dir();
     if !game.version_dir(&base).exists() {
         return base;
@@ -142,7 +142,7 @@ pub async fn import_instances(app: AppHandle, state: State<'_, AppState>, items:
             .and_then(|r| r.map_err(AppError::from));
             match result {
                 Ok(stats) => {
-                    log::info!("导入实例 {name}：复制 {} 个文件，{} 字节", stats.files, stats.bytes);
+                    log::info!("导入版本 {name}：复制 {} 个文件，{} 字节", stats.files, stats.bytes);
                     Ok(())
                 }
                 Err(e) => {

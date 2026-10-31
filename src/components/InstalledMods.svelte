@@ -181,7 +181,7 @@
 </div>
 
 <Modal bind:open={deleteOpen} title="删除 Mod？" kicker="DELETE" width={420}>
-  <p>将从实例「{instance}」中删除 <strong>{confirmDelete?.name}</strong>（{confirmDelete?.filename}），此操作无法撤销。</p>
+  <p>将从版本「{instance}」中删除 <strong>{confirmDelete?.name}</strong>（{confirmDelete?.filename}），此操作无法撤销。</p>
   {#snippet actions()}
     <button class="btn" onclick={() => (deleteOpen = false)}>取消</button>
     <button class="btn primary" onclick={remove}>确认删除</button>

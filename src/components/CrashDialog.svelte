@@ -26,7 +26,7 @@
 <Modal bind:open title="游戏意外退出" kicker="CRASH" width={620} onclose={() => (app.crash = null)}>
   {#if crash}
     <p class="lede">
-      实例 <strong>{crash.instance}</strong> 已退出{#if crash.exit.code !== null}（退出码 <span class="mono">{crash.exit.code}</span>）{/if}。
+      版本 <strong>{crash.instance}</strong> 已退出{#if crash.exit.code !== null}（退出码 <span class="mono">{crash.exit.code}</span>）{/if}。
     </p>
     {#if crash.exit.causes.length}
       <div class="causes">

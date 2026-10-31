@@ -83,7 +83,7 @@
   <div class="columns">
     <section class="lead">
       {#if inst}
-        <div class="kicker">头条 · 当前实例</div>
+        <div class="kicker">头条 · 当前版本</div>
         <h2 class="headline">{inst.id}</h2>
         <p class="deck">
           Minecraft {inst.mcVersion}
@@ -108,11 +108,11 @@
               <Icon name="terminal" size={14} /> 日志
             </button>
           {/if}
-          <button class="btn sm ghost" onclick={() => (app.page = "instances")}>管理实例 <Icon name="chevron" size={12} /></button>
+          <button class="btn sm ghost" onclick={() => (app.page = "instances")}>管理版本 <Icon name="chevron" size={12} /></button>
         </div>
         {#if app.instances.length > 1}
           <div class="others">
-            <span class="kicker">其它实例</span>
+            <span class="kicker">其它版本</span>
             <div class="chips">
               {#each app.instances.filter((i) => i.id !== inst.id).slice(0, 6) as other}
                 <button class="chip" onclick={() => selectInstance(other.id)}>{other.id}</button>
@@ -122,7 +122,7 @@
         {/if}
       {:else if app.instancesLoaded}
         <div class="kicker">号外</div>
-        <h2 class="headline">还没有游戏实例</h2>
+        <h2 class="headline">还没有安装游戏</h2>
         <p class="deck">先到「下载」页面挑一个版本安装，几分钟后就能开始游戏。</p>
         <div class="quick">
           <button class="btn primary" onclick={() => (app.page = "download")}><Icon name="download" size={14} /> 去下载</button>

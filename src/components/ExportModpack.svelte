@@ -47,7 +47,7 @@
         picked = Object.fromEntries(list.map((e) => [e.name, e.default]));
       })
       .catch((e) => {
-        showError(e, "无法读取实例文件");
+        showError(e, "无法读取版本文件");
         open = false;
       });
   });
@@ -107,7 +107,7 @@
       {#if entries === null}
         <p class="muted small">读取中…</p>
       {:else if entries.length === 0}
-        <p class="muted small">实例目录中还没有可以导出的内容。</p>
+        <p class="muted small">这个版本的目录中还没有可以导出的内容。</p>
       {:else}
         <ul class="entries">
           {#each entries as e (e.name)}

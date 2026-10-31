@@ -279,8 +279,8 @@ pub fn set_shader(game_dir: &Path, name: Option<&str>, iris: bool, optifine: boo
     let optifine = optifine || optifine_config(game_dir).is_file();
     if !iris && !optifine {
         return Err(CoreError::msg(
-            "这个实例没有安装光影加载器",
-            "请先安装 Iris / Oculus 或 OptiFine：可以在「资源」中搜索 Iris，或新建实例时勾选 OptiFine。",
+            "这个版本没有安装光影加载器",
+            "请先安装 Iris / Oculus 或 OptiFine：可以在「资源」中搜索 Iris，或安装新版本时勾选 OptiFine。",
         ));
     }
     if iris {

@@ -103,7 +103,7 @@
       <div class="warn">
         <strong>冲突提醒</strong>
         {#each plan.incompatible as w}
-          <p>已安装的「{w.title}」{w.reason}，建议先在实例的 mods 文件夹中移除它。</p>
+          <p>已安装的「{w.title}」{w.reason}，建议先在这个版本的 mods 文件夹中移除它。</p>
         {/each}
       </div>
     {/if}

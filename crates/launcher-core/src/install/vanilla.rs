@@ -210,15 +210,15 @@ impl Installer {
 pub fn validate_instance_name(name: &str) -> Result<()> {
     const BAD: &[char] = &['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
     if name.trim().is_empty() {
-        return Err(CoreError::InvalidData("实例名称不能为空".into()));
+        return Err(CoreError::InvalidData("版本名称不能为空".into()));
     }
     if name.chars().any(|c| BAD.contains(&c) || c.is_control()) {
         return Err(CoreError::InvalidData(
-            "实例名称不能包含 / \\ : * ? \" < > | 等字符".into(),
+            "版本名称不能包含 / \\ : * ? \" < > | 等字符".into(),
         ));
     }
     if name.ends_with('.') || name.ends_with(' ') || name.starts_with('.') {
-        return Err(CoreError::InvalidData("实例名称不能以点或空格开头/结尾".into()));
+        return Err(CoreError::InvalidData("版本名称不能以点或空格开头/结尾".into()));
     }
     Ok(())
 }

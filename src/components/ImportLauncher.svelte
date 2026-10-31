@@ -67,9 +67,9 @@
       }
       if (chosenInstances.length) {
         const ids = await api.importInstances(chosenInstances);
-        parts.push(`${ids.length} 个实例（正在后台安装）`);
+        parts.push(`${ids.length} 个版本（正在后台安装）`);
       }
-      toast("ok", `已开始导入 ${parts.join("、")}`, chosenInstances.length ? "安装完成后会出现在实例列表中。" : undefined);
+      toast("ok", `已开始导入 ${parts.join("、")}`, chosenInstances.length ? "安装完成后会出现在版本列表中。" : undefined);
       refreshInstances();
       open = false;
     } catch (e) {
@@ -112,7 +112,7 @@
   {:else if scan}
     <div class="from mono" title={scan.root}>{scan.label} · {scan.root}</div>
     {#if scan.instances.length}
-      <h4>实例</h4>
+      <h4>游戏版本</h4>
       <ul class="items">
         {#each scan.instances as i (i.name)}
           <li class:bad={!!i.problem}>

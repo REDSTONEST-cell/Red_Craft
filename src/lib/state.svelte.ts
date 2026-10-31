@@ -98,7 +98,7 @@ export async function refreshInstances() {
   try {
     app.instances = await api.listInstances();
   } catch (e) {
-    showError(e, "读取实例列表失败");
+    showError(e, "读取版本列表失败");
   } finally {
     app.instancesLoaded = true;
   }

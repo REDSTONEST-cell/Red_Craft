@@ -24,6 +24,7 @@
   import Icon from "../components/Icon.svelte";
   import Toggle from "../components/Toggle.svelte";
   import { iconSrc, zhName } from "../lib/zh";
+  import { dur } from "../lib/motion";
 
   function stored<T extends string>(key: string, fallback: T): T {
     try {
@@ -57,6 +58,10 @@
   let loading = $state(false);
   let error = $state<{ message: string; hint: string } | null>(null);
   let generation = 0;
+  // 每次换成新的一组结果时加一：旧列表淡出、新列表的行淡入
+  let listGen = $state(0);
+  // 正在为哪一组结果重新搜索（这组结果会变淡，直到新结果到来）
+  let staleGen = $state(-1);
   // 中文关键词转换后的提示，例如「万用皮肤补丁 → CustomSkinLoader」，以及其他可能的匹配
   let converted = $state<ZhMatch | null>(null);
   let alternatives = $state<ZhMatch[]>([]);
@@ -93,7 +98,7 @@
     api
       .contentInstance(id)
       .then((c) => (ctx = c))
-      .catch((e) => showError(e, "读取实例信息失败"));
+      .catch((e) => showError(e, "读取版本信息失败"));
   });
 
   const useFilter = $derived(compatibleOnly && searchType !== "modpack" && !!ctx);
@@ -119,7 +124,10 @@
     const gen = ++generation;
     loading = true;
     error = null;
-    if (reset) cursor = { modrinthOffset: 0, curseforgeOffset: 0, modrinthTotal: null, curseforgeTotal: null };
+    if (reset) {
+      cursor = { modrinthOffset: 0, curseforgeOffset: 0, modrinthTotal: null, curseforgeTotal: null };
+      if (hits.length) staleGen = listGen;
+    }
     try {
       const res = await api.contentSearch({
         platform,
@@ -141,6 +149,7 @@
         modrinthTotal: res.modrinthTotal,
         curseforgeTotal: res.curseforgeTotal,
       };
+      if (reset) listGen++;
       hits = reset ? appendUnique([], res.hits) : appendUnique(hits, res.hits);
       total = (platform !== "curseforge" ? (res.modrinthTotal ?? 0) : 0) + (platform !== "modrinth" ? (res.curseforgeTotal ?? 0) : 0);
       if (reset) {
@@ -154,7 +163,11 @@
       error = { message: err.message, hint: err.hint };
       if (reset) hits = [];
     } finally {
-      if (gen === generation) loading = false;
+      if (gen === generation) {
+        loading = false;
+        // 没有换成新结果（例如搜索失败）时恢复原样
+        if (staleGen === listGen) staleGen = -1;
+      }
     }
   }
 
@@ -185,6 +198,15 @@
     return () => clearTimeout(timer);
   });
 
+  // 旧结果从当前的透明度淡出（重新搜索期间它已经变淡）
+  function fadeAway(node: Element) {
+    const from = Number(getComputedStyle(node).opacity) || 1;
+    const el = node as HTMLElement;
+    el.style.transition = "none";
+    el.style.pointerEvents = "none";
+    return { duration: dur(160), css: (t: number) => `opacity:${t * from}` };
+  }
+
   // 详情与安装
   let detailOpen = $state(false);
   let current = $state<ProjectHit | null>(null);
@@ -207,7 +229,7 @@
       return;
     }
     if (!instanceId) {
-      toast("error", "请先选择要安装到的实例");
+      toast("error", "请先选择要安装到的版本");
       return;
     }
     planVersion = v;
@@ -236,15 +258,15 @@
       <div class="kicker">RESOURCES</div>
       <h1>{tab === "installed" ? "资源管理" : "资源下载"}</h1>
       <div class="sub">
-        {#if tab === "installed"}{instanceId ? `管理「${instanceId}」中的 Mod、材质包、光影包与存档` : "请选择实例"}
-        {:else if tab === "modpack"}整合包会创建新的实例{:else if ctx}
+        {#if tab === "installed"}{instanceId ? `管理「${instanceId}」中的 Mod、材质包、光影包与存档` : "请先选择版本"}
+        {:else if tab === "modpack"}整合包会安装为新的版本{:else if ctx}
           安装到「{ctx.id}」· Minecraft {ctx.mcVersion}{#if ctx.loader} · {LOADER_LABEL[ctx.loader]}{/if}
-        {:else}请选择要安装到的实例{/if}
+        {:else}请选择要安装到的版本{/if}
       </div>
     </div>
     <div class="tools">
       {#if tab !== "modpack"}
-        <select class="input inst" bind:value={instanceId} title="安装到的实例">
+        <select class="input inst" bind:value={instanceId} title="安装到的版本">
           {#each app.instances as i}
             <option value={i.id}>{i.id}</option>
           {/each}
@@ -290,7 +312,7 @@
       {#if instanceId}
         <ResourceManager instance={instanceId} kind={manageKind} />
       {:else}
-        <div class="empty"><h3>请先选择实例</h3></div>
+        <div class="empty"><h3>请先选择版本</h3></div>
       {/if}
     </div>
   {:else}
@@ -305,7 +327,9 @@
     {:else if !loading && hits.length === 0}
       <div class="empty"><h3>没有找到结果</h3><p>换个关键词，或关闭「仅兼容」试试。</p></div>
     {:else}
-      <VirtualList items={hits} rowHeight={84} key={(h) => `${h.platform}:${h.id}`} onEnd={() => search(false)}>
+      {#key listGen}
+      <div class="result-list" class:stale={staleGen === listGen} out:fadeAway>
+      <VirtualList items={hits} rowHeight={84} key={(h) => `${h.platform}:${h.id}`} onEnd={() => search(false)} appear>
         {#snippet row(h)}
           {@const zh = h.zhName ?? zhName(h.title, h.slug)}
           <button class="hit" onclick={() => openDetail(h)}>
@@ -331,6 +355,8 @@
           </button>
         {/snippet}
       </VirtualList>
+      </div>
+      {/key}
     {/if}
   </div>
   <div class="foot muted small">
@@ -417,6 +443,16 @@
     flex: 1;
     min-height: 0;
     border-top: 1px solid var(--rule-strong);
+    position: relative;
+  }
+  /* 切换结果时新旧列表叠在同一位置交替淡入淡出，不影响布局 */
+  .result-list {
+    position: absolute;
+    inset: 0;
+    transition: opacity var(--t-mid) var(--ease);
+  }
+  .result-list.stale {
+    opacity: 0.45;
   }
   .hit {
     width: 100%;

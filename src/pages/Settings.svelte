@@ -146,7 +146,7 @@
     <div class="row">
       <div class="desc">
         <strong>版本隔离</strong>
-        <span class="help">开启隔离的实例使用 versions/实例名 作为游戏目录，存档和 Mod 互不干扰。每个实例也可单独设置。</span>
+        <span class="help">开启隔离的版本使用 versions/版本名称 作为游戏目录，存档和 Mod 互不干扰。每个版本也可单独设置。</span>
       </div>
       <select class="input" value={s.isolation} onchange={(e) => save({ isolation: e.currentTarget.value as Settings["isolation"] })}>
         <option value="off">关闭</option>
@@ -342,7 +342,7 @@
     <div class="row">
       <div class="desc">
         <strong>默认使用简体中文</strong>
-        <span class="help">实例第一次启动时把游戏语言设为简体中文；之后在游戏里改过的语言不会被覆盖。</span>
+        <span class="help">每个版本第一次启动时把游戏语言设为简体中文；之后在游戏里改过的语言不会被覆盖。</span>
       </div>
       <Toggle checked={s.defaultChinese} onchange={(v) => save({ defaultChinese: v })} />
     </div>
@@ -445,7 +445,7 @@
           <div class="desc">
             <strong>启动前执行命令</strong>
             <span class="help">
-              在游戏目录中执行，可使用占位符 <span class="mono">{"{instance}"}</span> 实例名、<span class="mono">{"{mc}"}</span> 游戏版本、<span class="mono">{"{game_dir}"}</span> 游戏目录、<span class="mono">{"{java}"}</span> Java 路径。
+              在游戏目录中执行，可使用占位符 <span class="mono">{"{instance}"}</span> 版本名称、<span class="mono">{"{mc}"}</span> Minecraft 版本号、<span class="mono">{"{game_dir}"}</span> 游戏目录、<span class="mono">{"{java}"}</span> Java 路径。
             </span>
           </div>
           <input

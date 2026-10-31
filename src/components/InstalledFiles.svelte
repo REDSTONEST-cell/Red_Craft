@@ -152,7 +152,7 @@
 
 <Modal bind:open={deleteOpen} title="删除{LABEL[kind]}？" kicker="DELETE" width={440}>
   <p>
-    将把实例「{instance}」中的 <strong>{confirmDelete?.title}</strong>（{confirmDelete?.name}）移到系统回收站，需要时可以从回收站恢复。
+    将把版本「{instance}」中的 <strong>{confirmDelete?.title}</strong>（{confirmDelete?.name}）移到系统回收站，需要时可以从回收站恢复。
   </p>
   {#snippet actions()}
     <button class="btn" onclick={() => (deleteOpen = false)}>取消</button>

@@ -214,8 +214,8 @@ pub async fn install_instance(
     }
     if game.version_dir(&name).exists() {
         return Err(AppError::msg(
-            format!("已存在名为「{name}」的实例"),
-            "请换一个实例名称，或先删除同名实例。",
+            format!("已存在名为「{name}」的版本"),
+            "请换一个版本名称，或先删除同名版本。",
         ));
     }
     let m = manifest(&state, false).await?;
@@ -249,7 +249,7 @@ pub async fn install_instance(
         create_instance(&state, &installer, &entry, choice.as_ref(), optifine.as_ref(), &name, isolation, &reporter, &cancel).await?;
         // 以下附加内容失败时实例本身仍然保留
         let extra = |what: &str, e: AppError| {
-            AppError::msg(format!("实例已安装完成，但{what}失败：{}", e.info().message), e.info().hint)
+            AppError::msg(format!("版本已安装完成，但{what}失败：{}", e.info().message), e.info().hint)
         };
         // Forge + OptiFine：OptiFine 作为 Mod 放进 mods 文件夹
         if let (Some(of), true) = (&optifine, choice.is_some()) {
@@ -312,8 +312,8 @@ pub async fn create_instance(
             Some(of) => {
                 if name == entry.id {
                     return Err(AppError::msg(
-                        format!("安装了 OptiFine 的实例不能命名为「{}」", entry.id),
-                        "这个名称要留给原版，请换一个实例名称。",
+                        format!("安装了 OptiFine 的版本不能命名为「{}」", entry.id),
+                        "这个名称要留给原版，请换一个版本名称。",
                     ));
                 }
                 validate_instance_name(name)?;
@@ -353,7 +353,7 @@ pub fn repair_instance(app: AppHandle, state: State<'_, AppState>, id: String) -
 #[tauri::command]
 pub async fn delete_instance(state: State<'_, AppState>, id: String) -> AppResult<()> {
     if state.running.lock().is_ok_and(|r| r.contains_key(&id)) {
-        return Err(AppError::msg("实例正在运行", "请先关闭游戏再删除。"));
+        return Err(AppError::msg("这个版本正在运行", "请先关闭游戏再删除。"));
     }
     validate_instance_name(&id)?;
     let game = state.game_dir();
@@ -410,7 +410,7 @@ pub async fn open_instance_dir(app: AppHandle, state: State<'_, AppState>, id: S
     let inst = list
         .into_iter()
         .find(|i| i.summary.id == id)
-        .ok_or_else(|| AppError::msg(format!("找不到实例 {id}"), "实例可能已被删除，请刷新列表。"))?;
+        .ok_or_else(|| AppError::msg(format!("找不到版本 {id}"), "这个版本可能已被删除，请刷新列表。"))?;
     let allowed = ["mods", "saves", "resourcepacks", "shaderpacks", "screenshots", "logs", "crash-reports", "config"];
     let dir = if sub == "root" || sub.is_empty() {
         inst.game_dir

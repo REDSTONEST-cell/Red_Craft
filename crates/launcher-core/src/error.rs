@@ -148,10 +148,10 @@ impl CoreError {
                 _ => "请确认磁盘空间充足、文件未被其它程序占用。".into(),
             },
             CoreError::Json { .. } => {
-                "文件内容已损坏。可以删除对应文件后重新下载；若是版本 JSON 损坏，在实例页面「补全文件」即可。".into()
+                "文件内容已损坏。可以删除对应文件后重新下载；若是版本 JSON 损坏，在「版本」页面点击「补全文件」即可。".into()
             }
             CoreError::Archive { .. } => "压缩包已损坏，删除该文件后重新下载即可。".into(),
-            CoreError::VersionNotFound(_) => "请先在「下载」页面安装这个版本，或检查实例是否被删除。".into(),
+            CoreError::VersionNotFound(_) => "请先在「下载」页面安装这个版本，或检查这个版本是否已被删除。".into(),
             CoreError::InvalidData(_) => "请尝试重新下载对应文件。".into(),
             CoreError::DownloadFailed { first, .. } => first.hint(),
             CoreError::Java(_) => {

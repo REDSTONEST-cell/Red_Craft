@@ -1,6 +1,7 @@
 <script lang="ts" generics="T">
   // 固定行高的虚拟滚动列表：只渲染可见区域（加上下缓冲）的行，用 transform 定位。
   import type { Snippet } from "svelte";
+  import { dur } from "../lib/motion";
 
   let {
     items,
@@ -10,6 +11,7 @@
     onEnd,
     key = (_: T, i: number) => i,
     follow = false,
+    appear = false,
   }: {
     items: T[];
     rowHeight: number;
@@ -20,6 +22,8 @@
     key?: (item: T, i: number) => unknown;
     /** 新数据到来时，若当前在底部则自动滚到底（日志） */
     follow?: boolean;
+    /** 新出现的行淡入：每个 key 只在第一次渲染时播放，滚动时复用或滚回来的行不再重复 */
+    appear?: boolean;
   } = $props();
 
   let viewport: HTMLDivElement;
@@ -55,6 +59,26 @@
     }
   });
 
+  // 已经显示过的行（按 key 记录，不需要响应式）
+  const seen = new Set<unknown>();
+  // 同一次渲染中新出现的行依次错开一点点
+  let batch = 0;
+  function enter(node: HTMLElement, k: unknown) {
+    if (!appear || seen.has(k)) return;
+    seen.add(k);
+    if (batch === 0) queueMicrotask(() => (batch = 0));
+    const delay = dur(Math.min(batch++, 8) * 16);
+    if (delay) node.style.animationDelay = `${delay}ms`;
+    node.classList.add("enter");
+    const done = (e: AnimationEvent) => {
+      if (e.target !== node) return;
+      node.removeEventListener("animationend", done);
+      node.classList.remove("enter");
+      node.style.animationDelay = "";
+    };
+    node.addEventListener("animationend", done);
+  }
+
   export function scrollToTop() {
     if (viewport) viewport.scrollTop = 0;
   }
@@ -64,7 +88,7 @@
   <div class="spacer" style:height="{items.length * rowHeight}px">
     <div class="window" style:transform="translateY({start * rowHeight}px)">
       {#each visible as item, i (key(item, start + i))}
-        <div class="row" style:height="{rowHeight}px">
+        <div class="row" style:height="{rowHeight}px" use:enter={key(item, start + i)}>
           {@render row(item, start + i)}
         </div>
       {/each}
@@ -91,5 +115,18 @@
   }
   .row {
     overflow: hidden;
+  }
+  .row:global(.enter) {
+    animation: row-in var(--t-mid) var(--ease-out) both;
+  }
+  @keyframes row-in {
+    from {
+      opacity: 0;
+      transform: translate3d(0, 6px, 0);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
   }
 </style>

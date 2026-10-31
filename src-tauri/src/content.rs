@@ -367,7 +367,7 @@ pub async fn content_install(
     roots: Vec<VersionRef>,
 ) -> AppResult<u64> {
     if content_type == ContentType::Modpack {
-        return Err(AppError::msg("整合包需要通过「安装整合包」创建新实例", ""));
+        return Err(AppError::msg("整合包需要通过「安装整合包」安装为新版本", ""));
     }
     let ctx = instance_context(&state, &instance)?;
     let downloader = state.community_downloader()?;
@@ -381,7 +381,7 @@ pub async fn content_install(
             let names: Vec<String> = plan.missing.iter().map(|m| format!("{}（{} 需要）", m.title, m.required_by)).collect();
             return Err(AppError::msg(
                 format!("找不到兼容的前置：{}", names.join("、")),
-                "这些前置没有适用于当前游戏版本和加载器的版本，请换一个版本的 Mod 或实例。",
+                "这些前置没有适用于当前游戏版本和加载器的文件，请换一个版本的 Mod，或安装到其他版本。",
             ));
         }
         let items: Vec<(ContentVersion, String)> = plan
@@ -483,7 +483,7 @@ pub async fn install_shader_mod(state: &AppState, instance: &str, reporter: &Rep
     let Some((project, name, _)) = find_shader_mod(state, &ctx.mc_version, ctx.loader).await? else {
         return Err(AppError::msg(
             format!("没有适用于 Minecraft {} 的 Iris / Oculus", ctx.mc_version),
-            "实例已经可以启动；可以在「资源」页面手动安装其他光影 Mod。",
+            "游戏已经可以启动；可以在「资源」页面手动安装其他光影 Mod。",
         ));
     };
     install_best(state, &ctx, project, name, reporter, cancel).await
@@ -504,7 +504,7 @@ async fn install_best(
     let Some(best) = best_of(client.versions(project, &filter).await?) else {
         return Err(AppError::msg(
             format!("{name} 还没有适用于 Minecraft {} 的版本", ctx.mc_version),
-            "实例已经可以启动；需要时可以在「资源」页面手动安装。",
+            "游戏已经可以启动；需要时可以在「资源」页面手动安装。",
         ));
     };
     // 已安装的项目（例如先装好的 Fabric API）不再重复安装
@@ -636,7 +636,7 @@ pub async fn install_modpack(
                 .map_err(|e| AppError::msg(e.to_string(), ""))??
         };
         let name = instance_name_for(&state, name.as_deref().unwrap_or(&info.name));
-        log::info!("安装整合包 {} {} 为实例 {name}", info.name, info.version);
+        log::info!("安装整合包 {} {} 为版本 {name}", info.name, info.version);
 
         // 2. 游戏版本与加载器
         let manifest = launcher_core::version::VersionManifest::fetch(&state.http_meta()?).await?;

@@ -305,7 +305,7 @@ pub fn analyze(log: &str, report: &str) -> Vec<CrashCause> {
         (
             &["java.lang.ClassNotFoundException", "NoClassDefFoundError", "Could not find or load main class"],
             "游戏文件缺失或损坏",
-            "在实例页面点击「补全文件」后重试；如果安装了 Mod，检查是否缺少前置 Mod。",
+            "在「版本」页面点击「补全文件」后重试；如果安装了 Mod，检查是否缺少前置 Mod。",
         ),
         (
             &["Missing or unsupported mandatory dependencies", "requires any version of", "which is missing!"],

@@ -178,7 +178,7 @@
     <div class="drop-card">
       {#if app.dropTarget}
         <strong>松开以导入{app.dropTarget.label}</strong>
-        <span>文件会复制到当前实例中</span>
+        <span>文件会复制到当前版本中</span>
       {:else}
         <strong>松开以导入整合包</strong>
         <span>支持 Modrinth（.mrpack）与 CurseForge（.zip）整合包</span>
