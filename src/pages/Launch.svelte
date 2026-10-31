@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { api, type VersionList } from "../lib/api";
+  import { api, type FileKind, type VersionList } from "../lib/api";
   import {
     app,
     refreshInstances,
@@ -21,6 +21,12 @@
   const task = $derived(launchTask ? app.tasks.find((t) => t.id === launchTask) : undefined);
   const launching = $derived(!!task && task.state === "running");
   let news = $state<VersionList | null>(null);
+
+  // 在启动器内管理当前实例的资源，不必打开文件夹
+  function openManager(kind: FileKind) {
+    app.manage = kind;
+    app.page = "mods";
+  }
 
   // 简讯栏只在标准布局显示；极简布局不必在启动时请求版本清单
   $effect(() => {
@@ -91,7 +97,10 @@
           <button class="btn sm" onclick={() => api.openInstanceDir(inst.id).catch((e) => showError(e))}>
             <Icon name="folder" size={14} /> 游戏目录
           </button>
-          <button class="btn sm" onclick={() => api.openInstanceDir(inst.id, "saves").catch((e) => showError(e))}>
+          <button class="btn sm" onclick={() => openManager("mod")}>
+            <Icon name="cube" size={14} /> 资源管理
+          </button>
+          <button class="btn sm" onclick={() => openManager("save")}>
             存档
           </button>
           {#if game}

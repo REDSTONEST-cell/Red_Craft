@@ -9,7 +9,7 @@
   import Icon from "./Icon.svelte";
   import Modal from "./Modal.svelte";
 
-  let { instance }: { instance: string } = $props();
+  let { instance, reload = 0, onimport }: { instance: string; reload?: number; onimport?: () => void } = $props();
 
   let mods = $state<LocalMod[] | null>(null);
   let filter = $state("");
@@ -29,7 +29,7 @@
   }
 
   $effect(() => {
-    void instance;
+    void [instance, reload];
     mods = null;
     updates = {};
     load();
@@ -116,6 +116,9 @@
     <button class="btn sm" onclick={() => api.openInstanceDir(instance, "mods").catch((e) => showError(e))}>
       <Icon name="folder" size={12} /> 打开文件夹
     </button>
+    {#if onimport}
+      <button class="btn sm" onclick={onimport}><Icon name="plus" size={12} /> 导入 Mod</button>
+    {/if}
     <button class="btn sm" onclick={check} disabled={checking || !mods?.length}>
       <span class:spin={checking}><Icon name="refresh" size={12} /></span> 检查更新
     </button>
@@ -128,7 +131,7 @@
     {#if mods && mods.length === 0}
       <div class="empty">
         <h3>还没有安装 Mod</h3>
-        <p>在「Mod」标签中搜索并安装，或者把 jar 文件放进 mods 文件夹。</p>
+        <p>在「Mod」标签中搜索并安装，或点击「导入 Mod」、把 jar 文件拖进窗口。</p>
       </div>
     {:else if mods}
       <VirtualList items={shown} rowHeight={64} key={(m) => m.filename}>
@@ -232,7 +235,8 @@
   .row.off {
     opacity: 0.5;
   }
-  .icon {
+  /* 只作用于图标图片，不影响带 icon 类的按钮 */
+  .icon:not(.btn) {
     width: 40px;
     height: 40px;
     border: 1.5px solid var(--ink);

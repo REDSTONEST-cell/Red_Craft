@@ -8,6 +8,7 @@ import {
   AppError,
   type Account,
   type AppInfo,
+  type FileKind,
   type GameExit,
   type InstanceInfo,
   type OptimizeResult,
@@ -59,6 +60,10 @@ export const app = $state({
   logViewer: null as string | null,
   /** 崩溃提示 */
   crash: null as { instance: string; exit: GameExit } | null,
+  /** 请求打开资源管理（例如从主页面的「存档」按钮跳转） */
+  manage: null as FileKind | null,
+  /** 资源管理打开时，拖入的文件导入到当前类别 */
+  dropTarget: null as { label: string; drop: (paths: string[]) => void } | null,
 });
 
 let toastId = 0;

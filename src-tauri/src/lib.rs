@@ -9,6 +9,7 @@ mod launch;
 mod logger;
 mod memory;
 mod migrate;
+mod resources;
 mod secrets;
 mod settings;
 mod state;
@@ -142,6 +143,10 @@ pub fn run() {
             content::mod_delete,
             content::mods_check_updates,
             content::mods_update,
+            resources::files_list,
+            resources::file_set_active,
+            resources::files_import,
+            resources::files_delete,
             launch::launch_instance,
             launch::kill_game,
         ])

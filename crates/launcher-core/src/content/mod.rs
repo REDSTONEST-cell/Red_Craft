@@ -2,6 +2,7 @@
 
 mod curseforge;
 pub mod export;
+pub mod files;
 mod index;
 pub mod local;
 pub mod media;

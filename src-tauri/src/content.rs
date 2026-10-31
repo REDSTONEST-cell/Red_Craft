@@ -855,7 +855,7 @@ pub fn mod_delete(state: State<'_, AppState>, instance: String, filenames: Vec<S
     Ok(())
 }
 
-fn ensure_not_running(state: &AppState, instance: &str) -> AppResult<()> {
+pub(crate) fn ensure_not_running(state: &AppState, instance: &str) -> AppResult<()> {
     if state.running.lock().is_ok_and(|r| r.contains_key(instance)) {
         return Err(AppError::msg("游戏正在运行", "Mod 文件被游戏占用，请先关闭游戏再修改。"));
     }

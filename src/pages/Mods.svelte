@@ -4,6 +4,7 @@
     api,
     type ContentType,
     type ContentVersion,
+    type FileKind,
     type InstanceContext,
     type PackSource,
     type Platform,
@@ -19,7 +20,7 @@
   import ContentDetail from "../components/ContentDetail.svelte";
   import InstallPlan from "../components/InstallPlan.svelte";
   import ModpackInstall from "../components/ModpackInstall.svelte";
-  import InstalledMods from "../components/InstalledMods.svelte";
+  import ResourceManager from "../components/ResourceManager.svelte";
   import Icon from "../components/Icon.svelte";
   import Toggle from "../components/Toggle.svelte";
   import { iconSrc, zhName } from "../lib/zh";
@@ -68,8 +69,21 @@
     return mr || cf;
   });
 
+  // 资源管理中正在查看的类别
+  let manageKind = $state<FileKind>(stored("rc.manageKind", "mod") as FileKind);
+
   $effect(() => store("rc.searchPlatform", platform));
   $effect(() => store("rc.contentTab", tab));
+  $effect(() => store("rc.manageKind", manageKind));
+  // 从主页面「资源管理」「存档」等按钮跳转过来
+  $effect(() => {
+    const k = app.manage;
+    if (!k) return;
+    tab = "installed";
+    manageKind = k;
+    instanceId = selectedInstance()?.id ?? instanceId;
+    app.manage = null;
+  });
 
   // 实例变化时获取它的游戏版本与加载器
   $effect(() => {
@@ -206,7 +220,13 @@
     { value: "resourcepack", label: "材质包" },
     { value: "shader", label: "光影包" },
     { value: "modpack", label: "整合包" },
-    { value: "installed", label: "已安装" },
+    { value: "installed", label: "资源管理" },
+  ];
+  const manageKinds: { value: FileKind; label: string }[] = [
+    { value: "mod", label: "Mod" },
+    { value: "resourcepack", label: "材质包" },
+    { value: "shader", label: "光影包" },
+    { value: "save", label: "存档" },
   ];
 </script>
 
@@ -214,9 +234,10 @@
   <div class="page-head">
     <div>
       <div class="kicker">RESOURCES</div>
-      <h1>资源下载</h1>
+      <h1>{tab === "installed" ? "资源管理" : "资源下载"}</h1>
       <div class="sub">
-        {#if tab === "modpack"}整合包会创建新的实例{:else if ctx}
+        {#if tab === "installed"}{instanceId ? `管理「${instanceId}」中的 Mod、材质包、光影包与存档` : "请选择实例"}
+        {:else if tab === "modpack"}整合包会创建新的实例{:else if ctx}
           安装到「{ctx.id}」· Minecraft {ctx.mcVersion}{#if ctx.loader} · {LOADER_LABEL[ctx.loader]}{/if}
         {:else}请选择要安装到的实例{/if}
       </div>
@@ -229,20 +250,25 @@
           {/each}
         </select>
       {/if}
-      <Segmented
-        bind:value={platform}
-        options={[
-          { value: "all", label: "聚合" },
-          { value: "modrinth", label: "Modrinth" },
-          { value: "curseforge", label: "CurseForge" },
-        ]}
-      />
+      {#if tab !== "installed"}
+        <Segmented
+          bind:value={platform}
+          options={[
+            { value: "all", label: "聚合" },
+            { value: "modrinth", label: "Modrinth" },
+            { value: "curseforge", label: "CurseForge" },
+          ]}
+        />
+      {/if}
     </div>
   </div>
 
   <div class="bar">
     <Segmented bind:value={tab} options={tabs} />
-    {#if tab !== "installed"}
+    {#if tab === "installed"}
+      <span class="spacer"></span>
+      <Segmented bind:value={manageKind} options={manageKinds} />
+    {:else}
     <div class="search">
       <Icon name="search" size={14} />
       <input class="input" placeholder={tab === "mod" ? "搜索 Mod，支持中文名…" : `搜索${tabs.find((t) => t.value === tab)?.label}，支持常见中文名…`} bind:value={query} />
@@ -262,7 +288,7 @@
   {#if tab === "installed"}
     <div class="installed">
       {#if instanceId}
-        <InstalledMods instance={instanceId} />
+        <ResourceManager instance={instanceId} kind={manageKind} />
       {:else}
         <div class="empty"><h3>请先选择实例</h3></div>
       {/if}
@@ -361,6 +387,9 @@
     align-items: center;
     gap: 12px;
     margin-bottom: 12px;
+  }
+  .spacer {
+    flex: 1;
   }
   .search {
     flex: 1;

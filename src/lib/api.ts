@@ -284,6 +284,22 @@ export type PackSource =
   | { type: "file"; path: string }
   | { type: "online"; platform: Platform; projectId: string; versionId: string };
 
+export type FileKind = "mod" | "resourcepack" | "shader" | "save";
+
+/** 实例中的资源包、光影包或存档 */
+export interface LocalFile {
+  name: string;
+  title: string;
+  description: string;
+  icon: string | null;
+  size: number;
+  /** Unix 秒 */
+  modified: number;
+  dir: boolean;
+  active: boolean;
+  detail: string | null;
+}
+
 export interface LocalMod {
   filename: string;
   enabled: boolean;
@@ -549,6 +565,11 @@ export const api = {
   modDelete: (instance: string, filenames: string[]) => call<void>("mod_delete", { instance, filenames }),
   modsCheckUpdates: (instance: string) => call<ModUpdate[]>("mods_check_updates", { instance }),
   modsUpdate: (instance: string, updates: ModUpdate[]) => call<number>("mods_update", { instance, updates }),
+  filesList: (instance: string, kind: FileKind) => call<LocalFile[]>("files_list", { instance, kind }),
+  fileSetActive: (instance: string, kind: FileKind, name: string, active: boolean) =>
+    call<void>("file_set_active", { instance, kind, name, active }),
+  filesImport: (instance: string, kind: FileKind, paths: string[]) => call<string[]>("files_import", { instance, kind, paths }),
+  filesDelete: (instance: string, kind: FileKind, names: string[]) => call<void>("files_delete", { instance, kind, names }),
 
   scanJava: (refresh = false) => call<JavaInstall[]>("scan_java", { refresh }),
   probeJava: (path: string) => call<JavaInstall>("probe_java", { path }),

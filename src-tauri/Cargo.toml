@@ -33,6 +33,7 @@ tempfile = "3"
 percent-encoding = "2"
 uuid = { version = "1", features = ["v4", "v5"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+trash = "5"
 
 [target.'cfg(windows)'.dependencies]
 keyring = { version = "3", features = ["windows-native"] }

@@ -61,6 +61,10 @@ pub enum CoreError {
 
     #[error("操作已取消")]
     Cancelled,
+
+    /// 其他需要直接展示给用户的错误
+    #[error("{message}")]
+    Message { message: String, hint: String },
 }
 
 impl CoreError {
@@ -100,6 +104,13 @@ impl CoreError {
         CoreError::Json {
             what: what.into(),
             source,
+        }
+    }
+
+    pub fn msg(message: impl Into<String>, hint: impl Into<String>) -> Self {
+        CoreError::Message {
+            message: message.into(),
+            hint: hint.into(),
         }
     }
 
@@ -147,7 +158,7 @@ impl CoreError {
                 "可以在「设置 → Java」里手动指定 Java 路径，或开启「自动下载 Java」。".into()
             }
             CoreError::Launch(_) => "请查看游戏日志了解详细原因。".into(),
-            CoreError::Auth { hint, .. } => hint.clone(),
+            CoreError::Auth { hint, .. } | CoreError::Message { hint, .. } => hint.clone(),
             CoreError::Cancelled => String::new(),
         }
     }

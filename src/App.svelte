@@ -42,11 +42,16 @@
     getCurrentWebview()
       .onDragDropEvent(async (e) => {
         const p = e.payload;
-        if (p.type === "enter") dragging = p.paths.some(isPack);
+        if (p.type === "enter") dragging = !!app.dropTarget || p.paths.some(isPack);
         else if (p.type === "leave") dragging = false;
         else if (p.type === "drop") {
           const was = dragging;
           dragging = false;
+          // 资源管理页面：导入到当前类别
+          if (app.dropTarget) {
+            if (p.paths.length) app.dropTarget.drop(p.paths);
+            return;
+          }
           const file = p.paths.find(isPack);
           if (!was || !file) return;
           try {
@@ -165,8 +170,13 @@
 {#if dragging}
   <div class="drop-hint" transition:page={{ y: 0, duration: 160 }}>
     <div class="drop-card">
-      <strong>松开以导入整合包</strong>
-      <span>支持 Modrinth（.mrpack）与 CurseForge（.zip）整合包</span>
+      {#if app.dropTarget}
+        <strong>松开以导入{app.dropTarget.label}</strong>
+        <span>文件会复制到当前实例中</span>
+      {:else}
+        <strong>松开以导入整合包</strong>
+        <span>支持 Modrinth（.mrpack）与 CurseForge（.zip）整合包</span>
+      {/if}
     </div>
   </div>
 {/if}
