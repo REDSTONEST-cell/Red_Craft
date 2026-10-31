@@ -69,6 +69,8 @@ pub enum Layout {
     Standard,
     #[default]
     Minimal,
+    /// 保留壁纸和启动栏，隐藏主页版本与游玩信息。
+    UltraMinimal,
 }
 
 /// 下载 Mod 时的文件名格式（与 PCL 类似，可以在文件名里加上中文名）。

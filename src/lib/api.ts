@@ -34,7 +34,7 @@ export interface Settings {
   theme: Theme;
   accent: string;
   corner: "sharp" | "rounded" | "glass";
-  layout: "standard" | "minimal";
+  layout: "standard" | "minimal" | "ultraMinimal";
   glassOpacity: number;
   glassBlur: number;
   selectedInstance: string | null;

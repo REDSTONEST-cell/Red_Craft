@@ -15,11 +15,13 @@ export interface BackgroundAsset {
   kind: string; media: string | null; cover: string | null; reason: string | null;
   root?: string;
 }
+export interface CropRect { x: number; y: number; width: number; height: number }
 export function isVisibleBackgroundAsset(asset: BackgroundAsset): boolean {
   return asset.source === "local" || (asset.kind === "video" && !!asset.media
     && !/(^|[\\/])defaultprojects([\\/]|$)/i.test(asset.root ?? ""));
 }
 export interface BackgroundLibrary {
+  crops?: Record<string, CropRect>;
   appearance: Appearance; assets: BackgroundAsset[]; roots: string[]; scanNotes: string[];
 }
 export interface ResolvedBackground { id: string; kind: string; media: string | null; cover: string | null }
@@ -45,6 +47,8 @@ export const backgroundApi = {
   resolve: (id: string) => invoke<ResolvedBackground>("background_resolve", { id }),
   apply: (appearance: Appearance) => invoke<Appearance>("background_apply", { appearance }),
   import: (path: string) => invoke<number>("background_import", { path }),
+  crop: (id: string, rect: CropRect | null) => invoke<void>("background_crop", { id, rect }),
+  original: (id: string) => invoke<ResolvedBackground>("background_resolve", { id, original: true }),
   scan: (roots: string[], forceRefresh = false) => invoke<WallpaperScanResult>("background_scan", { roots, forceRefresh }),
   thumbnail: (id: string) => invoke<string | null>("background_thumbnail", { id }),
   remove: (id: string) => invoke<void>("background_remove", { id }),

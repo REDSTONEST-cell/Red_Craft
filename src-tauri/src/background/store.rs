@@ -262,6 +262,38 @@ pub fn remove_copy(config: &Path, asset: &Asset) -> AppResult<()> {
     Ok(())
 }
 
+pub fn crop(config: &Path, asset: &Asset, rect: super::model::CropRect) -> AppResult<Asset> {
+    if asset.source != "local" || asset.kind != "image" {
+        return Err(AppError::msg("只能裁剪本地图片", "请选择本地素材库中的图片"));
+    }
+    let media = asset.media.as_ref().ok_or_else(|| AppError::msg("图片不存在", "请重新导入"))?;
+    let path = inside(&config.join("backgrounds/media"), media)?;
+    if path.file_stem().and_then(|s| s.to_str()) != Some(&asset.id) {
+        return Err(AppError::msg("图片与素材 ID 不匹配", "请重新导入"));
+    }
+    let image = read_image(&path)?;
+    let (x, y, width, height) = rect.pixels(image.width(), image.height())
+        .ok_or_else(|| AppError::msg("裁剪区域无效", "请在图片内选择一个有效区域"))?;
+    let dir = config.join("backgrounds/crops");
+    std::fs::create_dir_all(&dir).at(&dir)?;
+    let metadata = std::fs::metadata(&path).at(&path)?;
+    let key = format!("{x}-{y}-{width}-{height}-{}-{:?}", metadata.len(), metadata.modified().ok());
+    let key = uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_URL, key.as_bytes());
+    let output = dir.join(format!("{}-{key}.png", asset.id));
+    if !output.is_file() {
+        let temp = tempfile::NamedTempFile::new_in(&dir).at(&dir)?;
+        image.crop_imm(x, y, width, height).save_with_format(temp.path(), image::ImageFormat::Png)
+            .map_err(|e| AppError::msg(format!("无法保存裁剪图片：{e}"), "请检查空间和目录权限"))?;
+        temp.persist(&output).map_err(|e| launcher_core::CoreError::Io { path: output.clone(), source: e.error })?;
+    }
+    let mut cropped = asset.clone();
+    let output = std::fs::canonicalize(&output).at(&output)?;
+    cropped.media = Some(output.clone());
+    cropped.cover = Some(output);
+
+    Ok(cropped)
+}
+
 /// 删除某个素材 id 生成的全部封面/缩略图缓存。
 /// 缓存文件名固定为 `<id>-<宽>x<高>-<mtime>-<size>.png`，只匹配 `<id>-` 前缀，
 /// 因此不会碰到其它素材或用户自己的文件。
@@ -277,6 +309,21 @@ pub fn remove_covers(config: &Path, id: &str) -> AppResult<()> {
             continue;
         }
         if entry.file_type().at(&entry.path())?.is_file() {
+            std::fs::remove_file(entry.path()).at(&entry.path())?;
+        }
+    }
+    Ok(())
+}
+
+pub fn cleanup_crop(config: &Path, id: &str, keep: Option<&Path>) -> AppResult<()> {
+    let dir = config.join("backgrounds/crops");
+    if !dir.is_dir() { return Ok(()); }
+    let prefix = format!("{id}-");
+    for entry in std::fs::read_dir(&dir).at(&dir)? {
+        let entry = entry.at(&dir)?;
+        if entry.file_type().at(&entry.path())?.is_file()
+            && entry.file_name().to_string_lossy().starts_with(&prefix)
+            && Some(std::fs::canonicalize(entry.path()).at(&entry.path())?.as_path()) != keep {
             std::fs::remove_file(entry.path()).at(&entry.path())?;
         }
     }

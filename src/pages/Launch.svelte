@@ -30,7 +30,7 @@
 
   // 简讯栏只在标准布局显示；极简布局不必在启动时请求版本清单
   $effect(() => {
-    if (app.settings?.layout === "minimal" || news) return;
+    if (app.settings?.layout !== "standard" || news) return;
     api
       .versionList(false)
       .then((v) => (news = v))
@@ -69,6 +69,7 @@
 </script>
 
 <div class="front">
+  {#if app.settings?.layout !== "ultraMinimal"}
   <header class="masthead">
     <div class="meta">
       <span>第 {issue} 期</span>
@@ -156,6 +157,7 @@
     </aside>
   </div>
 
+  {/if}
   <footer class="launchbar">
     <button class="account" onclick={() => (app.page = "accounts")}>
       {#if account}

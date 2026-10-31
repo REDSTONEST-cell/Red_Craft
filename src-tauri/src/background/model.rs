@@ -3,6 +3,31 @@ use std::path::PathBuf;
 
 pub const SCAN_REVISION: u32 = 2;
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct CropRect {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+impl CropRect {
+    pub fn pixels(self, width: u32, height: u32) -> Option<(u32, u32, u32, u32)> {
+        if width == 0 || height == 0
+            || ![self.x, self.y, self.width, self.height].iter().all(|n| n.is_finite())
+            || self.x < 0.0 || self.y < 0.0 || self.width <= 0.0 || self.height <= 0.0
+            || self.x + self.width > 1.0 + 1e-9 || self.y + self.height > 1.0 + 1e-9
+        {
+            return None;
+        }
+        let x = (self.x * width as f64).floor() as u32;
+        let y = (self.y * height as f64).floor() as u32;
+        let right = ((self.x + self.width) * width as f64).ceil().min(width as f64) as u32;
+        let bottom = ((self.y + self.height) * height as f64).ceil().min(height as f64) as u32;
+        (right > x && bottom > y).then_some((x, y, right.saturating_sub(x), bottom.saturating_sub(y)))
+    }
+}
+
 pub fn is_bundled_project(path: &std::path::Path) -> bool {
     path.components().any(|p| {
         p.as_os_str()
@@ -89,6 +114,7 @@ impl Asset {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Library {
+    pub crops: std::collections::HashMap<String, CropRect>,
     pub appearance: Appearance,
     pub assets: Vec<Asset>,
     pub roots: Vec<PathBuf>,

@@ -2,6 +2,37 @@ use super::{model::*, next_visibility, steam, store};
 use launcher_core::download::CancelToken;
 
 #[test]
+fn crop_rect_rejects_invalid_and_out_of_bounds_coordinates() {
+    let full = CropRect { x: 0.0, y: 0.0, width: 1.0, height: 1.0 };
+    assert_eq!(full.pixels(20, 10), Some((0, 0, 20, 10)));
+    for bad in [CropRect { x: -0.1, ..full }, CropRect { width: 0.0, ..full },
+        CropRect { height: f64::NAN, ..full }, CropRect { x: 0.5, ..full }] {
+        assert!(bad.pixels(20, 10).is_none());
+    }
+}
+
+#[test]
+fn crop_keeps_asset_identity_and_preserves_original_pixels() {
+    let config = tempfile::tempdir().unwrap();
+    let external = tempfile::tempdir().unwrap();
+    let path = external.path().join("original.png");
+    image::RgbImage::from_fn(20, 10, |x, y| image::Rgb([x as u8, y as u8, 100])).save(&path).unwrap();
+    let bytes = std::fs::read(&path).unwrap();
+    let asset = store::import(config.path(), &path, &CancelToken::new()).unwrap();
+    let cropped = store::crop(config.path(), &asset, CropRect { x: 0.25, y: 0.2, width: 0.5, height: 0.5 }).unwrap();
+    assert_eq!(asset.id, cropped.id);
+    let result = image::open(cropped.media.as_ref().unwrap()).unwrap().to_rgb8();
+    assert_eq!(result.dimensions(), (10, 5));
+    assert_eq!(result.get_pixel(0, 0), &image::Rgb([5, 2, 100]));
+    assert_eq!(result.get_pixel(9, 4), &image::Rgb([14, 6, 100]));
+    assert_eq!(std::fs::read(&path).unwrap(), bytes);
+    assert_eq!(std::fs::read(asset.media.as_ref().unwrap()).unwrap(), bytes);
+    let mut tampered = asset.clone();
+    tampered.media = Some(path);
+    assert!(store::crop(config.path(), &tampered, CropRect { x: 0.0, y: 0.0, width: 1.0, height: 1.0 }).is_err());
+}
+
+#[test]
 fn broken_json_falls_back_to_video_without_treating_preview_as_media() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("project.json"), "{broken").unwrap();

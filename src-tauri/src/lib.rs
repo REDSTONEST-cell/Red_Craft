@@ -79,6 +79,7 @@ pub fn run() {
             background::background_thumbnail,
             background::background_apply,
             background::background_import,
+            background::background_crop,
             background::background_scan,
             background::background_remove,
             background::background_window_state,

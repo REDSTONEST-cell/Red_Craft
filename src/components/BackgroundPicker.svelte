@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import BackgroundThumbnail from "./BackgroundThumbnail.svelte";
+  import ImageCropper from "./ImageCropper.svelte";
   import { open } from "@tauri-apps/plugin-dialog";
   import { api } from "../lib/api";
   import { waitTask, showError, toast, app } from "../lib/state.svelte";
@@ -12,6 +13,8 @@
   let source = $state("wallpaperEngine");
   let busy = $state(false);
   let saving = $state(false);
+  let cropping = $state<BackgroundAsset | null>(null);
+  let cropRevision = $state(0);
   let scanStatus = $state("");
   let taskId = $state<number | null>(null);
   let alive = true;
@@ -96,6 +99,17 @@
     } catch (e) { showError(e, "移除素材失败"); }
     finally { await refresh().catch(e => showError(e)); busy = false; }
   }
+  async function cropped(asset: BackgroundAsset, sourceId: string) {
+    await refresh();
+    cropRevision++;
+    source = "local";
+    page = Math.max(0, Math.ceil(library.assets.filter(a => a.source === "local").length / 24) - 1);
+    if (cropping?.id === sourceId) {
+      draft = { ...draft, fit: "cover" };
+      preview(asset);
+    }
+    toast("ok", "已更新这张素材的裁剪范围");
+  }
 </script>
 
 <div class="background-picker">
@@ -117,12 +131,15 @@
     {#each shown as asset (asset.id)}
       <article class:selected={draft.selection === asset.id}>
         <div class="cover">
-          <BackgroundThumbnail {asset} />
+          {#key `${asset.id}-${cropRevision}`}<BackgroundThumbnail {asset} />{/key}
         </div>
         <strong title={asset.title}>{asset.title}</strong>
         <span class="help">{asset.kind} · {asset.reason ?? "可用"}{background.saved.selection === asset.id ? " · 已应用" : ""}</span>
         <div class="toolbar">
           <button class="btn sm" disabled={!!asset.reason || saving} onclick={() => preview(asset)}>预览</button>
+          {#if asset.source === "local" && asset.kind === "image"}
+            <button class="btn sm" disabled={!!asset.reason || busy || saving} onclick={() => cropping = asset}>裁剪</button>
+          {/if}
           <button class="btn sm ghost" disabled={busy || saving} onclick={() => remove(asset)}>移除{asset.source === "local" ? "副本" : "记录"}</button>
         </div>
       </article>
@@ -153,6 +170,8 @@
   {#if library.scanNotes.length}<details><summary>扫描说明（{library.scanNotes.length}）</summary><ul>{#each library.scanNotes as note}<li>{note}</li>{/each}</ul></details>{/if}
   <p class="help">Wallpaper Engine 仅列出视频壁纸，屏蔽官方自带项目和场景、网页等类型。视频解码取决于系统 WebView2，建议 H.264 MP4。</p>
 </div>
+
+{#if cropping}<ImageCropper asset={cropping} initial={library.crops?.[cropping.id]} onclose={() => cropping = null} onsaved={cropped} />{/if}
 
 <style>
   .background-picker { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--rule); }

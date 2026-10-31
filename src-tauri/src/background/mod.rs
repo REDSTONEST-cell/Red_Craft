@@ -83,7 +83,8 @@ pub async fn background_list(app: AppHandle) -> AppResult<Library> {
 pub async fn background_thumbnail(app: AppHandle, id: String) -> AppResult<Option<PathBuf>> {
     crate::commands::blocking(move || {
         let state = app.state::<AppState>();
-        let asset = library(&state)?
+        let guard = library(&state)?;
+        let asset = guard
             .assets
             .iter()
             .find(|a| a.id == id)
@@ -92,7 +93,8 @@ pub async fn background_thumbnail(app: AppHandle, id: String) -> AppResult<Optio
         let Some(cover) = &asset.cover else {
             return Ok(None);
         };
-        let cover = match asset.source.as_str() {
+        let rendered = guard.crops.get(&id).map(|rect| store::crop(&state.paths.config_dir, &asset, *rect)).transpose()?;
+        let cover = if let Some(cropped) = rendered { cropped.cover.unwrap() } else { match asset.source.as_str() {
             "wallpaperEngine" => store::inside(&asset.root, cover)?,
             "local" => {
                 let path = store::inside(&state.paths.config_dir.join("backgrounds/media"), cover)?;
@@ -102,7 +104,7 @@ pub async fn background_thumbnail(app: AppHandle, id: String) -> AppResult<Optio
                 path
             }
             _ => return Err(AppError::msg("未知素材来源", "请刷新素材库")),
-        };
+        } };
         let thumbnail = store::thumbnail(&state.paths.config_dir, &asset.id, &cover)?;
         app.asset_protocol_scope()
             .allow_file(&thumbnail)
@@ -113,16 +115,20 @@ pub async fn background_thumbnail(app: AppHandle, id: String) -> AppResult<Optio
 }
 
 #[tauri::command]
-pub async fn background_resolve(app: AppHandle, id: String) -> AppResult<Resolved> {
+pub async fn background_resolve(app: AppHandle, id: String, original: Option<bool>) -> AppResult<Resolved> {
     crate::commands::blocking(move || {
         let state = app.state::<AppState>();
-        let asset = library(&state)?
+        let guard = library(&state)?;
+        let asset = guard
             .assets
             .iter()
             .find(|a| a.id == id)
             .cloned()
             .ok_or_else(|| AppError::msg("背景素材不存在", "请刷新素材库"))?;
-        let asset = checked(&state.paths.config_dir, &asset)?;
+        let mut asset = checked(&state.paths.config_dir, &asset)?;
+        if !original.unwrap_or(false) {
+            if let Some(rect) = guard.crops.get(&id) { asset = store::crop(&state.paths.config_dir, &asset, *rect)?; }
+        }
         let scope = app.asset_protocol_scope();
         let cover = asset
             .cover
@@ -253,6 +259,7 @@ pub async fn background_remove(app: AppHandle, id: String) -> AppResult<()> {
             .ok_or_else(|| AppError::msg("背景素材不存在", "请刷新素材库"))?;
         let mut next = guard.clone();
         next.assets.retain(|a| a.id != id);
+        next.crops.remove(&id);
         if next.appearance.selection.as_deref() == Some(&id) {
             next.appearance.selection = None;
         }
@@ -264,9 +271,33 @@ pub async fn background_remove(app: AppHandle, id: String) -> AppResult<()> {
         if let Err(e) = store::remove_covers(&state.paths.config_dir, &id) {
             log::warn!("清理背景封面缓存失败：{e}");
         }
+        if let Err(e) = store::cleanup_crop(&state.paths.config_dir, &id, None) { log::warn!("清理裁剪缓存失败：{e}"); }
         removed
     })
     .await?
+}
+
+#[tauri::command]
+pub async fn background_crop(app: AppHandle, id: String, rect: Option<model::CropRect>) -> AppResult<()> {
+    crate::commands::blocking(move || {
+        let state = app.state::<AppState>();
+        let mut guard = library(&state)?;
+        let source = guard.assets.iter().find(|a| a.id == id)
+            .ok_or_else(|| AppError::msg("背景素材不存在", "请刷新素材库"))?;
+        if source.source != "local" || source.kind != "image" {
+            return Err(AppError::msg("只能裁剪本地图片", "请选择图片素材"));
+        }
+        let rendered = rect.map(|r| store::crop(&state.paths.config_dir, source, r)).transpose()?;
+        let mut next = guard.clone();
+        if let Some(rect) = rect { next.crops.insert(id.clone(), rect); }
+        else { next.crops.remove(&id); }
+        store::save(&state.paths.config_dir, &next)?;
+        *guard = next;
+        let keep = rendered.as_ref().and_then(|a| a.media.as_deref());
+        if let Err(e) = store::cleanup_crop(&state.paths.config_dir, &id, keep) { log::warn!("清理裁剪缓存失败：{e}"); }
+        if let Err(e) = store::remove_covers(&state.paths.config_dir, &id) { log::warn!("清理封面缓存失败：{e}"); }
+        Ok(())
+    }).await?
 }
 
 #[tauri::command]
