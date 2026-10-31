@@ -588,57 +588,57 @@ textarea.input {
 
 /* ─── 布局：极简（只突出主要内容，字号与可点区域更大） ─── */
 
-:root[data-layout="minimal"] body {
+:root:is([data-layout="minimal"], [data-layout="ultraMinimal"]) body {
   font-size: 15px;
 }
-:root[data-layout="minimal"] {
+:root:is([data-layout="minimal"], [data-layout="ultraMinimal"]) {
   /* 次要文字更深，提升可读性 */
   --muted: color-mix(in srgb, var(--ink) 62%, var(--paper));
 }
 /* 去掉装饰：英文小标题、像素方块、启动页报头与简讯栏 */
-:root[data-layout="minimal"] :is(.page-head .kicker, .lead > .kicker, .pixel:not(.titlebar .pixel)) {
+:root:is([data-layout="minimal"], [data-layout="ultraMinimal"]) :is(.page-head .kicker, .lead > .kicker, .pixel:not(.titlebar .pixel)) {
   display: none;
 }
-:root[data-layout="minimal"] :is(.masthead, .brief) {
+:root:is([data-layout="minimal"], [data-layout="ultraMinimal"]) :is(.masthead, .brief) {
   display: none;
 }
-:root[data-layout="minimal"] .columns {
+:root:is([data-layout="minimal"], [data-layout="ultraMinimal"]) .columns {
   grid-template-columns: minmax(0, 1fr);
   align-content: center;
 }
-:root[data-layout="minimal"] .headline {
+:root:is([data-layout="minimal"], [data-layout="ultraMinimal"]) .headline {
   font-size: 60px;
 }
-:root[data-layout="minimal"] .deck {
+:root:is([data-layout="minimal"], [data-layout="ultraMinimal"]) .deck {
   font-size: 20px;
 }
-:root[data-layout="minimal"] .page-head h1 {
+:root:is([data-layout="minimal"], [data-layout="ultraMinimal"]) .page-head h1 {
   font-size: 34px;
 }
-:root[data-layout="minimal"] .page-head .sub {
+:root:is([data-layout="minimal"], [data-layout="ultraMinimal"]) .page-head .sub {
   font-size: 13.5px;
 }
 /* 列表只保留名称、简介和关键信息 */
-:root[data-layout="minimal"] :is(.hit .meta .tag, .hit .title .muted) {
+:root:is([data-layout="minimal"], [data-layout="ultraMinimal"]) :is(.hit .meta .tag, .hit .title .muted) {
   display: none;
 }
-:root[data-layout="minimal"] .btn {
+:root:is([data-layout="minimal"], [data-layout="ultraMinimal"]) .btn {
   height: 36px;
   font-size: 14px;
 }
-:root[data-layout="minimal"] .btn.sm {
+:root:is([data-layout="minimal"], [data-layout="ultraMinimal"]) .btn.sm {
   height: 30px;
   font-size: 13px;
 }
-:root[data-layout="minimal"] .input,
-:root[data-layout="minimal"] select.input {
+:root:is([data-layout="minimal"], [data-layout="ultraMinimal"]) .input,
+:root:is([data-layout="minimal"], [data-layout="ultraMinimal"]) select.input {
   height: 38px;
   font-size: 14.5px;
 }
-:root[data-layout="minimal"] .sidebar :is(button, a) span {
+:root:is([data-layout="minimal"], [data-layout="ultraMinimal"]) .sidebar :is(button, a) span {
   font-size: 12.5px;
 }
-:root[data-layout="minimal"] .lg-btn {
+:root:is([data-layout="minimal"], [data-layout="ultraMinimal"]) .lg-btn {
   height: 60px;
   min-width: 240px;
   font-size: 20px;
@@ -886,3 +886,5 @@ textarea.input {
 :root.mobile {
   --titlebar-h: 0px;
 }
+
+:root[data-layout="ultraMinimal"] .front > .launchbar { margin-top: auto; }

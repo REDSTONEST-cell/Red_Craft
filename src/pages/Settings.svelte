@@ -554,12 +554,13 @@
       </div>
     {/if}
     <div class="row">
-      <div class="desc"><strong>布局</strong><span class="help">极简：去掉报头与装饰，只突出主要内容，字号更大</span></div>
+      <div class="desc"><strong>布局</strong><span class="help">极简：突出主要内容；超级简洁：保留壁纸和启动栏，隐藏主页版本与游玩信息</span></div>
       <Segmented
         value={s.layout}
         options={[
           { value: "standard", label: "标准" },
           { value: "minimal", label: "极简" },
+          { value: "ultraMinimal", label: "超级简洁" },
         ]}
         onchange={(v) => save({ layout: v })}
       />
