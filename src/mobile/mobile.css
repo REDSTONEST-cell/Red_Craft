@@ -1,0 +1,116 @@
+/* ─── 手机版：基础样式 ───
+   只在 :root.mobile 下生效。手机版统一使用圆角、无衬线字体，触控目标不小于 36px。 */
+
+:root.mobile {
+  --serif: var(--sans);
+  --titlebar-h: 0px;
+  --radius: 10px;
+  --radius-lg: 14px;
+  --shadow: 0 4px 16px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.06);
+  --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.08);
+  --line: color-mix(in srgb, var(--ink) 14%, transparent);
+  font-size: 13px;
+  -webkit-text-size-adjust: 100%;
+  touch-action: manipulation;
+}
+:root.mobile[data-theme="dark"] {
+  --shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+:root.mobile body {
+  background: var(--paper);
+  overscroll-behavior: none;
+}
+:root.mobile * {
+  -webkit-tap-highlight-color: transparent;
+}
+/* 手机上没有悬停，去掉按钮悬停上浮 */
+:root.mobile .btn:hover {
+  --lift: 0px;
+}
+:root.mobile .btn {
+  height: 34px;
+  padding: 0 14px;
+}
+:root.mobile .btn.sm {
+  height: 30px;
+  padding: 0 11px;
+}
+:root.mobile .btn.icon {
+  width: 34px;
+}
+:root.mobile .btn.icon.sm {
+  width: 30px;
+}
+:root.mobile .input,
+:root.mobile select.input {
+  height: 34px;
+  font-size: 13px;
+}
+/* 滚动条：手机上不占位置 */
+:root.mobile ::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/* ─── 复用电脑版的页面时：页头收紧为一行，去掉装饰 ─── */
+:root.mobile .m-page .page-head {
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+}
+:root.mobile .m-page .page-head .kicker {
+  display: none;
+}
+:root.mobile .m-page .page-head h1 {
+  font-size: 20px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+:root.mobile .m-page .page-head .sub {
+  font-size: 11px;
+}
+:root.mobile .m-page :is(h1, h2) {
+  letter-spacing: 0;
+}
+/* 弹窗：占满可用高度，四周留少量边距 */
+:root.mobile .modal {
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 24px);
+}
+/* 提示：贴右下角，窄一些 */
+:root.mobile .toasts {
+  right: 10px;
+  bottom: 10px;
+  width: 300px;
+}
+
+/* ─── 资源页：标题由导航栏表达，页头只保留版本选择与平台切换，留出更多空间给结果列表 ─── */
+:root.mobile .m-page .page-head:has(+ .bar) {
+  margin-bottom: 8px;
+  padding-bottom: 0;
+  border: 0;
+}
+:root.mobile .m-page .page-head:has(+ .bar) > div:first-child {
+  display: none;
+}
+:root.mobile .m-page .page-head:has(+ .bar) .tools {
+  width: 100%;
+  gap: 8px;
+}
+:root.mobile .m-page .page-head:has(+ .bar) .tools .inst {
+  flex: 1;
+  width: auto;
+}
+:root.mobile .m-page .bar {
+  gap: 8px;
+  margin-bottom: 8px;
+}
+:root.mobile .m-page .seg {
+  height: 32px;
+}
+:root.mobile .m-page .seg button {
+  padding: 0 10px;
+  font-size: 12px;
+}

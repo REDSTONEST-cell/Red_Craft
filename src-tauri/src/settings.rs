@@ -195,7 +195,8 @@ impl Default for Settings {
             fullscreen: false,
             server: String::new(),
             after_launch: AfterLaunch::Hide,
-            theme: Theme::System,
+            // 手机版默认浅色
+            theme: if cfg!(mobile) { Theme::Light } else { Theme::System },
             accent: "#E8590C".into(),
             corner: Corner::default(),
             layout: Layout::default(),
@@ -285,6 +286,19 @@ pub struct AppPaths {
 
 impl AppPaths {
     pub fn detect() -> Self {
+        // 手机版：数据放在应用私有目录（其他应用无法访问，卸载时一并删除）
+        #[cfg(target_os = "android")]
+        if let Some(files) = android_files_dir() {
+            // 系统默认的临时目录 /data/local/tmp 应用无权写入
+            let tmp = files.with_file_name("cache");
+            let _ = std::fs::create_dir_all(&tmp);
+            std::env::set_var("TMPDIR", &tmp);
+            return AppPaths {
+                config_dir: files.join("config"),
+                portable: false,
+                default_game_dir: files.join(".minecraft"),
+            };
+        }
         let exe_dir = std::env::current_exe()
             .ok()
             .and_then(|p| p.parent().map(Path::to_path_buf));
@@ -319,6 +333,20 @@ impl AppPaths {
     pub fn accounts_file(&self) -> PathBuf {
         self.config_dir.join("accounts.json")
     }
+}
+
+/// Android 应用的私有文件目录 `/data/user/<用户>/<包名>/files`。
+/// 包名取自进程名（子进程形如「包名:进程名」），用户编号由 uid 计算（每个用户 100000 个 uid）。
+#[cfg(target_os = "android")]
+fn android_files_dir() -> Option<PathBuf> {
+    use std::os::unix::fs::MetadataExt;
+    let cmdline = std::fs::read("/proc/self/cmdline").ok()?;
+    let name = String::from_utf8_lossy(cmdline.split(|b| *b == 0).next()?).into_owned();
+    let package = name.split(':').next().filter(|p| !p.is_empty())?.to_string();
+    let user = std::fs::metadata("/proc/self").ok()?.uid() / 100_000;
+    let dir = PathBuf::from(format!("/data/user/{user}/{package}/files"));
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(dir)
 }
 
 #[cfg(test)]
