@@ -6,7 +6,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use launcher_core::download::DownloadTask;
 use launcher_core::update::{self, InstallKind, Release};
 use serde::Serialize;
 use tauri::{AppHandle, State};
@@ -17,9 +16,6 @@ use crate::state::AppState;
 /// 最近一次检查到的 Release，以及已下载、等待安装的文件。
 static LATEST: Mutex<Option<Release>> = Mutex::new(None);
 static PENDING: Mutex<Option<(InstallKind, PathBuf)>> = Mutex::new(None);
-
-/// GitHub 在国内经常很慢：官方地址失败时经由代理下载（下载后用官方 API 取得的 SHA256 校验）。
-const PROXY: &str = "https://ghfast.top/";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -159,13 +155,14 @@ pub async fn download_update(app: AppHandle, state: State<'_, AppState>) -> AppR
         .ok_or_else(|| AppError::msg("这个版本没有适合当前系统的自动更新文件", "请前往下载页手动下载。"))?;
     let http = state.http()?;
     let dir = updates_dir(&state);
-    let concurrency = state.settings().concurrency;
     let title = format!("下载 RCL {}", release.tag_name.trim_start_matches('v'));
     Ok(state.tasks.spawn(&app, title, move |reporter, cancel| async move {
-        // 校验值（官方 API 返回的地址，经代理下载的文件也能校验）
+        // 校验值：优先用 GitHub 接口直接给出的 SHA256，旧的 Release 没有时读取 SHA256SUMS.txt。
+        // 校验值来自 GitHub 官方，所以文件可以放心经由加速线路下载。
         reporter.stage("获取校验信息");
-        let expected = match release.sums_asset() {
-            Some(s) => {
+        let expected = match (asset.sha256(), release.sums_asset()) {
+            (Some(h), _) => Some(h),
+            (None, Some(s)) => {
                 let text = http
                     .raw()
                     .get(&s.browser_download_url)
@@ -178,28 +175,30 @@ pub async fn download_update(app: AppHandle, state: State<'_, AppState>) -> AppR
                     None => None,
                 }
             }
-            None => None,
+            (None, None) => None,
         };
 
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).map_err(|e| AppError::msg(format!("无法创建更新目录：{e}"), ""))?;
         let file = dir.join(&asset.name);
-        let downloader = launcher_core::download::Downloader::new(http.clone(), concurrency);
-        reporter.stage("下载新版本");
-        let task = |url: &str| DownloadTask::new(url, &file).size(Some(asset.size).filter(|s| *s > 0));
-        let mut result = downloader
-            .download_all(vec![task(&asset.browser_download_url)], reporter.progress.clone(), &cancel)
-            .await;
-        // 官方地址失败时经由代理重试；只有能校验时才使用代理
-        if result.is_err() && expected.is_some() && !cancel.is_cancelled() {
-            log::warn!("从 GitHub 下载更新失败，改用代理：{:?}", result.as_ref().err());
-            reporter.stage("下载新版本（备用线路）");
-            let proxied = format!("{PROXY}{}", asset.browser_download_url);
-            result = downloader
-                .download_all(vec![task(&proxied)], reporter.progress.clone(), &cancel)
-                .await;
+        // 测速选线：GitHub 直连与加速线路同时测速，用最快的线路分块并行下载。
+        // 只有能校验时才使用加速线路。
+        reporter.stage("选择下载线路");
+        let urls = if expected.is_some() {
+            update::source_urls(&asset.browser_download_url)
+        } else {
+            vec![asset.browser_download_url.clone()]
+        };
+        let mut sources = update::rank_sources(http.raw(), &urls, asset.size).await;
+        if sources.is_empty() {
+            // 测速都没成功（可能只是网络慢），仍按顺序逐条尝试
+            sources = urls
+                .into_iter()
+                .map(|url| update::Source { url, speed: 0.0, ranges: false })
+                .collect();
         }
-        result?;
+        reporter.stage("下载新版本");
+        update::download_fast(http.raw(), &sources, &file, asset.size, reporter.progress.clone(), &cancel).await?;
 
         if let Some(expected) = expected {
             reporter.stage("校验文件");
