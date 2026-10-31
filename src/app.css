@@ -676,7 +676,8 @@ textarea.input {
   /* 二级窗口不随设置变透明，避免与下面页面的文字叠在一起 */
   --glass-modal: color-mix(in srgb, var(--card) 94%, transparent);
   --glass-edge: rgba(255, 255, 255, 0.55);
-  --glass-blur: blur(22px) saturate(180%);
+  /* 模糊度由设置中的「玻璃模糊度」控制（App.svelte 设置 --glass-blur-px） */
+  --glass-blur: blur(var(--glass-blur-px, 22px)) saturate(180%);
   --line: rgba(0, 0, 0, 0.08);
   --rule: rgba(0, 0, 0, 0.07);
   --rule-strong: rgba(0, 0, 0, 0.12);
@@ -776,9 +777,9 @@ textarea.input {
 :root[data-corner="glass"].has-background .content {
   margin: 10px 12px 12px 10px;
   border-radius: var(--radius-lg);
-  background: color-mix(in srgb, var(--card) var(--glass-pct, 62%), transparent);
-  backdrop-filter: blur(26px) saturate(170%);
-  -webkit-backdrop-filter: blur(26px) saturate(170%);
+  background: color-mix(in srgb, var(--card) var(--glass-content-pct, 62%), transparent);
+  backdrop-filter: blur(var(--glass-blur-px, 26px)) saturate(170%);
+  -webkit-backdrop-filter: blur(var(--glass-blur-px, 26px)) saturate(170%);
   border: 1px solid var(--glass-edge);
   box-shadow: var(--shadow);
 }
@@ -815,13 +816,68 @@ textarea.input {
   border: 1px solid var(--glass-edge);
 }
 
-/* 毛玻璃 + 自定义背景：直接模糊背景视频 / 图片本身。
+/* 毛玻璃 + 动态壁纸：直接模糊背景视频本身。
    WebView2 播放视频时常走独立的硬件图层，面板的 backdrop-filter 采样不到视频画面，
-   只剩半透明；模糊媒体本身则在任何情况下都有磨砂效果。用户设置的模糊度更大时以用户设置为准。 */
-:root[data-corner="glass"].has-background .background-media .media {
-  --glass-media-blur: max(var(--blur), 28px);
+   只剩半透明；模糊视频本身则在任何情况下都有磨砂效果。图片背景由面板自己虚化，画面本身保持清晰。
+   模糊度取「玻璃模糊度」与背景设置中的模糊度两者中较大的。 */
+:root[data-corner="glass"].has-background .background-media video.media {
+  --glass-media-blur: max(var(--blur), var(--glass-blur-px, 24px));
   inset: -64px;
   width: calc(100% + 128px);
   height: calc(100% + 128px);
   filter: brightness(var(--brightness)) blur(var(--glass-media-blur));
+}
+
+/* ─── 毛玻璃 + 自定义背景：文字可读性 ───
+   面板是半透明的，背后画面明暗不定：次要文字改为不透明的深色（浅色主题）/ 浅色（深色主题），
+   所有文字加一圈与面板同色的柔和光晕，把文字和背后的画面隔开。 */
+:root[data-corner="glass"].has-background .shell {
+  --muted: color-mix(in srgb, var(--control-ink) 76%, var(--card));
+  --ink-2: color-mix(in srgb, var(--control-ink) 88%, var(--card));
+  --glass-halo: 0 0 1px color-mix(in srgb, var(--card) 90%, transparent),
+    0 0 8px color-mix(in srgb, var(--card) 70%, transparent);
+  text-shadow: var(--glass-halo);
+}
+:root[data-corner="glass"].has-background .shell :is(.btn.primary, .seg .thumb, .seg button[aria-pressed="true"],
+  .seg button.active, .tag, .input, select, textarea, .modal, .toast, .task-panel) {
+  text-shadow: none;
+}
+
+/* ─── 自定义背景（利落 / 圆润）：页面上的次要按钮统一为半透明的「玻璃片」 ───
+   背景模式下页面文字是覆盖在画面上的白字，实心的纸色按钮显得突兀；
+   改为半透明深色底 + 细白描边 + 白字，带文字的幽灵按钮（如「管理实例」）也使用同样的外形。
+   主按钮、危险按钮保持原样；对话框里的按钮不受影响。 */
+:root.has-background:not([data-corner="glass"]) .content .btn:not(.primary):not(.danger):not(.ghost.icon):not(.modal .btn) {
+  --fg: #ffffff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+:root.has-background:not([data-corner="glass"]) .content .btn:not(.primary):not(.danger):not(.ghost.icon):not(.modal .btn)::before {
+  opacity: 1;
+  background: rgba(14, 14, 18, 0.36);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  box-shadow: none;
+  backdrop-filter: blur(10px) saturate(140%);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+}
+:root.has-background:not([data-corner="glass"]) .content .btn:not(.primary):not(.danger):not(.ghost.icon):not(.modal .btn)::after {
+  display: none;
+}
+:root.has-background:not([data-corner="glass"]) .content .btn:not(.primary):not(.danger):not(.ghost.icon):not(.modal .btn):hover::before {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.72);
+}
+:root.has-background:not([data-corner="glass"]) .content .btn.active:not(.primary):not(.modal .btn)::before {
+  background: color-mix(in srgb, var(--accent) 34%, rgba(14, 14, 18, 0.36));
+  border-color: var(--accent);
+}
+/* 分段选择同样改为半透明，与按钮一致 */
+:root.has-background:not([data-corner="glass"]) .content .seg:not(.modal .seg) {
+  --ink: #ffffff;
+  --ink-2: #ffffff;
+  --muted: rgba(255, 255, 255, 0.78);
+  --paper: #16140f; /* 利落形状下选中项是白底，文字用深色 */
+  background: rgba(14, 14, 18, 0.36);
+  border-color: rgba(255, 255, 255, 0.4);
+  backdrop-filter: blur(10px) saturate(140%);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
 }

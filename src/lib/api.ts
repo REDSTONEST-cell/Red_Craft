@@ -36,6 +36,7 @@ export interface Settings {
   corner: "sharp" | "rounded" | "glass";
   layout: "standard" | "minimal";
   glassOpacity: number;
+  glassBlur: number;
   selectedInstance: string | null;
   selectedAccount: string | null;
   msClientId: string;

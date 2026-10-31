@@ -537,6 +537,21 @@
           <span class="mono val">{Math.round(s.glassOpacity * 100)}%</span>
         </div>
       </div>
+      <div class="row" transition:page={{ y: 6 }}>
+        <div class="desc"><strong>玻璃模糊度</strong><span class="help">毛玻璃面板对背后画面的模糊程度；设为 0 时背景图片保持清晰</span></div>
+        <div class="ctl range">
+          <input
+            type="range"
+            min="0"
+            max="40"
+            step="1"
+            value={s.glassBlur}
+            oninput={(e) => (app.settings!.glassBlur = s.glassBlur = +e.currentTarget.value)}
+            onchange={() => save({ glassBlur: s.glassBlur })}
+          />
+          <span class="mono val">{s.glassBlur}px</span>
+        </div>
+      </div>
     {/if}
     <div class="row">
       <div class="desc"><strong>布局</strong><span class="help">极简：去掉报头与装饰，只突出主要内容，字号更大</span></div>

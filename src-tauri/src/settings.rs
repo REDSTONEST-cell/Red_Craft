@@ -133,6 +133,8 @@ pub struct Settings {
     pub layout: Layout,
     /// 毛玻璃面板的不透明度（0.2–0.95）
     pub glass_opacity: f64,
+    /// 毛玻璃的模糊度（像素，0–40）
+    pub glass_blur: f64,
     pub selected_instance: Option<String>,
     pub selected_account: Option<String>,
     /// 微软登录使用的 Azure 应用 Client ID；为空时使用编译时内置的值
@@ -198,6 +200,7 @@ impl Default for Settings {
             corner: Corner::default(),
             layout: Layout::default(),
             glass_opacity: 0.58,
+            glass_blur: 24.0,
             selected_instance: None,
             selected_account: None,
             ms_client_id: String::new(),

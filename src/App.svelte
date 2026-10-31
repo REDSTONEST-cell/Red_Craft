@@ -88,6 +88,10 @@
     const glass = Math.min(0.95, Math.max(0.2, s?.glassOpacity ?? 0.58));
     root.style.setProperty("--glass-pct", `${Math.round(glass * 100)}%`);
     root.style.setProperty("--glass-strong-pct", `${Math.round(Math.min(0.97, glass + 0.18) * 100)}%`);
+    // 设置了自定义背景时，内容面板至少保留一定不透明度，保证文字可读
+    root.style.setProperty("--glass-content-pct", `${Math.round(Math.max(glass, 0.5) * 100)}%`);
+    const blur = Math.min(40, Math.max(0, s?.glassBlur ?? 24));
+    root.style.setProperty("--glass-blur-px", `${blur}px`);
     const accent = s?.accent || "#E8590C";
     root.style.setProperty("--accent", accent);
     root.style.setProperty("--accent-ink", readableOn(accent));

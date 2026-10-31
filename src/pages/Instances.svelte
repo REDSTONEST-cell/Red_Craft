@@ -132,7 +132,8 @@
     if (!app.instances.length) selecting = false;
   }
 
-  async function launch(i: InstanceInfo) {
+  // 选择实例后回到主页面，游戏只从主页面启动
+  async function choose(i: InstanceInfo) {
     await selectInstance(i.id);
     app.page = "launch";
   }
@@ -273,7 +274,11 @@
           {/if}
         </div>
         <div class="actions" class:hidden={selecting}>
-          <button class="btn sm primary" disabled={!!inst.error} onclick={() => launch(inst)}><Icon name="play" size={12} /> 启动</button>
+          {#if current?.id === inst.id}
+            <button class="btn sm pick" disabled>已选择</button>
+          {:else}
+            <button class="btn sm primary pick" disabled={!!inst.error} onclick={() => choose(inst)}>选择</button>
+          {/if}
           <button class="btn sm icon" title="打开文件夹" onclick={() => api.openInstanceDir(inst.id).catch((e) => showError(e))}>
             <Icon name="folder" size={14} />
           </button>
@@ -461,6 +466,9 @@
     display: flex;
     gap: 8px;
     align-items: center;
+  }
+  .pick {
+    min-width: 64px;
   }
   .batch-bar {
     display: flex;
