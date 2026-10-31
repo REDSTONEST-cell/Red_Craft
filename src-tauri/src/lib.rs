@@ -21,6 +21,7 @@ mod zh_names;
 use state::AppState;
 use tauri::Manager;
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // 以管理员身份运行的内存优化助手：只做优化然后退出
     if memory::run_helper_if_requested() {

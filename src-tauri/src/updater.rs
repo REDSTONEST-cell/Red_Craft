@@ -115,6 +115,10 @@ pub fn cleanup(state: &AppState) {
 /// 检查是否有新的正式版。没有新版本时返回 `None`。
 #[tauri::command]
 pub async fn check_update(state: State<'_, AppState>) -> AppResult<Option<UpdateInfo>> {
+    // 手机版通过 APK 单独发布，不使用桌面版的更新
+    if cfg!(mobile) {
+        return Ok(None);
+    }
     let http = state.http()?;
     let release = update::latest_release(http.raw())
         .await

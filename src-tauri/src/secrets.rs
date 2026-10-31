@@ -3,12 +3,15 @@
 //! Windows 凭据管理器单条最多约 2.5KB，微软的 refresh token 加上 Minecraft 令牌可能超过，
 //! 因此按固定长度分片保存。系统密钥库不可用时（如没有 Secret Service 的 Linux 桌面），
 //! 退回到配置目录下仅当前用户可读的文件，并在日志中提示。
+//! 手机上没有可用的系统密钥库，直接保存在应用私有目录中（其他应用无法读取）。
 
 use std::path::PathBuf;
 
 use crate::error::{AppError, AppResult};
 
+#[cfg(desktop)]
 const SERVICE: &str = "RedCraft";
+#[cfg(desktop)]
 const CHUNK: usize = 1000;
 
 pub struct Secrets {
@@ -75,10 +78,25 @@ impl Secrets {
     }
 }
 
+#[cfg(mobile)]
+fn keyring_set(_key: &str, _value: &str) -> Result<(), AppError> {
+    Err(AppError::msg("手机上不使用系统密钥库", ""))
+}
+
+#[cfg(mobile)]
+fn keyring_get(_key: &str) -> Option<String> {
+    None
+}
+
+#[cfg(mobile)]
+fn keyring_delete(_key: &str) {}
+
+#[cfg(desktop)]
 fn entry(key: &str) -> keyring::Result<keyring::Entry> {
     keyring::Entry::new(SERVICE, key)
 }
 
+#[cfg(desktop)]
 fn keyring_set(key: &str, value: &str) -> Result<(), AppError> {
     let map = |e: keyring::Error| AppError::msg(format!("写入系统密钥库失败：{e}"), "");
     keyring_delete(key);
@@ -98,6 +116,7 @@ fn keyring_set(key: &str, value: &str) -> Result<(), AppError> {
     }
 }
 
+#[cfg(desktop)]
 fn keyring_get(key: &str) -> Option<String> {
     let count: usize = entry(key).ok()?.get_password().ok()?.parse().ok()?;
     let mut out = String::new();
@@ -107,6 +126,7 @@ fn keyring_get(key: &str) -> Option<String> {
     Some(out)
 }
 
+#[cfg(desktop)]
 fn keyring_delete(key: &str) {
     let count: usize = entry(key)
         .ok()

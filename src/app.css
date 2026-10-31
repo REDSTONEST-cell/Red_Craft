@@ -881,3 +881,8 @@ textarea.input {
   backdrop-filter: blur(10px) saturate(140%);
   -webkit-backdrop-filter: blur(10px) saturate(140%);
 }
+
+/* ─── 手机版：没有标题栏 ─── */
+:root.mobile {
+  --titlebar-h: 0px;
+}

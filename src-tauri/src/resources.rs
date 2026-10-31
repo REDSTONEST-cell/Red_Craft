@@ -1,6 +1,6 @@
 //! 资源管理：实例中的资源包、光影包与存档（Mod 见 content.rs 中的「已安装 Mod 管理」）。
 //!
-//! 列出、启用资源包 / 切换光影、导入文件、删除（移到回收站）。
+//! 列出、启用资源包 / 切换光影、导入文件、删除（桌面系统移到回收站）。
 
 use std::path::PathBuf;
 
@@ -76,13 +76,25 @@ pub async fn files_delete(state: State<'_, AppState>, instance: String, kind: Fi
         .iter()
         .map(|n| files::entry_path(&dir, kind, n))
         .collect::<Result<Vec<_>, _>>()?;
-    blocking(move || {
-        trash::delete_all(&paths).map_err(|e| {
-            AppError::msg(
-                format!("无法移到回收站：{e}"),
-                "文件可能正被游戏或其他程序占用；也可以点击「打开文件夹」手动删除。",
-            )
-        })
+    blocking(move || remove(&paths)).await?
+}
+
+#[cfg(desktop)]
+fn remove(paths: &[PathBuf]) -> AppResult<()> {
+    trash::delete_all(paths).map_err(|e| {
+        AppError::msg(
+            format!("无法移到回收站：{e}"),
+            "文件可能正被游戏或其他程序占用；也可以点击「打开文件夹」手动删除。",
+        )
     })
-    .await?
+}
+
+/// 手机上没有系统回收站，直接删除。
+#[cfg(mobile)]
+fn remove(paths: &[PathBuf]) -> AppResult<()> {
+    for p in paths {
+        let r = if p.is_dir() { std::fs::remove_dir_all(p) } else { std::fs::remove_file(p) };
+        r.map_err(|e| launcher_core::CoreError::io(p, e))?;
+    }
+    Ok(())
 }

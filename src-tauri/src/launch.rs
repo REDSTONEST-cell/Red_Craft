@@ -54,6 +54,9 @@ fn component_for(major: u32, fallback: &str) -> String {
 
 #[tauri::command]
 pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: String) -> AppResult<u64> {
+    if cfg!(mobile) {
+        return Err(AppError::msg("手机版暂时还不能启动游戏", "游戏启动正在接入中，敬请期待。"));
+    }
     if state.running.lock().is_ok_and(|r| r.contains_key(&id)) {
         return Err(AppError::msg("这个实例已经在运行了", "如需重新启动，请先关闭正在运行的游戏。"));
     }
@@ -254,6 +257,7 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
             if let Some(w) = app3.get_webview_window("main") {
                 if exit.crashed || !w.is_visible().unwrap_or(true) {
                     let _ = w.show();
+                    #[cfg(desktop)]
                     let _ = w.unminimize();
                     let _ = w.set_focus();
                     crate::background::window_changed(&app3);

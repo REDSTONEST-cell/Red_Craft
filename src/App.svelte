@@ -128,6 +128,12 @@
       });
   });
 
+  // 手机版（Android）：没有窗口，不显示标题栏
+  const mobile = /Android/i.test(navigator.userAgent);
+  $effect(() => {
+    document.documentElement.classList.toggle("mobile", mobile);
+  });
+
   // 禁用浏览器默认右键菜单与部分快捷键，让它更像原生应用
   function onContext(e: MouseEvent) {
     const t = e.target as HTMLElement;
@@ -139,7 +145,7 @@
 
 <BackgroundLayer />
 <div class="shell">
-  <TitleBar />
+  {#if !mobile}<TitleBar />{/if}
   <div class="body">
     <Sidebar />
     <main class="content">

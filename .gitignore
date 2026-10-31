@@ -5,3 +5,4 @@ src-tauri/gen/schemas
 *.log
 .DS_Store
 /.minecraft-test
+src-tauri/gen/android
