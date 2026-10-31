@@ -2,7 +2,7 @@
 
 一个轻量、快速的 Minecraft Java 版启动器。Tauri 2 + Rust + Svelte 5，可选报刊风、圆润（类似 PCL2）与毛玻璃界面。
 
-当前正式版：**1.1.3**。下载见 [Releases](https://github.com/REDSTONEST-cell/Red_Craft/releases)。
+当前正式版：**1.1.4**。下载见 [Releases](https://github.com/REDSTONEST-cell/Red_Craft/releases)。
 
 主要面向 Windows，同时支持 macOS 与 Linux。
 
@@ -23,30 +23,30 @@
 
 - **版本管理**：官方版本清单，按正式版 / 快照 / 远古版筛选和搜索（虚拟滚动）；下载版本 JSON、客户端 jar、libraries（按 rules 判断系统与架构）、natives（兼容旧版 classifiers 写法与 1.19+ 新写法，按架构筛选）、资源索引与资源文件、日志配置。所有文件 SHA1 校验，已存在且校验通过的跳过。
 - **下载器**：tokio + reqwest + Semaphore 并发（默认 64，可调），失败重试与下载源切换，总进度与速度实时推送。与 PCL 一样分别设置文件下载源、版本列表源和社区资源来源，各有三档：尽量使用镜像源 / 优先使用官方源、加载缓慢时换用镜像源（响应超过 6 秒或大文件持续低速时自动切换）/ 尽量使用官方源；镜像为 BMCLAPI 与 MCIM。可设置全局下载限速（立即生效）。下载任务折叠在右下角的悬浮按钮中，按钮圆环显示总进度。
-- **版本隔离**：与 PCL 相同的五档策略（关闭 / 隔离可安装 Mod 的版本 / 隔离非正式版 / 两者都隔离 / 全部隔离），每个实例可单独覆盖。
+- **版本隔离**：与 PCL 相同的五档策略（关闭 / 隔离可安装 Mod 的版本 / 隔离非正式版 / 两者都隔离 / 全部隔离），每个版本可单独覆盖。
 - **便携模式**：启动器所在目录存在 `.minecraft` 时自动使用它，配置也保存在其中。
 - **Java**：扫描 JAVA_HOME、PATH、Windows 注册表、常见安装目录、官方启动器自带的 runtime；按版本 JSON 的 `javaVersion` 自动选择，没有合适的就从 Mojang Java runtime 清单下载（目录布局与官方启动器一致，可互相复用）。
-- **模组加载器**：新建实例时可选 Fabric / Quilt / Forge / NeoForge，只列出支持所选游戏版本的加载器版本；Fabric / Quilt 直接使用官方 profile，Forge / NeoForge 先用启动器（支持镜像）预下载依赖库，再以无界面方式运行官方安装器；1.12.2 及更早的 Forge 直接解析安装配置，不运行安装器。加载器版本 JSON 通过 inheritsFrom 继承原版。
-- **资源下载**：Mod、材质包、光影包，可聚合搜索 Modrinth 与 CurseForge（同一个项目只显示一次，按名称相似度与下载量重排），也可只搜其中一个，按实例的游戏版本与加载器筛选（虚拟滚动、滚动加载）；只列出兼容的版本；安装前自动递归解析必需前置（处理循环依赖、去重、已安装的跳过、只给项目没给版本时选兼容的最新版），可选依赖供勾选，已安装的冲突项给出警告；更新时自动替换旧文件。Modrinth 走 MCIM 镜像，CurseForge 没有 API Key 时通过 MCIM 镜像访问。新建 Fabric / Quilt 实例时自动安装兼容的最新 Fabric API / QSL。
+- **模组加载器**：安装新版本时可选 Fabric / Quilt / Forge / NeoForge，只列出支持所选游戏版本的加载器版本；Fabric / Quilt 直接使用官方 profile，Forge / NeoForge 先用启动器（支持镜像）预下载依赖库，再以无界面方式运行官方安装器；1.12.2 及更早的 Forge 直接解析安装配置，不运行安装器。加载器版本 JSON 通过 inheritsFrom 继承原版。
+- **资源下载**：Mod、材质包、光影包，可聚合搜索 Modrinth 与 CurseForge（同一个项目只显示一次，按名称相似度与下载量重排），也可只搜其中一个，按所选版本的游戏版本与加载器筛选（虚拟滚动、滚动加载）；只列出兼容的版本；安装前自动递归解析必需前置（处理循环依赖、去重、已安装的跳过、只给项目没给版本时选兼容的最新版），可选依赖供勾选，已安装的冲突项给出警告；更新时自动替换旧文件。Modrinth 走 MCIM 镜像，CurseForge 没有 API Key 时通过 MCIM 镜像访问。安装 Fabric / Quilt 版本时自动安装兼容的最新 Fabric API / QSL。
 - **中文搜索**：内置约 2.7 万条 Mod 的中文名数据库，输入中文名（如「万用皮肤补丁」）会换成英文名搜索，能确定是哪个 Mod 时直接置顶，并列出其他可能的匹配；搜索结果与已安装 Mod 显示中文名，简介的中文翻译缓存到本地。
-- **整合包**：支持 Modrinth（.mrpack）与 CurseForge 整合包，可在资源页直接安装、从本地导入，或直接把整合包文件拖进启动器窗口；自动安装对应的游戏版本与加载器（简写的 Forge 版本号会换成完整版本），下载全部文件（CurseForge 按项目类型放入 mods / resourcepacks / shaderpacks），解压 overrides，并作为开启版本隔离的独立实例。也可以把实例导出为 Modrinth 整合包：勾选要打包的内容（默认 Mod、配置、资源包、光影与游戏设置，不含存档），能在 Modrinth 上找到的 Mod / 资源包 / 光影包只记录下载地址，其余文件打包进 overrides。
+- **整合包**：支持 Modrinth（.mrpack）与 CurseForge 整合包，可在资源页直接安装、从本地导入，或直接把整合包文件拖进启动器窗口；自动安装对应的游戏版本与加载器（简写的 Forge 版本号会换成完整版本），下载全部文件（CurseForge 按项目类型放入 mods / resourcepacks / shaderpacks），解压 overrides，并作为开启版本隔离的独立版本。也可以把已安装的版本导出为 Modrinth 整合包：勾选要打包的内容（默认 Mod、配置、资源包、光影与游戏设置，不含存档），能在 Modrinth 上找到的 Mod / 资源包 / 光影包只记录下载地址，其余文件打包进 overrides。
 - **游戏日志**：原版日志配置输出的 log4j XML 会被还原成普通文本行（含多行消息与异常堆栈）。
 - **已安装 Mod 管理**：读取 jar 中的 `fabric.mod.json` / `quilt.mod.json` / `mods.toml` / `neoforge.mods.toml` / `mcmod.info` 显示名称、版本、作者与图标；启用 / 禁用（改后缀 `.disabled`）、删除、检查更新（Modrinth 用文件 SHA1 调 `/version_files/update`，从 CurseForge 安装的按安装记录查询）、单个或全部更新（禁用的 Mod 更新后仍保持禁用）。可选下载时在文件名中加入中文名（如 `[机械动力] create-1.21.1-6.0.4.jar`），以及列表标题显示译名或文件名。
-- **资源管理**：「资源 → 资源管理」统一管理实例中的 Mod、材质包、光影包与存档，不必打开文件夹：材质包显示图标与简介，可直接启用 / 停用（写入 `options.txt`）；光影包可一键切换或关闭（Iris / Oculus 与 OptiFine）；存档显示世界名、游戏模式、版本与最后游玩时间；支持选择文件或拖进窗口导入，删除时移到系统回收站。
+- **资源管理**：「资源 → 资源管理」统一管理版本中的 Mod、材质包、光影包与存档，不必打开文件夹：材质包显示图标与简介，可直接启用 / 停用（写入 `options.txt`）；光影包可一键切换或关闭（Iris / Oculus 与 OptiFine）；存档显示世界名、游戏模式、版本与最后游玩时间；支持选择文件或拖进窗口导入，删除时移到系统回收站。
 - **离线账号头像**：离线账号与某个正版账号同名时，头像使用该正版账号的皮肤。
 - **高级选项**（设置页，可折叠）：Java 虚拟机参数、游戏参数、启动前执行命令（支持占位符，可选择等待完成）、内存回收器（自动 / G1 / 分代 ZGC / 不指定）、使用高性能显卡（Windows）。
-- **默认中文**：实例第一次启动时自动把游戏语言设为简体中文（可在设置中关闭）。
+- **默认中文**：每个版本第一次启动时自动把游戏语言设为简体中文（可在设置中关闭）。
 - **离线登录**：UUID 为 `OfflinePlayer:<name>` 的 MD5（UUID v3），与服务端一致。
 - **微软正版登录**：点击后自动打开浏览器，确认后自动完成（授权码 + PKCE，本机回调）；也可改用验证码登录。之后依次 Xbox Live → XSTS → Minecraft，检查是否拥有游戏并获取档案；未成年需家长同意、没有 Xbox 档案、没买游戏、应用未通过审核等情况都有中文提示；令牌存系统密钥库，过期自动刷新；显示正版皮肤头像。
 - **外置登录**：支持 LittleSkin 等 authlib-injector 认证服务器。输入服务器地址自动识别（ALI），账号密码只用于登录、不保存；多角色时可选择角色；令牌保存在系统密钥库，启动前校验并自动刷新；启动时自动下载并校验 authlib-injector（BMCLAPI 镜像），注入 `-javaagent` 与预取的服务器元数据。
-- **从其他启动器导入**：识别官方启动器、Prism Launcher、MultiMC、HMCL（全局账号），或手动选择 HMCL / PCL / .minecraft 文件夹；识别实例的游戏版本（含被重命名的版本）、加载器、Mod 与存档数量。导入时重新安装相同的版本与加载器（强制版本隔离），再复制用户数据，原文件不改动；可同时导入离线账号。一次导入多个实例时排队进行（同时最多 2 个）。
-- **OptiFine 与光影加载器**：新建实例时可选 OptiFine（BMCLAPI；原版用 OptiFine 自带补丁程序 + LaunchWrapper 安装，Forge 放进 mods 并自动选择推荐的 Forge 版本），或 Iris（Fabric / Quilt / NeoForge）/ Oculus（Forge）及其前置。
+- **从其他启动器导入**：识别官方启动器、Prism Launcher、MultiMC、HMCL（全局账号），或手动选择 HMCL / PCL / .minecraft 文件夹；识别每个版本实际对应的 Minecraft 版本（含被重命名的版本）、加载器、Mod 与存档数量。导入时重新安装相同的版本与加载器（强制版本隔离），再复制用户数据，原文件不改动；可同时导入离线账号。一次导入多个版本时排队进行（同时最多 2 个）。
+- **OptiFine 与光影加载器**：安装新版本时可选 OptiFine（BMCLAPI；原版用 OptiFine 自带补丁程序 + LaunchWrapper 安装，Forge 放进 mods 并自动选择推荐的 Forge 版本），或 Iris（Fabric / Quilt / NeoForge）/ Oculus（Forge）及其前置。
 - **自定义背景**：在「设置 → 外观」导入本地图片（JPG / PNG / WebP）或视频（MP4 / WebM），或扫描 Steam 中 Wallpaper Engine 的视频壁纸；可调亮度、透明度、模糊与遮罩，预览后保存；启动器隐藏或最小化时视频自动暂停。（感谢 @Windshakes 贡献）
 - **界面风格**：在「设置 → 外观」中可选形状（利落：直角硬朗的报刊风；圆润：圆角与柔和阴影，类似 PCL2；毛玻璃：半透明虚化面板，Apple 风格，可调节玻璃不透明度；搭配自定义背景时直接模糊背景视频 / 图片，保证磨砂效果）与布局（标准；极简：去掉报头和装饰，只突出主要内容，字号更大）。默认为圆润 + 极简。
 - **单文件版**：Windows 提供免安装的单个 exe（`RCL_<版本>_portable.exe`，以 `portable` 特性编译），数据保存在 exe 所在目录的 `.minecraft` 中，类似 PCL。
 - **检查更新**：启动时检查 GitHub 上的最新正式版（可在设置中关闭），发现新版本时弹窗显示更新内容，确认后才下载；下载的文件用 Release 附带的 SHA256SUMS.txt 校验，GitHub 访问失败时经备用线路下载。单文件版与 AppImage 直接替换程序文件，Windows 安装版静默运行新安装包，完成后自动重启；macOS 与 deb 打开下载页。
 - **内存优化**：「设置 → 内存」显示已使用内存与分配给游戏的内存；可开启启动游戏前进行内存优化（Windows），以管理员身份运行时通过系统内存管理接口清空工作集、写回已修改页、清空备用列表与文件缓存，普通权限下清空当前用户各进程的工作集。
-- **批量管理实例**：实例页进入批量管理后可多选（支持全选），批量补全文件、设置版本隔离或删除。
+- **批量管理版本**：「版本」页进入批量管理后可多选（支持全选），批量补全文件、设置版本隔离或删除。
 - **启动**：同时支持新版 `arguments` 与旧版 `minecraftArguments`；处理 `legacy` / `pre-1.6` 旧版资源；启动前快速补全缺失文件（资源只比较大小，约 150ms）；自动进入服务器（1.20+ 用 Quick Play，旧版用 `--server/--port`）；内存自动分配；日志实时推送；崩溃时分析常见原因并给出中文解决办法；启动后可隐藏 / 保持 / 关闭启动器。
 - **界面**：无边框窗口 + 自定义标题栏；深色 / 浅色 / 跟随系统；主题色可自定义；动效只使用 transform / opacity，并尊重系统「减少动态效果」设置。
 
@@ -163,12 +163,12 @@ REDCRAFT_MS_CLIENT_ID=<你的 Client ID> cargo test -p launcher-core --test micr
 │  ├─ java/                Java 扫描、选择与 Mojang runtime 下载
 │  ├─ auth/                账号与离线登录
 │  ├─ launch/              参数拼装、natives 解压、启动进程与崩溃分析
-│  ├─ instance.rs          实例扫描与加载器识别
+│  ├─ instance.rs          已安装版本的扫描与加载器识别
 │  └─ system.rs            物理内存与自动内存分配
 ├─ src-tauri/              Tauri 外壳：把 core 包装成 commands / events，管理设置与账号
 └─ src/                    Svelte 5 前端
    ├─ components/          标题栏、侧栏、虚拟列表、弹窗、进度条等
-   ├─ pages/               启动、实例、下载、Mod、账号、设置
+   ├─ pages/               启动、版本、下载、Mod、账号、设置
    └─ lib/                 API 封装、全局状态、动效、格式化
 ```
 
