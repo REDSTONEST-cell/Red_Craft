@@ -586,7 +586,7 @@ textarea.input {
   box-shadow: none;
 }
 
-/* ─── 布局：极简（只突出主要内容，字号与可点区域更大） ─── */
+/* ─── 布局：极简（只突出主要内容，字号与可点区域更大；原来的「标准」布局已删除） ─── */
 
 :root:is([data-layout="minimal"], [data-layout="ultraMinimal"]) body {
   font-size: 15px;
@@ -595,11 +595,8 @@ textarea.input {
   /* 次要文字更深，提升可读性 */
   --muted: color-mix(in srgb, var(--ink) 62%, var(--paper));
 }
-/* 去掉装饰：英文小标题、像素方块、启动页报头与简讯栏 */
+/* 去掉装饰：英文小标题、像素方块 */
 :root:is([data-layout="minimal"], [data-layout="ultraMinimal"]) :is(.page-head .kicker, .lead > .kicker, .pixel:not(.titlebar .pixel)) {
-  display: none;
-}
-:root:is([data-layout="minimal"], [data-layout="ultraMinimal"]) :is(.masthead, .brief) {
   display: none;
 }
 :root:is([data-layout="minimal"], [data-layout="ultraMinimal"]) .columns {

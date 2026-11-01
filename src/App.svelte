@@ -88,7 +88,7 @@
     const root = document.documentElement;
     root.dataset.theme = dark ? "dark" : "light";
     root.dataset.corner = s?.corner ?? "rounded";
-    root.dataset.layout = s?.layout ?? "minimal";
+    root.dataset.layout = s?.layout === "ultraMinimal" ? "ultraMinimal" : "minimal";
     // 毛玻璃不透明度：面板使用设定值，顶栏、侧栏等稍实一些
     const glass = Math.min(0.95, Math.max(0.2, s?.glassOpacity ?? 0.58));
     root.style.setProperty("--glass-pct", `${Math.round(glass * 100)}%`);

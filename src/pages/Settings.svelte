@@ -554,16 +554,8 @@
       </div>
     {/if}
     <div class="row">
-      <div class="desc"><strong>布局</strong><span class="help">极简：突出主要内容；超级简洁：保留壁纸和启动栏，隐藏主页版本与游玩信息</span></div>
-      <Segmented
-        value={s.layout}
-        options={[
-          { value: "standard", label: "标准" },
-          { value: "minimal", label: "极简" },
-          { value: "ultraMinimal", label: "超级简洁" },
-        ]}
-        onchange={(v) => save({ layout: v })}
-      />
+      <div class="desc"><strong>超级简洁</strong><span class="help">保留壁纸和启动栏，隐藏主页版本与游玩信息</span></div>
+      <Toggle checked={s.layout === "ultraMinimal"} onchange={(v) => save({ layout: v ? "ultraMinimal" : "minimal" })} />
     </div>
     <BackgroundPicker />
   </section>

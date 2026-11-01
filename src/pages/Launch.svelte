@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { api, type FileKind, type VersionList } from "../lib/api";
+  import { api, type FileKind } from "../lib/api";
   import {
     app,
     refreshInstances,
@@ -9,7 +9,7 @@
     showError,
     waitTask,
   } from "../lib/state.svelte";
-  import { bytes, dateline, KIND_LABEL, LOADER_LABEL, relative } from "../lib/format";
+  import { KIND_LABEL, LOADER_LABEL, relative } from "../lib/format";
   import Avatar from "../components/Avatar.svelte";
   import Icon from "../components/Icon.svelte";
   import ProgressBar from "../components/ProgressBar.svelte";
@@ -20,22 +20,12 @@
   let launchTask = $state<number | null>(null);
   const task = $derived(launchTask ? app.tasks.find((t) => t.id === launchTask) : undefined);
   const launching = $derived(!!task && task.state === "running");
-  let news = $state<VersionList | null>(null);
 
   // 在启动器内管理当前实例的资源，不必打开文件夹
   function openManager(kind: FileKind) {
     app.manage = kind;
     app.page = "mods";
   }
-
-  // 简讯栏只在标准布局显示；极简布局不必在启动时请求版本清单
-  $effect(() => {
-    if (app.settings?.layout !== "standard" || news) return;
-    api
-      .versionList(false)
-      .then((v) => (news = v))
-      .catch(() => {});
-  });
 
   async function launch() {
     if (!inst) return;
@@ -58,8 +48,6 @@
     return p.totalBytes ? p.doneBytes / p.totalBytes : p.totalFiles ? p.doneFiles / p.totalFiles : 0;
   }
 
-  // 报头期号：今年的第几天
-  const issue = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000);
   const accountLabel = $derived.by(() => {
     const k = account?.kind;
     if (k?.type === "offline") return "离线账号";
@@ -70,17 +58,6 @@
 
 <div class="front">
   {#if app.settings?.layout !== "ultraMinimal"}
-  <header class="masthead">
-    <div class="meta">
-      <span>第 {issue} 期</span>
-      <span>{dateline()}</span>
-      <span>Minecraft Java 版启动器</span>
-    </div>
-    <hr class="rule-double" />
-    <h1 class="title">Red Craft Launcher</h1>
-    <hr class="rule-double" />
-  </header>
-
   <div class="columns">
     <section class="lead">
       {#if inst}
@@ -131,30 +108,6 @@
       {/if}
     </section>
 
-    <aside class="brief">
-      <div class="kicker">简讯</div>
-      {#if news}
-        <article>
-          <h4>最新正式版 {news.latestRelease}</h4>
-          <p class="muted">已发布，可在「下载」页面安装。</p>
-        </article>
-        <article>
-          <h4>最新快照 {news.latestSnapshot}</h4>
-          <p class="muted">抢先体验下一个版本的新内容。</p>
-        </article>
-      {:else}
-        <article><p class="muted">正在获取版本消息…</p></article>
-      {/if}
-      {#if app.info}
-        <article>
-          <h4>本机内存</h4>
-          <p class="muted mono">
-            {bytes(app.info.memory.totalMb * 1024 * 1024)} 总计{#if app.info.memory.availableMb}
-              · {bytes(app.info.memory.availableMb * 1024 * 1024)} 可用{/if}
-          </p>
-        </article>
-      {/if}
-    </aside>
   </div>
 
   {/if}
@@ -206,26 +159,10 @@
     flex-direction: column;
     gap: 18px;
   }
-  .meta {
-    display: flex;
-    justify-content: space-between;
-    font-size: 11px;
-    letter-spacing: 0.12em;
-    color: var(--muted);
-    padding-bottom: 6px;
-  }
-  .title {
-    font-size: 64px;
-    line-height: 1;
-    text-align: center;
-    letter-spacing: 0.06em;
-    padding: 10px 0 8px;
-    font-weight: 900;
-  }
   .columns {
     flex: 1;
     display: grid;
-    grid-template-columns: minmax(0, 2fr) minmax(220px, 1fr);
+    grid-template-columns: minmax(0, 1fr);
     gap: 28px;
   }
   .lead {
@@ -278,24 +215,6 @@
   }
   .chip:active {
     transform: scale(0.96);
-  }
-  .brief {
-    border-left: 1px solid var(--rule);
-    padding-left: 22px;
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-  }
-  .brief article {
-    padding-bottom: 12px;
-    border-bottom: 1px solid var(--rule);
-  }
-  .brief h4 {
-    font-size: 16px;
-    margin-bottom: 2px;
-  }
-  .brief p {
-    font-size: 12px;
   }
   .launchbar {
     display: flex;

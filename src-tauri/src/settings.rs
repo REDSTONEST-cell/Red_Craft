@@ -66,8 +66,9 @@ pub enum Corner {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum Layout {
-    Standard,
+    /// 旧版本中的「标准」布局已删除，读取旧设置时按极简处理
     #[default]
+    #[serde(alias = "standard")]
     Minimal,
     /// 保留壁纸和启动栏，隐藏主页版本与游玩信息。
     UltraMinimal,

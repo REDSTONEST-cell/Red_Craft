@@ -24,6 +24,7 @@
   import Icon from "../components/Icon.svelte";
   import Toggle from "../components/Toggle.svelte";
   import { iconSrc, zhName } from "../lib/zh";
+  import { getContext, getQuery, getSearch, patchSearch, putContext, putQuery, putSearch } from "../lib/searchCache";
   import { dur } from "../lib/motion";
 
   function stored<T extends string>(key: string, fallback: T): T {
@@ -48,9 +49,22 @@
   // 搜索用的类型（「已安装」标签不搜索）
   const searchType = $derived<ContentType>(tab === "installed" ? "mod" : tab);
   let sort = $state<SortBy>("relevance");
+  // 每类资源各自的搜索词，切换标签时恢复
   let query = $state("");
-  let instanceId = $state<string | null>(selectedInstance()?.id ?? null);
-  let ctx = $state<InstanceContext | null>(null);
+  let queryTab = "";
+  $effect(() => {
+    const t = searchType;
+    if (t !== queryTab) {
+      queryTab = t;
+      query = getQuery(t);
+    }
+  });
+  $effect(() => {
+    if (queryTab) putQuery(queryTab, query);
+  });
+  const initialId = selectedInstance()?.id ?? null;
+  let instanceId = $state<string | null>(initialId);
+  let ctx = $state<InstanceContext | null>(initialId ? getContext(initialId) : null);
   let compatibleOnly = $state(true);
 
   let hits = $state<ProjectHit[]>([]);
@@ -93,11 +107,17 @@
   // 实例变化时获取它的游戏版本与加载器
   $effect(() => {
     const id = instanceId;
-    ctx = null;
+    // 读取过的版本信息直接使用，不必等待
+    ctx = id ? getContext(id) : null;
     if (!id) return;
     api
       .contentInstance(id)
-      .then((c) => (ctx = c))
+      .then((c) => {
+        putContext(c);
+        if (instanceId !== id) return;
+        // 信息没有变化时保持原对象，避免重复搜索
+        if (!ctx || ctx.mcVersion !== c.mcVersion || ctx.loader !== c.loader) ctx = c;
+      })
       .catch((e) => showError(e, "读取版本信息失败"));
   });
 
@@ -118,30 +138,59 @@
     return out;
   }
 
+  // 当前条件对应的缓存键
+  function searchKey(type: ContentType = searchType) {
+    const filter = compatibleOnly && type !== "modpack" && ctx;
+    return JSON.stringify([platform, type, query.trim(), sort, filter ? ctx!.mcVersion : null, filter ? ctx!.loader : null]);
+  }
+  let currentKey = "";
+
+  function request(type: ContentType, from: typeof cursor) {
+    const filter = compatibleOnly && type !== "modpack" && ctx;
+    return api.contentSearch({
+      platform,
+      query: {
+        query: query.trim(),
+        contentType: type,
+        gameVersion: filter ? ctx!.mcVersion : null,
+        loader: filter ? ctx!.loader : null,
+        sort,
+        offset: 0,
+        limit: 20,
+      },
+      ...from,
+    });
+  }
+
   async function search(reset: boolean) {
     if (tab === "installed") return;
     if (!reset && (loading || !hasMore)) return;
     const gen = ++generation;
-    loading = true;
     error = null;
     if (reset) {
-      cursor = { modrinthOffset: 0, curseforgeOffset: 0, modrinthTotal: null, curseforgeTotal: null };
-      if (hits.length) staleGen = listGen;
+      currentKey = searchKey();
+      // 已经加载过相同条件的结果时直接显示，不重新请求（与 PCL 相同）
+      const cached = getSearch(currentKey);
+      if (cached) {
+        cursor = { ...cached.cursor };
+        listGen++;
+        hits = cached.hits;
+        total = cached.total;
+        converted = cached.converted;
+        alternatives = cached.alternatives;
+        staleGen = -1;
+        loading = false;
+        prefetch();
+        return;
+      } else {
+        if (hits.length) staleGen = listGen;
+      }
     }
+    loading = true;
+    const from = reset ? { modrinthOffset: 0, curseforgeOffset: 0, modrinthTotal: null, curseforgeTotal: null } : cursor;
+    const key = currentKey;
     try {
-      const res = await api.contentSearch({
-        platform,
-        query: {
-          query: query.trim(),
-          contentType: searchType,
-          gameVersion: useFilter ? ctx!.mcVersion : null,
-          loader: useFilter ? ctx!.loader : null,
-          sort,
-          offset: 0,
-          limit: 20,
-        },
-        ...cursor,
-      });
+      const res = await request(searchType, from);
       if (gen !== generation) return;
       cursor = {
         modrinthOffset: res.modrinthOffset,
@@ -156,7 +205,9 @@
         converted = res.converted;
         alternatives = res.alternatives;
       }
+      putSearch(key, { hits, total, cursor: { ...cursor }, converted, alternatives });
       translate(res.hits, gen);
+      if (reset) prefetch();
     } catch (e) {
       if (gen !== generation) return;
       const err = e as { message: string; hint: string };
@@ -181,10 +232,46 @@
         .then((map) => {
           if (gen !== generation) return;
           hits = hits.map((h) => (h.platform === p && map[h.id] ? { ...h, zhDescription: map[h.id] } : h));
+          patchSearch(currentKey, hits);
         })
         .catch(() => {
           /* 翻译不可用时保持英文 */
         });
+    }
+  }
+
+  // 后台预先加载其他类型的默认列表，切换标签时可以立即显示（只在没有关键词时进行，依次请求）
+  let prefetching = false;
+  async function prefetch() {
+    if (prefetching || query.trim()) return;
+    prefetching = true;
+    try {
+      for (const type of ["mod", "resourcepack", "shader", "modpack"] as ContentType[]) {
+        const key = searchKey(type);
+        if (type === searchType || getSearch(key)) continue;
+        try {
+          const empty = { modrinthOffset: 0, curseforgeOffset: 0, modrinthTotal: null, curseforgeTotal: null };
+          const res = await request(type, empty);
+          if (key !== searchKey(type)) continue;
+          const total = (platform !== "curseforge" ? (res.modrinthTotal ?? 0) : 0) + (platform !== "modrinth" ? (res.curseforgeTotal ?? 0) : 0);
+          putSearch(key, {
+            hits: appendUnique([], res.hits),
+            total,
+            cursor: {
+              modrinthOffset: res.modrinthOffset,
+              curseforgeOffset: res.curseforgeOffset,
+              modrinthTotal: res.modrinthTotal,
+              curseforgeTotal: res.curseforgeTotal,
+            },
+            converted: res.converted,
+            alternatives: res.alternatives,
+          });
+        } catch {
+          /* 预加载失败不影响使用 */
+        }
+      }
+    } finally {
+      prefetching = false;
     }
   }
 
@@ -194,7 +281,11 @@
     void [platform, searchType, tab, sort, useFilter, ctx?.mcVersion, ctx?.loader];
     const q = query;
     clearTimeout(timer);
-    timer = setTimeout(() => search(true), q ? 350 : 0);
+    // 开启「仅兼容」时等版本信息读取完成再搜索，避免先按不筛选搜一遍
+    if (compatibleOnly && instanceId && !ctx && searchType !== "modpack") return;
+    // 输入关键词时防抖；已经加载过的条件（例如切换回之前的标签）立即显示
+    const wait = q && !getSearch(searchKey()) ? 350 : 0;
+    timer = setTimeout(() => search(true), wait);
     return () => clearTimeout(timer);
   });
 

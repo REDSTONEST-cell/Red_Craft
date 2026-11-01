@@ -1,4 +1,7 @@
 //! 并发下载器：Semaphore 控制并发、SHA1 校验、失败重试与下载源切换。
+//!
+//! 大文件参照 PCL 的下载引擎分块多线程下载：1MB 以上的文件动态拆分，新的连接接手剩余最大的一块，
+//! 并在各个下载源之间轮换，官方源与镜像可以同时下载；某个连接太慢或出错时，剩余部分换下一个源继续。
 
 use std::collections::HashSet;
 use std::io::Read;
@@ -111,6 +114,8 @@ pub struct Downloader {
     http: HttpClient,
     concurrency: usize,
     retries: u32,
+    /// 分块下载额外占用的连接数（所有文件合计，不超过并发数）
+    extra: Arc<AtomicUsize>,
 }
 
 impl Downloader {
@@ -119,6 +124,7 @@ impl Downloader {
             http,
             concurrency: concurrency.clamp(1, 256),
             retries: 3,
+            extra: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -220,7 +226,7 @@ impl Downloader {
     async fn download_one(
         &self,
         task: &DownloadTask,
-        counters: &Counters,
+        counters: &Arc<Counters>,
         cancel: &CancelToken,
     ) -> Result<()> {
         if is_valid(&task.path, task.sha1.as_deref(), task.size).await? {
@@ -234,6 +240,18 @@ impl Downloader {
         }
 
         let candidates = self.http.candidates(&task.url);
+        // 大文件先尝试分块多线程下载；失败时（例如校验不通过）退回逐个源单线程下载
+        if task.size.is_some_and(|s| s >= SPLIT_MIN) {
+            let mut written = 0u64;
+            match self.download_split(task, &candidates, counters, cancel, &mut written).await {
+                Ok(()) => return Ok(()),
+                Err(CoreError::Cancelled) => return Err(CoreError::Cancelled),
+                Err(e) => {
+                    counters.done_bytes.fetch_sub(written, Ordering::Relaxed);
+                    log::info!("{}：分块下载失败，改为单线程下载：{e}", task.path.display());
+                }
+            }
+        }
         let mut last_err = None;
         'attempts: for attempt in 0..self.retries {
             for (i, url) in candidates.iter().enumerate() {
@@ -354,14 +372,332 @@ impl Downloader {
     }
 }
 
-/// 官方源响应超过这个时间视为缓慢。
-const SLOW_RESPONSE: Duration = Duration::from_secs(6);
+/// 官方源响应超过这个时间视为缓慢（与 PCL 相同为 4 秒）。
+const SLOW_RESPONSE: Duration = Duration::from_secs(4);
 /// 开始下载多久后检查速度（秒）。
 const SLOW_CHECK_AFTER: f64 = 4.0;
 /// 低于这个速度（字节/秒）视为缓慢。
 const SLOW_SPEED: f64 = 64.0 * 1024.0;
 /// 剩余不足这个大小时不再切换，直接下完。
 const SLOW_MIN_REMAINING: u64 = 512 * 1024;
+
+// ─── 分块多线程下载（参照 PCL 的下载引擎） ───
+
+/// 不小于这个大小的文件才分块（PCL：小于 1MB 的文件不分割）。
+const SPLIT_MIN: u64 = 1024 * 1024;
+/// 剩余不足这个大小的块不再拆分。
+const PIECE_MIN: u64 = 256 * 1024;
+/// 每个文件最多同时使用的连接数。
+const MAX_PIECES: usize = 8;
+/// 连接多久没有收到数据就断开，剩余部分换下一个源。
+const PIECE_STALL: Duration = Duration::from_secs(8);
+/// 每攒够这么多数据写入一次磁盘。
+const PIECE_FLUSH: usize = 256 * 1024;
+
+/// 不允许多线程下载的源（与 PCL 相同：BMCLAPI 等在高频请求下会限流）。
+fn splittable(url: &str) -> bool {
+    !["bmclapi", "github.com", "optifine.net"].iter().any(|k| url.contains(k))
+}
+
+struct SplitSource {
+    url: String,
+    fails: u32,
+    disabled: bool,
+}
+
+struct Piece {
+    /// 下一个要写入的位置
+    pos: u64,
+    /// 结束位置（不含），拆分时会缩小
+    end: u64,
+    active: bool,
+    source: usize,
+}
+
+struct SplitState {
+    sources: Vec<SplitSource>,
+    pieces: Vec<Piece>,
+    /// 服务器不支持分块请求（返回了整个文件）
+    no_ranges: bool,
+    /// 已经有连接收到过数据
+    started: bool,
+    next_source: usize,
+    last_error: Option<CoreError>,
+}
+
+impl SplitState {
+    /// 从 `from` 开始的第一个可用源；`split_only` 时只选允许多线程的源。
+    fn pick(&mut self, from: usize, split_only: bool) -> Option<usize> {
+        let n = self.sources.len();
+        (0..n)
+            .map(|i| (from + i) % n)
+            .find(|&i| !self.sources[i].disabled && (!split_only || splittable(&self.sources[i].url)))
+    }
+}
+
+/// 出错后是否不再使用这个源（PCL：404、416、502、无法解析域名等直接停用；BMCLAPI 的 403/429 只是限流）。
+fn fatal_for_source(e: &CoreError, url: &str) -> bool {
+    match e {
+        CoreError::HttpStatus { status, .. } => {
+            matches!(status, 404 | 410 | 416 | 502) || (matches!(status, 403 | 429) && !url.contains("bmclapi"))
+        }
+        CoreError::Network { reason, .. } => reason.contains("无法连接") || reason.contains("dns"),
+        _ => false,
+    }
+}
+
+impl Downloader {
+    async fn download_split(
+        &self,
+        task: &DownloadTask,
+        candidates: &[String],
+        counters: &Arc<Counters>,
+        cancel: &CancelToken,
+        written: &mut u64,
+    ) -> Result<()> {
+        let size = task.size.unwrap_or(0);
+        let part = part_path(&task.path);
+        {
+            let f = tokio::fs::File::create(&part).await.at(&part)?;
+            f.set_len(size).await.at(&part)?;
+        }
+        let state = Arc::new(std::sync::Mutex::new(SplitState {
+            sources: candidates.iter().map(|u| SplitSource { url: u.clone(), fails: 0, disabled: false }).collect(),
+            pieces: vec![Piece { pos: 0, end: size, active: false, source: 0 }],
+            no_ranges: false,
+            started: false,
+            next_source: 0,
+            last_error: None,
+        }));
+        let done_total = Arc::new(AtomicU64::new(0));
+        let mut workers: JoinSet<()> = JoinSet::new();
+        let mut extra_held = 0usize;
+        let mut last_split = Instant::now();
+        let result = loop {
+            if cancel.is_cancelled() {
+                break Err(CoreError::Cancelled);
+            }
+            // 启动空闲的块：失败或被断开的块从下一个源继续
+            let mut launch = Vec::new();
+            {
+                let mut st = state.lock().expect("split state");
+                if st.pieces.iter().all(|p| p.pos >= p.end) {
+                    break Ok(());
+                }
+                let no_ranges = st.no_ranges;
+                for i in 0..st.pieces.len() {
+                    let (pos, end, active, prev) = {
+                        let p = &st.pieces[i];
+                        (p.pos, p.end, p.active, p.source)
+                    };
+                    if active || pos >= end {
+                        continue;
+                    }
+                    // 不支持分块的服务器只能从头整个下载
+                    if no_ranges && (i != 0 || pos != 0) {
+                        continue;
+                    }
+                    let from = if pos == 0 && i == 0 && !st.started { prev } else { prev + 1 };
+                    let Some(src) = st.pick(from, false) else { continue };
+                    st.pieces[i].active = true;
+                    st.pieces[i].source = src;
+                    launch.push((i, st.sources[src].url.clone()));
+                }
+                let active = st.pieces.iter().filter(|p| p.active).count();
+                if active == 0 && launch.is_empty() {
+                    break Err(st.last_error.take().unwrap_or_else(|| CoreError::InvalidData("所有下载源都不可用".into())));
+                }
+                // 拆分：把剩余最大的块从 60% 处切开，交给下一个可以多线程下载的源
+                if st.started
+                    && !st.no_ranges
+                    && st.pieces.len() < MAX_PIECES
+                    && last_split.elapsed() >= Duration::from_millis(300)
+                    && self.extra.load(Ordering::Relaxed) < self.concurrency
+                {
+                    let largest = st
+                        .pieces
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, p)| p.active)
+                        .max_by_key(|(_, p)| p.end - p.pos)
+                        .map(|(i, p)| (i, p.end - p.pos));
+                    if let Some((i, remaining)) = largest.filter(|(_, r)| *r >= PIECE_MIN * 2) {
+                        let next = st.next_source;
+                        if let Some(src) = st.pick(next, true) {
+                            st.next_source = src + 1;
+                            let end = st.pieces[i].end;
+                            let start = end - remaining * 2 / 5;
+                            st.pieces[i].end = start;
+                            st.pieces.push(Piece { pos: start, end, active: true, source: src });
+                            launch.push((st.pieces.len() - 1, st.sources[src].url.clone()));
+                            self.extra.fetch_add(1, Ordering::Relaxed);
+                            extra_held += 1;
+                            last_split = Instant::now();
+                        }
+                    }
+                }
+            }
+            for (index, url) in launch {
+                let this = self.clone();
+                let state = state.clone();
+                let part = part.clone();
+                let cancel = cancel.clone();
+                let done_total = done_total.clone();
+                let counters = counters.clone();
+                workers.spawn(async move {
+                    let r = this.fetch_piece(&url, &state, index, &part, size, &counters, &done_total, &cancel).await;
+                    let mut st = state.lock().expect("split state");
+                    st.pieces[index].active = false;
+                    if let Err(e) = r {
+                        let src = st.pieces[index].source;
+                        let fatal = fatal_for_source(&e, &url);
+                        let s = &mut st.sources[src];
+                        s.fails += 1;
+                        if fatal || s.fails > 4 {
+                            s.disabled = true;
+                            log::debug!("下载源已停用：{url}（{e}）");
+                        }
+                        if !matches!(e, CoreError::Cancelled) {
+                            st.last_error = Some(e);
+                        }
+                    }
+                });
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        };
+        // 结束所有连接
+        workers.abort_all();
+        while workers.join_next().await.is_some() {}
+        self.extra.fetch_sub(extra_held, Ordering::Relaxed);
+        *written = done_total.load(Ordering::Relaxed);
+        if let Err(e) = result {
+            let _ = tokio::fs::remove_file(&part).await;
+            return Err(e);
+        }
+        // 分块写入无法边下边算，下载完成后统一校验
+        if let Some(expected) = &task.sha1 {
+            let p = part.clone();
+            let actual = tokio::task::spawn_blocking(move || sha1_file(&p))
+                .await
+                .map_err(|e| CoreError::InvalidData(e.to_string()))??;
+            if !expected.eq_ignore_ascii_case(&actual) {
+                let _ = tokio::fs::remove_file(&part).await;
+                return Err(CoreError::Checksum { path: task.path.clone(), expected: expected.clone(), actual });
+            }
+        }
+        tokio::fs::rename(&part, &task.path).await.at(&task.path)
+    }
+
+    /// 下载一个块：从块的当前位置读到它的结束位置（结束位置可能因拆分而缩小）。
+    #[allow(clippy::too_many_arguments)]
+    async fn fetch_piece(
+        &self,
+        url: &str,
+        state: &std::sync::Mutex<SplitState>,
+        index: usize,
+        part: &Path,
+        size: u64,
+        counters: &Counters,
+        done_total: &AtomicU64,
+        cancel: &CancelToken,
+    ) -> Result<()> {
+        use tokio::io::AsyncSeekExt;
+        let (pos, end) = {
+            let st = state.lock().expect("split state");
+            (st.pieces[index].pos, st.pieces[index].end)
+        };
+        let req = self.http.raw().get(url);
+        let req = if pos == 0 && end == size { req.header("Range", "bytes=0-") } else { req.header("Range", format!("bytes={pos}-{}", end - 1)) };
+        let resp = tokio::time::timeout(PIECE_STALL * 2, req.send())
+            .await
+            .map_err(|_| CoreError::InvalidData(format!("{url} 连接超时")))?
+            .map_err(|e| CoreError::network(url, e))?;
+        let status = resp.status().as_u16();
+        if !(200..300).contains(&status) {
+            return Err(CoreError::HttpStatus { url: url.to_string(), status });
+        }
+        if status != 206 {
+            // 服务器不支持分块：只有从头开始的块可以继续（整个文件单线程）
+            if pos != 0 {
+                return Err(CoreError::HttpStatus { url: url.to_string(), status: 416 });
+            }
+            state.lock().expect("split state").no_ranges = true;
+        }
+        let mut file = tokio::fs::OpenOptions::new().write(true).open(part).await.at(part)?;
+        file.seek(std::io::SeekFrom::Start(pos)).await.at(part)?;
+        let mut stream = resp.bytes_stream();
+        let mut buf: Vec<u8> = Vec::with_capacity(PIECE_FLUSH);
+        let mut at = pos;
+        loop {
+            if cancel.is_cancelled() {
+                return Err(CoreError::Cancelled);
+            }
+            let next = tokio::time::timeout(PIECE_STALL, stream.next()).await;
+            let chunk = match next {
+                Err(_) => Err(CoreError::InvalidData(format!("{url} 下载缓慢，换用其他下载源"))),
+                Ok(None) => Ok(None),
+                Ok(Some(Err(e))) => Err(CoreError::network(url, e)),
+                Ok(Some(Ok(c))) => Ok(Some(c)),
+            };
+            let chunk = match chunk {
+                Ok(c) => c,
+                Err(e) => {
+                    // 已经收到的数据先写入，下一个连接从这里继续
+                    flush_piece(&mut file, &mut buf, state, index, &mut at, part, counters, done_total).await?;
+                    return Err(e);
+                }
+            };
+            let Some(chunk) = chunk else { break };
+            self.http.limiter().take(chunk.len() as u64).await;
+            counters.net_bytes.fetch_add(chunk.len() as u64, Ordering::Relaxed);
+            // 只写到当前的结束位置（块可能已被拆分）
+            let limit = state.lock().expect("split state").pieces[index].end;
+            let room = limit.saturating_sub(at + buf.len() as u64) as usize;
+            buf.extend_from_slice(&chunk[..chunk.len().min(room)]);
+            {
+                let mut st = state.lock().expect("split state");
+                st.started = true;
+            }
+            if buf.len() >= PIECE_FLUSH || chunk.len() > room {
+                flush_piece(&mut file, &mut buf, state, index, &mut at, part, counters, done_total).await?;
+            }
+            if at >= limit {
+                return Ok(());
+            }
+        }
+        flush_piece(&mut file, &mut buf, state, index, &mut at, part, counters, done_total).await?;
+        let st = state.lock().expect("split state");
+        if st.pieces[index].pos < st.pieces[index].end {
+            return Err(CoreError::InvalidData(format!("{url} 返回的数据不完整")));
+        }
+        Ok(())
+    }
+}
+
+/// 把缓冲的数据写入文件，并推进块的位置与进度。
+#[allow(clippy::too_many_arguments)]
+async fn flush_piece(
+    file: &mut tokio::fs::File,
+    buf: &mut Vec<u8>,
+    state: &std::sync::Mutex<SplitState>,
+    index: usize,
+    at: &mut u64,
+    part: &Path,
+    counters: &Counters,
+    done_total: &AtomicU64,
+) -> Result<()> {
+    if buf.is_empty() {
+        return Ok(());
+    }
+    file.write_all(buf).await.at(part)?;
+    let n = buf.len() as u64;
+    *at += n;
+    buf.clear();
+    state.lock().expect("split state").pieces[index].pos = *at;
+    counters.done_bytes.fetch_add(n, Ordering::Relaxed);
+    done_total.fetch_add(n, Ordering::Relaxed);
+    Ok(())
+}
 
 fn part_path(path: &Path) -> PathBuf {
     let mut name = path.file_name().unwrap_or_default().to_os_string();
@@ -414,6 +750,123 @@ pub fn sha1_bytes(data: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 本地 HTTP 服务：支持 Range，每个连接限速（模拟单连接很慢的网络）；路径为 /bad 时返回 404。
+    async fn serve(data: Arc<Vec<u8>>, per_conn_bps: usize) -> (String, Arc<AtomicUsize>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let conns = Arc::new(AtomicUsize::new(0));
+        let c = conns.clone();
+        tokio::spawn(async move {
+            loop {
+                let (mut sock, _) = listener.accept().await.unwrap();
+                let data = data.clone();
+                c.fetch_add(1, Ordering::Relaxed);
+                tokio::spawn(async move {
+                    let mut req = Vec::new();
+                    let mut b = [0u8; 1024];
+                    while !req.windows(4).any(|w| w == b"\r\n\r\n") {
+                        let n = sock.read(&mut b).await.unwrap_or(0);
+                        if n == 0 {
+                            return;
+                        }
+                        req.extend_from_slice(&b[..n]);
+                    }
+                    let text = String::from_utf8_lossy(&req).to_string();
+                    if text.starts_with("GET /bad") {
+                        let _ = sock.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n").await;
+                        return;
+                    }
+                    let range = text.lines().find_map(|l| l.to_ascii_lowercase().strip_prefix("range: bytes=").map(str::to_string));
+                    let (start, end) = match range {
+                        Some(r) => {
+                            let (a, b) = r.trim().split_once('-').unwrap();
+                            let a: usize = a.parse().unwrap();
+                            let b: usize = if b.is_empty() { data.len() - 1 } else { b.parse().unwrap() };
+                            (a, b.min(data.len() - 1))
+                        }
+                        None => (0, data.len() - 1),
+                    };
+                    let head = format!(
+                        "HTTP/1.1 206 Partial Content\r\nContent-Length: {}\r\nContent-Range: bytes {start}-{end}/{}\r\n\r\n",
+                        end - start + 1,
+                        data.len()
+                    );
+                    if sock.write_all(head.as_bytes()).await.is_err() {
+                        return;
+                    }
+                    for chunk in data[start..=end].chunks(per_conn_bps / 20) {
+                        if sock.write_all(chunk).await.is_err() {
+                            return;
+                        }
+                        tokio::time::sleep(Duration::from_millis(50)).await;
+                    }
+                });
+            }
+        });
+        (format!("http://{addr}"), conns)
+    }
+
+    #[tokio::test]
+    async fn split_download_uses_multiple_connections() {
+        use crate::download::DownloadSource;
+        let data: Arc<Vec<u8>> = Arc::new((0..4 * 1024 * 1024u32).map(|i| (i * 7 % 251) as u8).collect());
+        let sha1 = sha1_bytes(&data);
+        // 每个连接 1MB/s：单线程需要 4 秒
+        let (base, conns) = serve(data.clone(), 1024 * 1024).await;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("big.bin");
+        let d = Downloader::new(HttpClient::new(DownloadSource::Official).unwrap(), 64);
+        let task = DownloadTask::new(format!("{base}/file"), &path).sha1(Some(sha1.clone())).size(Some(data.len() as u64));
+        let started = Instant::now();
+        d.download_all(vec![task], Arc::new(|_| {}), &CancelToken::new()).await.unwrap();
+        let took = started.elapsed();
+        assert_eq!(std::fs::read(&path).unwrap(), *data);
+        assert!(conns.load(Ordering::Relaxed) > 2, "应当使用多个连接");
+        assert!(took < Duration::from_millis(3000), "分块下载应快于单线程：{took:?}");
+        assert_eq!(d.extra.load(Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test]
+    async fn split_download_skips_broken_source() {
+        let data: Arc<Vec<u8>> = Arc::new((0..2 * 1024 * 1024u32).map(|i| (i % 253) as u8).collect());
+        let (base, _) = serve(data.clone(), 8 * 1024 * 1024).await;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("f.bin");
+        let d = Downloader::new(HttpClient::new(crate::download::DownloadSource::Official).unwrap(), 64);
+        let task = DownloadTask::new("x", &path).sha1(Some(sha1_bytes(&data))).size(Some(data.len() as u64));
+        let counters = Arc::new(Counters::default());
+        let mut written = 0;
+        // 第一个源返回 404，应当停用并从第二个源下载
+        d.download_split(&task, &[format!("{base}/bad"), format!("{base}/good")], &counters, &CancelToken::new(), &mut written)
+            .await
+            .unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), *data);
+        assert_eq!(written, data.len() as u64);
+    }
+
+    /// 联网测试：分块下载与单线程下载同一个大文件，对比耗时并校验 SHA1。
+    #[tokio::test]
+    #[ignore]
+    async fn split_download_real_file() {
+        use crate::download::DownloadSource;
+        // Minecraft 1.20.1 客户端（约 23MB）
+        let url = "https://piston-data.mojang.com/v1/objects/0c3ec587af28e5a785c0b4a7b8a30f9a8f78f838/client.jar";
+        let sha1 = "0c3ec587af28e5a785c0b4a7b8a30f9a8f78f838";
+        let size = 23028853;
+        let dir = tempfile::tempdir().unwrap();
+        for (name, split) in [("分块", true), ("单线程", false)] {
+            let d = Downloader::new(HttpClient::new(DownloadSource::Official).unwrap(), 64);
+            let path = dir.path().join(format!("{split}.jar"));
+            let task = DownloadTask::new(url, &path).sha1(Some(sha1)).size(Some(size));
+            let task = if split { task } else { DownloadTask { size: None, ..task } };
+            let started = Instant::now();
+            d.download_all(vec![task], Arc::new(|_| {}), &CancelToken::new()).await.unwrap();
+            println!("{name}：{:?}", started.elapsed());
+            assert_eq!(sha1_file(&path).unwrap(), sha1);
+        }
+    }
 
     #[tokio::test]
     async fn validity_check() {
