@@ -8,7 +8,7 @@
 
 | 系统 | 文件 | 说明 |
 | --- | --- | --- |
-| Windows | `RCL_<版本>_x64win.exe` | 单文件，免安装，数据保存在 exe 所在文件夹；默认以管理员身份运行 |
+| Windows | `RCL_<版本>_x64win.exe` | 单文件，免安装，数据保存在 exe 所在文件夹 |
 | macOS | `RCL_<版本>_aarch64.dmg` | |
 | Linux | `.deb` / `.AppImage` | |
 
