@@ -41,6 +41,9 @@ trash = "5"
 [target.'cfg(windows)'.dependencies]
 keyring = { version = "3", features = ["windows-native"] }
 windows-sys = { version = "0.59", features = ["Win32_System_Registry", "Win32_Foundation", "Win32_UI_Shell", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
+# 窗口隐藏时降低 WebView2 的内存占用（与 Tauri 使用的版本一致）
+webview2-com = "0.39"
+windows-core = "0.62"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3", features = ["apple-native"] }

@@ -22,7 +22,6 @@
   <div class="brand" data-tauri-drag-region>
     <span class="pixel"></span>
     <span class="name" data-tauri-drag-region>RCL</span>
-    {#if app.info?.portable}<span class="tag">便携</span>{/if}
     {#if running > 0}
       <span class="tag accent">{running} 个任务进行中</span>
     {/if}

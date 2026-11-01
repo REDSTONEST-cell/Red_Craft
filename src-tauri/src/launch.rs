@@ -444,7 +444,7 @@ fn after_started(app: &AppHandle) {
 }
 
 #[tauri::command]
-pub fn kill_game(state: State<'_, AppState>, id: String) -> AppResult<()> {
+pub async fn kill_game(app: AppHandle, state: State<'_, AppState>, id: String) -> AppResult<()> {
     let pid = state
         .running
         .lock()
@@ -452,9 +452,15 @@ pub fn kill_game(state: State<'_, AppState>, id: String) -> AppResult<()> {
         .and_then(|r| r.get(&id).copied())
         .ok_or_else(|| AppError::msg("游戏没有在运行", ""))?;
     if let Ok(mut k) = state.killed.lock() {
-        k.insert(id);
+        k.insert(id.clone());
     }
-    Ok(launch::kill_pid(pid)?)
+    tauri::async_runtime::spawn_blocking(move || launch::kill_pid(pid))
+        .await
+        .map_err(|e| AppError::msg(e.to_string(), ""))??;
+    // 与 PCL 相同：结束后立即更新界面，不必等后台处理完游戏退出（之后的退出事件会再次确认）
+    let exit = GameExit { code: None, crashed: false, crash_report: None, causes: vec![], tail: vec![] };
+    let _ = app.emit(GAME_EVENT, GameEvent::Exit { instance: id, exit });
+    Ok(())
 }
 
 #[cfg(test)]

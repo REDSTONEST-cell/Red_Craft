@@ -291,6 +291,27 @@ pub fn db() -> &'static ZhDb {
 mod tests {
     use super::*;
 
+    /// 数据库常驻内存的大小（Linux，读取进程 RSS），默认忽略。
+    #[test]
+    #[ignore]
+    fn memory_footprint() {
+        let rss = || {
+            std::fs::read_to_string("/proc/self/status")
+                .unwrap()
+                .lines()
+                .find(|l| l.starts_with("VmRSS"))
+                .unwrap()
+                .split_whitespace()
+                .nth(1)
+                .unwrap()
+                .parse::<u64>()
+                .unwrap()
+        };
+        let before = rss();
+        let d = db();
+        println!("条目 {}，内存增加约 {} MB", d.len(), (rss() - before) / 1024);
+    }
+
     #[test]
     fn loads_database() {
         let d = db();

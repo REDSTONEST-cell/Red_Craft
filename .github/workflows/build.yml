@@ -55,9 +55,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Windows 只发布便携版（单文件 exe），不再发布安装版
           - name: Windows
             os: windows-latest
-            bundles: nsis,msi
+            bundles: none
           - name: macOS
             os: macos-latest
             bundles: app,dmg
@@ -83,6 +84,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm tauri build --bundles ${{ matrix.bundles }}
+        if: runner.os != 'Windows'
       - name: 构建便携版单文件 exe
         if: runner.os == 'Windows'
         shell: bash
@@ -92,14 +94,12 @@ jobs:
           exe=$(ls target/release/*.exe | grep -iv "build-script" | head -1)
           echo "便携版来源：$exe"
           mkdir -p target/release/portable
-          cp "$exe" "target/release/portable/RCL_${version}_portable.exe"
+          cp "$exe" "target/release/portable/RCL_${version}_x64win.exe"
       - uses: actions/upload-artifact@v7
         with:
           name: RedCraft-${{ matrix.name }}
           path: |
-            target/release/bundle/nsis/*.exe
             target/release/portable/*.exe
-            target/release/bundle/msi/*.msi
             target/release/bundle/dmg/*.dmg
             target/release/bundle/deb/*.deb
             target/release/bundle/appimage/*.AppImage

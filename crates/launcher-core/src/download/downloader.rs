@@ -393,6 +393,11 @@ const MAX_PIECES: usize = 8;
 const PIECE_STALL: Duration = Duration::from_secs(8);
 /// 每攒够这么多数据写入一次磁盘。
 const PIECE_FLUSH: usize = 256 * 1024;
+/// 与 PCL 一样只在速度不够时增开连接：平均每个连接低于这个速度（字节/秒）才拆分。
+/// 网络很快时单个连接就能跑满带宽，拆分反而增加建立连接的开销。
+const SPLIT_BELOW_PER_CONN: f64 = 1.5 * 1024.0 * 1024.0;
+/// 收到数据后至少测量这么久的实际速度，才决定是否拆分（不把建立连接的时间算进去）。
+const SPLIT_AFTER: Duration = Duration::from_secs(1);
 
 /// 不允许多线程下载的源（与 PCL 相同：BMCLAPI 等在高频请求下会限流）。
 fn splittable(url: &str) -> bool {
@@ -473,6 +478,9 @@ impl Downloader {
         let mut workers: JoinSet<()> = JoinSet::new();
         let mut extra_held = 0usize;
         let mut last_split = Instant::now();
+        // 实际传输速度：从收到第一批数据开始测量，(开始时间, 当时已下载字节)
+        let mut sample: Option<(Instant, u64)> = None;
+        let mut speed = f64::MAX;
         let result = loop {
             if cancel.is_cancelled() {
                 break Err(CoreError::Cancelled);
@@ -507,8 +515,20 @@ impl Downloader {
                 if active == 0 && launch.is_empty() {
                     break Err(st.last_error.take().unwrap_or_else(|| CoreError::InvalidData("所有下载源都不可用".into())));
                 }
+                // 每测满 1 秒更新一次速度
+                let now = done_total.load(Ordering::Relaxed);
+                match sample {
+                    None if now > 0 => sample = Some((Instant::now(), now)),
+                    Some((at, from)) if at.elapsed() >= SPLIT_AFTER => {
+                        speed = (now - from) as f64 / at.elapsed().as_secs_f64();
+                        sample = Some((Instant::now(), now));
+                    }
+                    _ => {}
+                }
+                let per_conn = speed / active.max(1) as f64;
                 // 拆分：把剩余最大的块从 60% 处切开，交给下一个可以多线程下载的源
                 if st.started
+                    && per_conn < SPLIT_BELOW_PER_CONN
                     && !st.no_ranges
                     && st.pieces.len() < MAX_PIECES
                     && last_split.elapsed() >= Duration::from_millis(300)
@@ -563,7 +583,7 @@ impl Downloader {
                     }
                 });
             }
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            tokio::time::sleep(Duration::from_millis(50)).await;
         };
         // 结束所有连接
         workers.abort_all();

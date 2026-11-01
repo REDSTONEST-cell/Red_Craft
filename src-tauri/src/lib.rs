@@ -39,7 +39,10 @@ pub fn run() {
         state.paths.portable
     );
     tauri::Builder::default()
-        .on_window_event(|window, _| background::window_changed(window.app_handle()))
+        .on_window_event(|window, _| {
+            background::window_changed(window.app_handle());
+            memory::webview_memory_follow_window(window);
+        })
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(state)
@@ -51,10 +54,7 @@ pub fn run() {
         })
         .setup(|app| {
             updater::cleanup(&app.state::<AppState>());
-            // 后台预加载 Mod 中文名数据库，第一次中文搜索时无需等待
-            std::thread::spawn(|| {
-                launcher_core::content::zhdb::db();
-            });
+            // Mod 中文名数据库（约 14MB 内存）不在启动时加载，第一次搜索资源时再加载（约 35ms）
             // 保险：前端若因异常没有通知就绪，2 秒后仍然显示窗口
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {

@@ -204,8 +204,13 @@ impl RunningGame {
             .wait()
             .await
             .map_err(|e| CoreError::Launch(format!("等待游戏进程失败：{e}")))?;
+        // 读完剩余的日志；游戏启动的子进程可能仍占用输出管道，最多等 2 秒
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
         for r in self.readers.drain(..) {
-            let _ = r.await;
+            let abort = r.abort_handle();
+            if tokio::time::timeout_at(deadline, r).await.is_err() {
+                abort.abort();
+            }
         }
         let tail: Vec<String> = self.tail.lock().map(|t| t.iter().cloned().collect()).unwrap_or_default();
         let code = status.code();
@@ -232,17 +237,34 @@ impl RunningGame {
     }
 }
 
-/// 强制结束指定进程。
+/// 强制结束指定进程（与 PCL 相同，直接结束游戏进程本身）。
 pub fn kill_pid(pid: u32) -> Result<()> {
+    let failed = || CoreError::Launch("无法结束游戏进程，它可能已经退出".into());
     #[cfg(windows)]
-    let status = std::process::Command::new("taskkill")
-        .args(["/F", "/T", "/PID", &pid.to_string()])
-        .status();
+    {
+        use windows_sys::Win32::Foundation::CloseHandle;
+        use windows_sys::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
+        // SAFETY: 句柄由 OpenProcess 返回，使用后关闭
+        unsafe {
+            let handle = OpenProcess(PROCESS_TERMINATE, 0, pid);
+            if handle.is_null() {
+                return Err(failed());
+            }
+            let ok = TerminateProcess(handle, 1) != 0;
+            CloseHandle(handle);
+            if ok {
+                Ok(())
+            } else {
+                Err(failed())
+            }
+        }
+    }
     #[cfg(not(windows))]
-    let status = std::process::Command::new("kill").args(["-9", &pid.to_string()]).status();
-    match status {
-        Ok(s) if s.success() => Ok(()),
-        _ => Err(CoreError::Launch("无法结束游戏进程，它可能已经退出".into())),
+    {
+        match std::process::Command::new("kill").args(["-9", &pid.to_string()]).status() {
+            Ok(s) if s.success() => Ok(()),
+            _ => Err(failed()),
+        }
     }
 }
 

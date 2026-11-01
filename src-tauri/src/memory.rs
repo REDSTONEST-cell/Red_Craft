@@ -135,3 +135,36 @@ fn run_elevated(_out: &std::path::Path) -> AppResult<()> {
     let _: Option<PathBuf> = None;
     Err(AppError::msg("内存优化仅支持 Windows", ""))
 }
+
+/// 启动器隐藏或最小化时（例如游戏运行期间）让 WebView2 降低内存占用：释放缓存、压缩内存，
+/// 重新显示时恢复正常。只在 Windows 上有效。
+pub fn webview_memory_follow_window(window: &tauri::Window) {
+    #[cfg(windows)]
+    {
+        use tauri::Manager;
+        let hidden = !window.is_visible().unwrap_or(true) || window.is_minimized().unwrap_or(false);
+        static LOW: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        if LOW.swap(hidden, std::sync::atomic::Ordering::Relaxed) == hidden {
+            return;
+        }
+        let Some(webview) = window.app_handle().get_webview_window(window.label()) else { return };
+        let _ = webview.with_webview(move |pw| {
+            use webview2_com::Microsoft::Web::WebView2::Win32::{
+                ICoreWebView2_19, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL,
+            };
+            use windows_core::Interface;
+            let level = if hidden { COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW } else { COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL };
+            // SAFETY: COM 调用在 WebView 所在线程执行；旧版 WebView2 不支持该接口时忽略
+            unsafe {
+                if let Ok(core) = pw.controller().CoreWebView2() {
+                    if let Ok(core) = core.cast::<ICoreWebView2_19>() {
+                        let _ = core.SetMemoryUsageTargetLevel(level);
+                    }
+                }
+            }
+        });
+    }
+    #[cfg(not(windows))]
+    let _ = window;
+}
+

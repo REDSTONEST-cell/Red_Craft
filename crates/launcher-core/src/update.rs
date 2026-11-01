@@ -46,7 +46,7 @@ impl InstallKind {
         match self {
             InstallKind::Nsis => Some("-setup.exe"),
             InstallKind::Msi => Some(".msi"),
-            InstallKind::Portable => Some("_portable.exe"),
+            InstallKind::Portable => Some("_x64win.exe"),
             InstallKind::AppImage => Some(".AppImage"),
             InstallKind::Manual => None,
         }
@@ -522,7 +522,7 @@ mod tests {
         let json = r#"{"tag_name":"v1.0.1","html_url":"https://github.com/x/y/releases/tag/v1.0.1","assets":[
             {"name":"Red.Craft_1.0.1_x64-setup.exe","browser_download_url":"https://e/a","size":1},
             {"name":"Red.Craft_1.0.1_x64_zh-CN.msi","browser_download_url":"https://e/b","size":2},
-            {"name":"RCL_1.0.1_portable.exe","browser_download_url":"https://e/c","size":3},
+            {"name":"RCL_1.0.1_x64win.exe","browser_download_url":"https://e/c","size":3},
             {"name":"Red.Craft_1.0.1_amd64.AppImage","browser_download_url":"https://e/d","size":4},
             {"name":"SHA256SUMS.txt","browser_download_url":"https://e/s","size":5}]}"#;
         let r: Release = serde_json::from_str(json).unwrap();
