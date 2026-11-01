@@ -94,6 +94,11 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
                 let code = status.as_ref().and_then(|s| s["code"].as_i64()).map(|c| c as i32);
                 let vanished = pid > 0 && !std::path::Path::new(&format!("/proc/{pid}")).exists();
                 if code.is_some() || killed || vanished {
+                    if vanished && code.is_none() && !killed {
+                        let _ = window.eval(&format!("window.RclGame.captureExit('{}', {})", session, pid));
+                        // 系统退出记录在进程消失后异步产生，稍后再收集最后一段诊断。
+                        tokio::time::sleep(Duration::from_millis(1500)).await;
+                    }
                     emit_logs(&app2, &id, &directory, &mut offset, &opts.auth.access_token);
                     let crashed = !killed && code != Some(0);
                     let tail = std::fs::read_to_string(directory.join("game.log")).unwrap_or_default();
