@@ -237,21 +237,57 @@ impl RunningGame {
     }
 }
 
-/// 强制结束指定进程（与 PCL 相同，直接结束游戏进程本身）。
+/// 强制结束游戏进程及其所有子进程（直接调用系统接口，不启动外部程序）。
+///
+/// 部分电脑上 PATH 中的 java.exe 只是转发程序（如 Oracle 的 javapath），真正的游戏是它的子进程，
+/// 只结束它本身会让游戏继续运行，所以要连同子孙进程一起结束。
 pub fn kill_pid(pid: u32) -> Result<()> {
     let failed = || CoreError::Launch("无法结束游戏进程，它可能已经退出".into());
     #[cfg(windows)]
     {
-        use windows_sys::Win32::Foundation::CloseHandle;
+        use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+        use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+            CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
+        };
         use windows_sys::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
-        // SAFETY: 句柄由 OpenProcess 返回，使用后关闭
+        // SAFETY: 快照与进程句柄都在使用后关闭；结构体按文档初始化 dwSize
         unsafe {
-            let handle = OpenProcess(PROCESS_TERMINATE, 0, pid);
-            if handle.is_null() {
-                return Err(failed());
+            // 进程列表：(进程, 父进程)
+            let mut pairs = Vec::new();
+            let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+            if snap != INVALID_HANDLE_VALUE {
+                let mut entry: PROCESSENTRY32W = std::mem::zeroed();
+                entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+                if Process32FirstW(snap, &mut entry) != 0 {
+                    loop {
+                        pairs.push((entry.th32ProcessID, entry.th32ParentProcessID));
+                        if Process32NextW(snap, &mut entry) == 0 {
+                            break;
+                        }
+                    }
+                }
+                CloseHandle(snap);
             }
-            let ok = TerminateProcess(handle, 1) != 0;
-            CloseHandle(handle);
+            // 先结束子孙进程，再结束游戏进程本身
+            let mut order = vec![pid];
+            let mut i = 0;
+            while i < order.len() {
+                let parent = order[i];
+                let children: Vec<u32> =
+                    pairs.iter().filter(|(p, pp)| *pp == parent && *p != parent && !order.contains(p)).map(|(p, _)| *p).collect();
+                order.extend(children);
+                i += 1;
+            }
+            let mut ok = false;
+            for &p in order.iter().rev() {
+                let handle = OpenProcess(PROCESS_TERMINATE, 0, p);
+                if handle.is_null() {
+                    continue;
+                }
+                let done = TerminateProcess(handle, 1) != 0;
+                CloseHandle(handle);
+                ok |= done && p == pid;
+            }
             if ok {
                 Ok(())
             } else {
@@ -261,6 +297,7 @@ pub fn kill_pid(pid: u32) -> Result<()> {
     }
     #[cfg(not(windows))]
     {
+        let _ = std::process::Command::new("pkill").args(["-9", "-P", &pid.to_string()]).status();
         match std::process::Command::new("kill").args(["-9", &pid.to_string()]).status() {
             Ok(s) if s.success() => Ok(()),
             _ => Err(failed()),

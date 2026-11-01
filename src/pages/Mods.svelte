@@ -22,6 +22,7 @@
   import ModpackInstall from "../components/ModpackInstall.svelte";
   import ResourceManager from "../components/ResourceManager.svelte";
   import Icon from "../components/Icon.svelte";
+  import { fade } from "svelte/transition";
   import Toggle from "../components/Toggle.svelte";
   import { iconSrc, zhName } from "../lib/zh";
   import { getContext, getQuery, getSearch, patchSearch, putContext, putQuery, putSearch } from "../lib/searchCache";
@@ -415,6 +416,12 @@
         <p class="muted">{error.hint}</p>
         <button class="btn" style="margin-top:14px" onclick={() => search(true)}>重试</button>
       </div>
+    {:else if loading && hits.length === 0}
+      <!-- 第一次加载：与 PCL 一样显示「正在获取 Mod 列表」 -->
+      <div class="fetching" in:fade={{ duration: 150 }}>
+        <span class="fetch-icon"><Icon name="cube" size={30} /></span>
+        <p>正在获取 {tabs.find((t) => t.value === tab)?.label ?? ""} 列表</p>
+      </div>
     {:else if !loading && hits.length === 0}
       <div class="empty"><h3>没有找到结果</h3><p>换个关键词，或关闭「仅兼容」试试。</p></div>
     {:else}
@@ -529,6 +536,34 @@
   .installed {
     flex: 1;
     min-height: 0;
+  }
+  .fetching {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .fetch-icon {
+    display: grid;
+    animation: fetch-bob 900ms var(--ease) infinite alternate;
+  }
+  @keyframes fetch-bob {
+    from {
+      transform: translateY(-4px) rotate(-8deg);
+    }
+    to {
+      transform: translateY(4px) rotate(8deg);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .fetch-icon {
+      animation: none;
+    }
   }
   .results {
     flex: 1;
