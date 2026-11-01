@@ -55,6 +55,9 @@ fn component_for(major: u32, fallback: &str) -> String {
 #[tauri::command]
 pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: String) -> AppResult<u64> {
     if cfg!(mobile) {
+        #[cfg(target_os = "android")]
+        return crate::android_game::launch_instance(app, state, id).await;
+        #[cfg(not(target_os = "android"))]
         return Err(AppError::msg("手机版暂时还不能启动游戏", "游戏启动正在接入中，敬请期待。"));
     }
     if state.running.lock().is_ok_and(|r| r.contains_key(&id)) {
@@ -454,6 +457,14 @@ pub async fn kill_game(app: AppHandle, state: State<'_, AppState>, id: String) -
     if let Ok(mut k) = state.killed.lock() {
         k.insert(id.clone());
     }
+    #[cfg(target_os = "android")]
+    {
+        let _ = pid;
+        if let Some(window) = app.get_webview_window("main") {
+            window.eval("window.RclGame.stop()").map_err(|e| AppError::msg(e.to_string(), "无法结束游戏"))?;
+        }
+    }
+    #[cfg(not(target_os = "android"))]
     tauri::async_runtime::spawn_blocking(move || launch::kill_pid(pid))
         .await
         .map_err(|e| AppError::msg(e.to_string(), ""))??;

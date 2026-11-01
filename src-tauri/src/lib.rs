@@ -1,6 +1,8 @@
 //! Tauri 外壳：把 launcher-core 包装成 commands 与 events。
 
 mod auth;
+#[cfg(target_os = "android")]
+mod android_game;
 mod background;
 mod commands;
 mod content;
