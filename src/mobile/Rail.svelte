@@ -18,14 +18,14 @@
   <div class="items">
     {#each items as item}
       <button class="item" class:active={app.page === item.page} onclick={() => (app.page = item.page)}>
-        <span class="pill"><Icon name={item.icon} size={18} /></span>
+        <span class="pill"><Icon name={item.icon} size={22} /></span>
         <span class="label">{item.label}</span>
         {#if item.page === "download" && running}<span class="dot">{running}</span>{/if}
       </button>
     {/each}
   </div>
   <button class="item" class:active={app.page === "settings"} onclick={() => (app.page = "settings")}>
-    <span class="pill"><Icon name="gear" size={18} /></span>
+    <span class="pill"><Icon name="gear" size={22} /></span>
     <span class="label">设置</span>
   </button>
 </nav>
@@ -38,11 +38,17 @@
     display: flex;
     flex-direction: column;
     align-items: center;
+    overflow-y: auto;
+    overflow-x: hidden;
+    min-height: 0;
+    overscroll-behavior-y: contain;
+    touch-action: pan-y;
     padding: max(8px, var(--m-safe-t), var(--m-corner)) 0 max(8px, var(--m-safe-b), var(--m-corner)) var(--m-safe-l);
     background: var(--card);
     border-right: 1px solid var(--rule);
   }
   .brand {
+    flex-shrink: 0;
     font-weight: 800;
     font-size: 13px;
     letter-spacing: 0.04em;
@@ -50,7 +56,7 @@
     margin: 2px 0 6px;
   }
   .items {
-    flex: 1;
+    flex: 1 0 auto;
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -58,6 +64,7 @@
   }
   .item {
     position: relative;
+    flex-shrink: 0;
     width: 56px;
     border: 0;
     background: none;
@@ -67,14 +74,14 @@
     gap: 2px;
     padding: 4px 0;
     color: var(--muted);
-    font-size: 10.5px;
+    font-size: 12px;
     font-weight: 600;
     -webkit-tap-highlight-color: transparent;
   }
   .pill {
     width: 44px;
-    height: 26px;
-    border-radius: 13px;
+    height: 30px;
+    border-radius: 15px;
     display: grid;
     place-items: center;
     transition: background var(--t-fast), color var(--t-fast);
