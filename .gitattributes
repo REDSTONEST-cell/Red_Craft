@@ -1,0 +1,5 @@
+* text=auto eol=lf
+
+# Windows 批处理脚本使用系统惯例换行。
+*.bat text eol=crlf
+*.cmd text eol=crlf
