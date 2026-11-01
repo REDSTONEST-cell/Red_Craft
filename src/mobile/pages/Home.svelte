@@ -60,6 +60,7 @@
     { label: "存档", icon: "box", run: () => manage("save") },
     { label: "下载资源", icon: "download", run: () => (app.page = "mods") },
     { label: "全部版本", icon: "chevron", run: () => (app.page = "instances") },
+    ...(game && inst ? [{ label: "游戏日志", icon: "terminal", run: () => (app.logViewer = inst!.id) }] : []),
   ]);
 </script>
 

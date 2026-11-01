@@ -83,7 +83,6 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
                 tokio::time::sleep(Duration::from_millis(500)).await;
                 if cancel.is_cancelled() { let _ = window.eval("window.RclGame.stop()"); cancel.check()?; }
                 let status: Option<serde_json::Value> = crate::settings::read_json(&directory.join("status.json"));
-                emit_logs(&app2, &id, &directory, &mut offset, &opts.auth.access_token);
                 let killed = state.killed.lock().is_ok_and(|k| k.contains(&id));
                 let pid = status.as_ref().and_then(|s| s["pid"].as_u64()).unwrap_or(0) as u32;
                 if pid > 0 && !spawned {
@@ -91,6 +90,7 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
                     if let Ok(mut r) = state.running.lock() { r.insert(id.clone(), pid); }
                     let _ = app2.emit(GAME_EVENT, GameEvent::Spawned { instance: id.clone(), pid, command: "Android Java 17 · GL4ES".into() });
                 }
+                if spawned { emit_logs(&app2, &id, &directory, &mut offset, &opts.auth.access_token); }
                 let code = status.as_ref().and_then(|s| s["code"].as_i64()).map(|c| c as i32);
                 let vanished = pid > 0 && !std::path::Path::new(&format!("/proc/{pid}")).exists();
                 if code.is_some() || killed || vanished {
@@ -127,6 +127,9 @@ fn emit_logs(app: &AppHandle, id: &str, directory: &std::path::Path, offset: &mu
         if file.seek(SeekFrom::Start(*offset as u64)).is_err() { return; }
         let mut bytes = Vec::new();
         if file.take(65536).read_to_end(&mut bytes).is_err() || bytes.is_empty() { return; }
+        // 保留尚未读完的行，避免令牌跨读取边界时漏掉遮蔽。
+        let Some(end) = bytes.iter().rposition(|b| *b == b'\n') else { return; };
+        bytes.truncate(end + 1);
         let lines = String::from_utf8_lossy(&bytes).lines()
             .map(|text| LogLine { text: redact(text, token), stderr: false }).collect::<Vec<_>>();
         *offset += bytes.len();

@@ -32,6 +32,11 @@
     const text = (instance ? gameLogs(instance) : []).map((l) => l.text).join("\n");
     await navigator.clipboard.writeText(text);
   }
+  function exportMobileLog() {
+    const text = (instance ? gameLogs(instance) : []).map((l) => l.text).join("\n");
+    const host = (window as unknown as { RclGame?: { shareLog(text: string): void } }).RclGame;
+    host?.shareLog(text);
+  }
 </script>
 
 <Modal bind:open title={`游戏日志 · ${instance ?? ""}`} kicker="LOG" width={860} onclose={() => (app.logViewer = null)}>
@@ -40,6 +45,9 @@
     <span class="muted">{lines.length} 行</span>
     <span class="spacer"></span>
     <button class="btn sm" onclick={copy}>复制全部</button>
+    {#if app.info?.os === "android"}
+      <button class="btn sm" onclick={exportMobileLog}>导出日志</button>
+    {/if}
     {#if session?.running}
       <button class="btn sm danger" onclick={() => instance && api.killGame(instance)}>结束游戏</button>
     {/if}
