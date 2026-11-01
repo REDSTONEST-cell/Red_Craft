@@ -12,6 +12,14 @@
   font-size: 13px;
   -webkit-text-size-adjust: 100%;
   touch-action: manipulation;
+  /* 四边需要避让的宽度（挖孔、曲面边缘、系统栏）：--m-cut-* 由 viewport.ts 根据 Android 端提供的信息设置，
+     浏览器自己能提供 env(safe-area-inset-*) 时取两者中较大的 */
+  --m-safe-l: max(env(safe-area-inset-left, 0px), var(--m-cut-l, 0px));
+  --m-safe-t: max(env(safe-area-inset-top, 0px), var(--m-cut-t, 0px));
+  --m-safe-r: max(env(safe-area-inset-right, 0px), var(--m-cut-r, 0px));
+  --m-safe-b: max(env(safe-area-inset-bottom, 0px), var(--m-cut-b, 0px));
+  /* 贴近屏幕四角的内容需要留出的边距（屏幕圆角） */
+  --m-corner: 0px;
 }
 :root.mobile[data-theme="dark"] {
   --shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
@@ -74,16 +82,23 @@
 :root.mobile .m-page :is(h1, h2) {
   letter-spacing: 0;
 }
-/* 弹窗：占满可用高度，四周留少量边距 */
+/* 弹窗：在避开挖孔后的区域内居中，占满可用高度，四周留少量边距 */
+:root.mobile .layer > .center {
+  padding: var(--m-safe-t) var(--m-safe-r) var(--m-safe-b) var(--m-safe-l);
+}
 :root.mobile .modal {
-  max-width: calc(100vw - 24px);
-  max-height: calc(100vh - 24px);
+  max-width: calc(100vw - 24px - var(--m-safe-l) - var(--m-safe-r));
+  max-height: calc(100vh - 24px - var(--m-safe-t) - var(--m-safe-b));
 }
 /* 提示：贴右下角，窄一些 */
 :root.mobile .toasts {
-  right: 10px;
-  bottom: 10px;
+  right: calc(10px + var(--m-safe-r));
+  bottom: calc(10px + var(--m-safe-b));
   width: 300px;
+}
+/* 下载任务按钮与面板：避开右侧挖孔 */
+:root.mobile .m-main > :is(.task-fab, .task-panel) {
+  right: calc(22px + var(--m-safe-r));
 }
 
 /* ─── 资源页：标题由导航栏表达，页头只保留版本选择与平台切换，留出更多空间给结果列表 ─── */
@@ -113,4 +128,27 @@
 :root.mobile .m-page .seg button {
   padding: 0 10px;
   font-size: 12px;
+}
+/* 资源页的分类、搜索、排序、仅兼容一行放不下时（16:9 等较窄的屏幕）换行，搜索框保持可用宽度 */
+:root.mobile .m-page .bar {
+  flex-wrap: wrap;
+}
+:root.mobile .m-page .bar > .seg {
+  flex: none;
+}
+:root.mobile .m-page .bar > .seg button {
+  padding: 0 8px;
+}
+:root.mobile .m-page .bar > .search {
+  flex: 1 1 130px;
+  min-width: 130px;
+}
+:root.mobile .m-page .bar > .sort {
+  flex: none;
+  width: 96px;
+}
+:root.mobile .m-page .bar > .toggle {
+  flex: none;
+  gap: 6px;
+  white-space: nowrap;
 }

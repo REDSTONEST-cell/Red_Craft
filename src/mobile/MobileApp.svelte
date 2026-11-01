@@ -15,7 +15,10 @@
   import { app, init, showError } from "../lib/state.svelte";
   import { api } from "../lib/api";
   import { page } from "../lib/motion";
+  import { iconPrefs, installIconFallback } from "./icons";
   import { tick } from "svelte";
+
+  installIconFallback();
 
   let ready = $state(false);
   let systemDark = $state(window.matchMedia("(prefers-color-scheme: dark)").matches);
@@ -37,6 +40,7 @@
     root.dataset.theme = dark ? "dark" : "light";
     root.dataset.corner = "rounded";
     root.dataset.layout = "minimal";
+    iconPrefs.official = s?.communitySource === "official";
     const accent = s?.accent || "#E8590C";
     root.style.setProperty("--accent", accent);
     root.style.setProperty("--accent-ink", readableOn(accent));
@@ -95,13 +99,12 @@
 <CrashDialog />
 
 <style>
+  /* 铺满整个屏幕（包括挖孔一侧）：背景画到屏幕边缘，内容按 --m-safe-* 避开挖孔，见 viewport.ts */
   .m-shell {
     height: 100%;
     display: flex;
     background: var(--paper);
     color: var(--ink);
-    /* 刘海、圆角屏幕的安全区域 */
-    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   }
   .m-main {
     position: relative;
@@ -113,11 +116,11 @@
     position: absolute;
     inset: 0;
     overflow-y: auto;
-    padding: 12px 14px 16px;
+    padding: calc(12px + var(--m-safe-t)) calc(14px + var(--m-safe-r)) calc(16px + var(--m-safe-b)) 14px;
   }
   /* 主页自己安排边距，不滚动 */
   .m-page.fill {
     overflow: hidden;
-    padding: 0;
+    padding: var(--m-safe-t) var(--m-safe-r) var(--m-safe-b) 0;
   }
 </style>

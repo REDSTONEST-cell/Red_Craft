@@ -31,13 +31,14 @@
 </nav>
 
 <style>
+  /* 挖孔在左侧时，导航栏的背景延伸到屏幕边缘，按钮整体右移避开挖孔；上下避开屏幕圆角 */
   .rail {
-    width: 64px;
+    width: calc(64px + var(--m-safe-l));
     flex: none;
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 8px 0;
+    padding: max(8px, var(--m-safe-t), var(--m-corner)) 0 max(8px, var(--m-safe-b), var(--m-corner)) var(--m-safe-l);
     background: var(--card);
     border-right: 1px solid var(--rule);
   }

@@ -1,11 +1,16 @@
 // 资源的中文显示：图标走后端（镜像加速 + 缓存）、常见 Mod 的中文名、中文关键词搜索。
 import { convertFileSrc } from "@tauri-apps/api/core";
 import names from "./zh-names.json";
+import { mobileIconSrc } from "../mobile/icons";
+
+const ANDROID = typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent);
 
 /** 资源图标地址：交给后端的 rcicon 协议，同时尝试官方 CDN 与 MCIM 镜像，并缓存到本地。 */
 export function iconSrc(url: string | null | undefined): string {
   if (!url) return "";
   if (!/^https:\/\/(cdn\.modrinth\.com|media\.forgecdn\.net|edge\.forgecdn\.net|mediafilez\.forgecdn\.net)\//.test(url)) return url;
+  // 手机版由 WebView 直接加载（镜像优先，失败时逐个回退），见 src/mobile/icons.ts
+  if (ANDROID) return mobileIconSrc(url);
   return convertFileSrc(url, "rcicon");
 }
 

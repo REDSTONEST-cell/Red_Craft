@@ -230,6 +230,9 @@
     gap: 5px;
     font-size: 11.5px;
     font-weight: 600;
+    /* 较窄的屏幕上文字不折行 */
+    white-space: nowrap;
+    padding: 0 2px;
     box-shadow: var(--shadow-sm);
     transition: transform var(--t-fast);
   }
