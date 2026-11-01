@@ -3,7 +3,7 @@
 //! 大文件参照 PCL 的下载引擎分块多线程下载：1MB 以上的文件动态拆分，新的连接接手剩余最大的一块，
 //! 并在各个下载源之间轮换，官方源与镜像可以同时下载；某个连接太慢或出错时，剩余部分换下一个源继续。
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -109,6 +109,78 @@ impl Counters {
 
 pub type ProgressFn = Arc<dyn Fn(Progress) + Send + Sync>;
 
+/// 已校验文件的记录：路径 → (大小, 修改时间, SHA1)。
+///
+/// 启动前补全文件时，大小与修改时间都没变的文件直接视为校验通过，不再重新计算哈希
+/// （依赖库常有几百 MB，每次都计算会明显拖慢启动，Windows 上读取时还会被杀毒软件扫描）。
+/// 文件被替换或修改后修改时间会变，仍会重新校验。
+#[derive(Default)]
+pub struct VerifyCache {
+    file: PathBuf,
+    map: std::sync::Mutex<HashMap<PathBuf, (u64, u128, String)>>,
+    dirty: AtomicBool,
+}
+
+impl VerifyCache {
+    /// 读取记录文件；不存在或损坏时从空记录开始。
+    pub fn load(file: PathBuf) -> Self {
+        let mut map = HashMap::new();
+        if let Ok(text) = std::fs::read_to_string(&file) {
+            for line in text.lines() {
+                let mut it = line.splitn(4, '\t');
+                if let (Some(sha1), Some(size), Some(mtime), Some(path)) = (it.next(), it.next(), it.next(), it.next()) {
+                    if let (Ok(size), Ok(mtime)) = (size.parse(), mtime.parse()) {
+                        map.insert(PathBuf::from(path), (size, mtime, sha1.to_string()));
+                    }
+                }
+            }
+        }
+        VerifyCache { file, map: std::sync::Mutex::new(map), dirty: AtomicBool::new(false) }
+    }
+
+    fn stamp(meta: &std::fs::Metadata) -> u128 {
+        meta.modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    }
+
+    fn known(&self, path: &Path, meta: &std::fs::Metadata, sha1: &str) -> bool {
+        let stamp = Self::stamp(meta);
+        self.map
+            .lock()
+            .is_ok_and(|m| m.get(path).is_some_and(|(size, mtime, h)| *size == meta.len() && *mtime == stamp && stamp != 0 && h.eq_ignore_ascii_case(sha1)))
+    }
+
+    fn record(&self, path: &Path, sha1: &str) {
+        let Ok(meta) = std::fs::metadata(path) else { return };
+        if let Ok(mut m) = self.map.lock() {
+            m.insert(path.to_path_buf(), (meta.len(), Self::stamp(&meta), sha1.to_ascii_lowercase()));
+            self.dirty.store(true, Ordering::Relaxed);
+        }
+    }
+
+    /// 有变化时写回记录文件（先写临时文件再替换）。
+    pub fn save(&self) {
+        if !self.dirty.swap(false, Ordering::Relaxed) {
+            return;
+        }
+        let Ok(m) = self.map.lock() else { return };
+        let mut text = String::with_capacity(m.len() * 120);
+        for (path, (size, mtime, sha1)) in m.iter() {
+            if path.exists() {
+                text.push_str(&format!("{sha1}\t{size}\t{mtime}\t{}\n", path.display()));
+            }
+        }
+        drop(m);
+        let tmp = self.file.with_extension("tmp");
+        if std::fs::write(&tmp, text).is_ok() {
+            let _ = std::fs::rename(&tmp, &self.file);
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct Downloader {
     http: HttpClient,
@@ -116,6 +188,8 @@ pub struct Downloader {
     retries: u32,
     /// 分块下载额外占用的连接数（所有文件合计，不超过并发数）
     extra: Arc<AtomicUsize>,
+    /// 已校验文件的记录（可选）
+    verified: Option<Arc<VerifyCache>>,
 }
 
 impl Downloader {
@@ -125,7 +199,31 @@ impl Downloader {
             concurrency: concurrency.clamp(1, 256),
             retries: 3,
             extra: Arc::new(AtomicUsize::new(0)),
+            verified: None,
         }
+    }
+
+    /// 使用已校验文件的记录，跳过没有变化的文件的哈希计算。
+    pub fn with_verify_cache(mut self, cache: Arc<VerifyCache>) -> Self {
+        self.verified = Some(cache);
+        self
+    }
+
+    /// 文件是否存在且（如提供）大小与 SHA1 都匹配；有记录且没有变化时不重新计算哈希。
+    async fn is_valid_cached(&self, task: &DownloadTask) -> Result<bool> {
+        if let (Some(cache), Some(sha1)) = (&self.verified, task.sha1.as_deref()) {
+            if let Ok(meta) = tokio::fs::metadata(&task.path).await {
+                if meta.is_file() && task.size.is_none_or(|s| s == meta.len()) && cache.known(&task.path, &meta, sha1) {
+                    return Ok(true);
+                }
+            }
+            let ok = is_valid(&task.path, Some(sha1), task.size).await?;
+            if ok {
+                cache.record(&task.path, sha1);
+            }
+            return Ok(ok);
+        }
+        is_valid(&task.path, task.sha1.as_deref(), task.size).await
     }
 
     pub fn http(&self) -> &HttpClient {
@@ -186,6 +284,11 @@ impl Downloader {
                 let _permit = sem.acquire_owned().await.expect("semaphore closed");
                 cancel.check()?;
                 let r = this.download_one(&task, &counters, &cancel).await;
+                if r.is_ok() {
+                    if let (Some(cache), Some(sha1)) = (&this.verified, task.sha1.as_deref()) {
+                        cache.record(&task.path, sha1);
+                    }
+                }
                 match &r {
                     Ok(()) => counters.done_files.fetch_add(1, Ordering::Relaxed),
                     Err(_) => counters.failed_files.fetch_add(1, Ordering::Relaxed),
@@ -211,6 +314,10 @@ impl Downloader {
         }
         reporter.abort();
         on_progress(counters.snapshot(total_files, 0));
+        if let Some(cache) = &self.verified {
+            let cache = cache.clone();
+            let _ = tokio::task::spawn_blocking(move || cache.save()).await;
+        }
 
         match first_err {
             None => Ok(()),
@@ -229,7 +336,7 @@ impl Downloader {
         counters: &Arc<Counters>,
         cancel: &CancelToken,
     ) -> Result<()> {
-        if is_valid(&task.path, task.sha1.as_deref(), task.size).await? {
+        if self.is_valid_cached(task).await? {
             if let Some(size) = task.size {
                 counters.done_bytes.fetch_add(size, Ordering::Relaxed);
             }
@@ -770,6 +877,31 @@ pub fn sha1_bytes(data: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn verify_cache_skips_unchanged_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("lib.jar");
+        std::fs::write(&path, b"library").unwrap();
+        let sha1 = sha1_bytes(b"library");
+        let cache = Arc::new(VerifyCache::load(dir.path().join(".rcl-verified")));
+        let d = Downloader::new(HttpClient::new(crate::download::DownloadSource::Official).unwrap(), 4).with_verify_cache(cache.clone());
+        let task = DownloadTask::new("http://127.0.0.1:9/never", &path).sha1(Some(sha1.clone())).size(Some(7));
+        assert!(d.is_valid_cached(&task).await.unwrap());
+        cache.save();
+        // 重新读取记录：没有变化的文件直接通过
+        let cache2 = VerifyCache::load(dir.path().join(".rcl-verified"));
+        let meta = std::fs::metadata(&path).unwrap();
+        assert!(cache2.known(&path, &meta, &sha1));
+        // 内容被改动（修改时间变化）后不再信任记录
+        std::thread::sleep(Duration::from_millis(20));
+        std::fs::write(&path, b"libraryX").unwrap();
+        let meta = std::fs::metadata(&path).unwrap();
+        assert!(!cache2.known(&path, &meta, &sha1));
+        let d2 = Downloader::new(HttpClient::new(crate::download::DownloadSource::Official).unwrap(), 4).with_verify_cache(Arc::new(cache2));
+        let task = DownloadTask { size: None, ..task };
+        assert!(!d2.is_valid_cached(&task).await.unwrap());
+    }
 
     /// 本地 HTTP 服务：支持 Range，每个连接限速（模拟单连接很慢的网络）；路径为 /bad 时返回 404。
     async fn serve(data: Arc<Vec<u8>>, per_conn_bps: usize) -> (String, Arc<AtomicUsize>) {

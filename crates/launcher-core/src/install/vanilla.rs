@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use crate::download::{sha1_bytes, CancelToken, DownloadTask, Downloader, ProgressFn};
+use crate::download::{sha1_bytes, CancelToken, DownloadTask, Downloader, ProgressFn, VerifyCache};
 use crate::error::{CoreError, IoContext, Result};
 use crate::paths::GameDir;
 use crate::version::{plan_libraries, resolve_version, Environment, ManifestEntry, ResolvedVersion};
@@ -46,8 +46,10 @@ pub struct Installer {
 
 impl Installer {
     pub fn new(downloader: Downloader, game: GameDir) -> Self {
+        // 记住已校验过的文件，启动前补全时跳过没有变化的文件的哈希计算
+        let cache = VerifyCache::load(game.root().join(".rcl-verified"));
         Installer {
-            downloader,
+            downloader: downloader.with_verify_cache(Arc::new(cache)),
             game,
             env: Environment::current(),
         }
