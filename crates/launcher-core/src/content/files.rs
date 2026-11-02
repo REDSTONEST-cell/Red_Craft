@@ -623,6 +623,60 @@ fn extract_save(zip_path: &Path, saves: &Path) -> Result<String> {
     Ok(name)
 }
 
+/// 把存档文件夹打包成 zip（压缩包内的顶层目录为存档名，可以直接再导入）。
+/// 先写临时文件，完成后改名；跳过游戏运行时被锁定的 `session.lock`。
+pub fn zip_save(game_dir: &Path, name: &str, out: &Path) -> Result<()> {
+    use std::io::Write;
+    let src = entry_path(game_dir, FileKind::Save, name)?;
+    if !src.join("level.dat").is_file() {
+        return Err(CoreError::msg(format!("「{name}」不是存档文件夹（缺少 level.dat）"), ""));
+    }
+    let tmp = out.with_extension("zip.part");
+    let result = (|| {
+        let file = std::fs::File::create(&tmp).at(&tmp)?;
+        let mut zip = zip::ZipWriter::new(std::io::BufWriter::new(file));
+        let opts = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        let err = |e: zip::result::ZipError| CoreError::Archive { path: tmp.clone(), reason: e.to_string() };
+        let mut stack = vec![src.clone()];
+        let mut buf = vec![0u8; 64 * 1024];
+        while let Some(dir) = stack.pop() {
+            let mut entries: Vec<_> = std::fs::read_dir(&dir).at(&dir)?.flatten().collect();
+            entries.sort_by_key(|e| e.file_name());
+            for e in entries {
+                let path = e.path();
+                let rel = path.strip_prefix(&src).unwrap_or(&path);
+                let entry = format!("{name}/{}", rel.to_string_lossy().replace('\\', "/"));
+                if path.is_dir() {
+                    zip.add_directory(format!("{entry}/"), opts).map_err(err)?;
+                    stack.push(path);
+                    continue;
+                }
+                if e.file_name() == "session.lock" {
+                    continue;
+                }
+                let mut f = std::fs::File::open(&path).at(&path)?;
+                zip.start_file(entry, opts).map_err(err)?;
+                loop {
+                    let n = f.read(&mut buf).at(&path)?;
+                    if n == 0 {
+                        break;
+                    }
+                    zip.write_all(&buf[..n]).at(&tmp)?;
+                }
+            }
+        }
+        zip.finish().map_err(err)?.flush().at(&tmp)?;
+        Ok(())
+    })();
+    match result {
+        Ok(()) => std::fs::rename(&tmp, out).at(out),
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp);
+            Err(e)
+        }
+    }
+}
+
 /// 导入文件或文件夹到对应的资源文件夹，返回导入后的名称。
 pub fn import(game_dir: &Path, kind: FileKind, src: &Path) -> Result<String> {
     let folder = game_dir.join(kind.folder());
@@ -797,5 +851,26 @@ mod tests {
         assert_eq!(import(&game, FileKind::Mod, &src.join("a.jar")).unwrap(), "a (2).jar");
         assert!(import(&game, FileKind::ResourcePack, &src.join("a.jar")).is_err());
         assert!(entry_path(&game, FileKind::Save, "../x").is_err());
+    }
+
+    #[test]
+    fn zip_save_round_trip() {
+        let t = tempfile::tempdir().unwrap();
+        let game = t.path().join("game");
+        let world = game.join("saves/world");
+        std::fs::create_dir_all(world.join("region")).unwrap();
+        std::fs::write(world.join("level.dat"), level_dat("W", 0)).unwrap();
+        std::fs::write(world.join("region/r.0.0.mca"), "r").unwrap();
+        std::fs::write(world.join("session.lock"), "lock").unwrap();
+        let out = t.path().join("world.zip");
+        zip_save(&game, "world", &out).unwrap();
+        assert!(out.is_file() && !t.path().join("world.zip.part").exists());
+        assert!(zip_save(&game, "missing", &t.path().join("x.zip")).is_err());
+
+        let other = t.path().join("other");
+        assert_eq!(import(&other, FileKind::Save, &out).unwrap(), "world");
+        assert!(other.join("saves/world/level.dat").is_file());
+        assert!(other.join("saves/world/region/r.0.0.mca").is_file());
+        assert!(!other.join("saves/world/session.lock").exists());
     }
 }

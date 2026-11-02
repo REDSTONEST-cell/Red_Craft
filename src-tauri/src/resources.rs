@@ -67,6 +67,25 @@ pub async fn files_import(state: State<'_, AppState>, instance: String, kind: Fi
     .await?
 }
 
+/// 把存档打包成 zip，写到临时目录并返回路径（手机版再交给系统保存到用户选择的位置）。
+#[tauri::command]
+pub async fn save_export_zip(state: State<'_, AppState>, instance: String, name: String) -> AppResult<PathBuf> {
+    if state.running.lock().is_ok_and(|r| r.contains_key(&instance)) {
+        return Err(AppError::msg("游戏正在运行", "存档正在被游戏使用，请先退出游戏再导出。"));
+    }
+    let dir = instance_context(&state, &instance)?.game_dir;
+    blocking(move || {
+        let out_dir = std::env::temp_dir().join("rcl-export");
+        // 上一次导出的临时文件已经交给系统保存，这里一并清理
+        let _ = std::fs::remove_dir_all(&out_dir);
+        std::fs::create_dir_all(&out_dir).map_err(|e| launcher_core::CoreError::io(&out_dir, e))?;
+        let out = out_dir.join(format!("{name}.zip"));
+        files::zip_save(&dir, &name, &out)?;
+        Ok(out)
+    })
+    .await?
+}
+
 /// 删除：移到系统回收站，误删时可以找回。
 #[tauri::command]
 pub async fn files_delete(state: State<'_, AppState>, instance: String, kind: FileKind, names: Vec<String>) -> AppResult<()> {

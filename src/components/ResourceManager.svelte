@@ -3,6 +3,7 @@
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
   import { api, type FileKind } from "../lib/api";
   import { app, showError, toast } from "../lib/state.svelte";
+  import { pickFiles, pickFolder } from "../lib/androidFiles";
   import InstalledMods from "./InstalledMods.svelte";
   import InstalledFiles from "./InstalledFiles.svelte";
 
@@ -10,6 +11,7 @@
 
   const LABEL: Record<FileKind, string> = { mod: "Mod", resourcepack: "材质包", shader: "光影包", save: "存档" };
   let reload = $state(0);
+  const android = $derived(app.info?.os === "android");
 
   async function importPaths(paths: string[]) {
     try {
@@ -29,6 +31,12 @@
       save: [],
     };
     try {
+      // 手机版：系统选择器返回的文件先复制到缓存目录，再按路径导入（存档在这里选压缩包）
+      if (android) {
+        const paths = await pickFiles(true);
+        if (paths.length) await importPaths(paths);
+        return;
+      }
       // 存档选择文件夹；存档压缩包可以直接拖进窗口
       const picked = await openDialog({
         multiple: true,
@@ -38,6 +46,15 @@
       });
       const paths = picked === null ? [] : Array.isArray(picked) ? picked : [picked];
       if (paths.length) await importPaths(paths);
+    } catch (e) {
+      showError(e);
+    }
+  }
+
+  async function pickDir() {
+    try {
+      const path = await pickFolder();
+      if (path) await importPaths([path]);
     } catch (e) {
       showError(e);
     }
@@ -56,5 +73,5 @@
 {#if kind === "mod"}
   <InstalledMods {instance} {reload} onimport={pick} />
 {:else}
-  <InstalledFiles {instance} {kind} {reload} onimport={pick} />
+  <InstalledFiles {instance} {kind} {reload} onimport={pick} onimportfolder={android && kind === "save" ? pickDir : undefined} />
 {/if}

@@ -1,7 +1,8 @@
 <script lang="ts">
   // 已安装的材质包 / 光影包 / 存档：启用材质包、切换光影、导入、移到回收站。
   import { api, type FileKind, type LocalFile } from "../lib/api";
-  import { showError, toast } from "../lib/state.svelte";
+  import { app, showError, toast } from "../lib/state.svelte";
+  import { saveFile } from "../lib/androidFiles";
   import { bytes, relative } from "../lib/format";
   import VirtualList from "./VirtualList.svelte";
   import Toggle from "./Toggle.svelte";
@@ -13,7 +14,30 @@
     kind,
     reload = 0,
     onimport,
-  }: { instance: string; kind: Exclude<FileKind, "mod">; reload?: number; onimport: () => void } = $props();
+    onimportfolder,
+  }: {
+    instance: string;
+    kind: Exclude<FileKind, "mod">;
+    reload?: number;
+    onimport: () => void;
+    /** 手机版导入存档文件夹 */
+    onimportfolder?: () => void;
+  } = $props();
+
+  // 手机上没有文件管理器可打开、也没有回收站；存档改为通过系统保存位置导出
+  const android = $derived(app.info?.os === "android");
+  let exporting = $state<string | null>(null);
+
+  async function exportSave(f: LocalFile) {
+    exporting = f.name;
+    try {
+      const path = await api.saveExportZip(instance, f.name);
+      if (await saveFile(path, `${f.name}.zip`, "application/zip")) toast("ok", `已导出「${f.title}」`);
+    } catch (e) {
+      showError(e, "导出存档失败");
+    }
+    exporting = null;
+  }
 
   const LABEL = { resourcepack: "材质包", shader: "光影包", save: "存档" } as const;
   const FOLDER = { resourcepack: "resourcepacks", shader: "shaderpacks", save: "saves" } as const;
@@ -92,10 +116,17 @@
     {#if activeShader}
       <button class="btn sm" disabled={busy} onclick={() => setActive(activeShader, false)}>关闭光影</button>
     {/if}
-    <button class="btn sm" onclick={() => api.openInstanceDir(instance, FOLDER[kind]).catch((e) => showError(e))}>
-      <Icon name="folder" size={12} /> 打开文件夹
-    </button>
-    <button class="btn sm" onclick={onimport}><Icon name="plus" size={12} /> 导入{LABEL[kind]}</button>
+    {#if !android}
+      <button class="btn sm" onclick={() => api.openInstanceDir(instance, FOLDER[kind]).catch((e) => showError(e))}>
+        <Icon name="folder" size={12} /> 打开文件夹
+      </button>
+    {/if}
+    {#if onimportfolder}
+      <button class="btn sm" onclick={onimport}><Icon name="plus" size={12} /> 导入压缩包</button>
+      <button class="btn sm" onclick={onimportfolder}><Icon name="folder" size={12} /> 导入文件夹</button>
+    {:else}
+      <button class="btn sm" onclick={onimport}><Icon name="plus" size={12} /> 导入{LABEL[kind]}</button>
+    {/if}
   </div>
 
   <div class="list">
@@ -103,7 +134,8 @@
       <div class="empty">
         <h3>还没有{LABEL[kind]}</h3>
         <p>
-          {#if kind === "save"}点击「导入存档」选择存档文件夹，或把存档文件夹、存档压缩包拖进窗口。
+          {#if kind === "save" && android}点击「导入压缩包」选择存档 zip，或点击「导入文件夹」选择存档所在的文件夹。
+          {:else if kind === "save"}点击「导入存档」选择存档文件夹，或把存档文件夹、存档压缩包拖进窗口。
           {:else}在「{LABEL[kind]}」标签中搜索并安装，或点击「导入{LABEL[kind]}」、把 zip 文件拖进窗口。{/if}
         </p>
       </div>
@@ -135,9 +167,14 @@
             {:else if kind === "shader" && !f.active}
               <button class="btn sm" disabled={busy} onclick={() => setActive(f, true)}>使用</button>
             {/if}
+            {#if kind === "save" && android}
+              <button class="btn ghost icon sm" title="导出存档" disabled={exporting !== null} onclick={() => exportSave(f)}>
+                <Icon name={exporting === f.name ? "refresh" : "upload"} size={14} />
+              </button>
+            {/if}
             <button
               class="btn ghost icon sm"
-              title="移到回收站"
+              title={android ? "删除" : "移到回收站"}
               onclick={() => {
                 confirmDelete = f;
                 deleteOpen = true;
@@ -152,11 +189,15 @@
 
 <Modal bind:open={deleteOpen} title="删除{LABEL[kind]}？" kicker="DELETE" width={440}>
   <p>
-    将把版本「{instance}」中的 <strong>{confirmDelete?.title}</strong>（{confirmDelete?.name}）移到系统回收站，需要时可以从回收站恢复。
+    {#if android}
+      将永久删除版本「{instance}」中的 <strong>{confirmDelete?.title}</strong>（{confirmDelete?.name}），无法恢复。
+    {:else}
+      将把版本「{instance}」中的 <strong>{confirmDelete?.title}</strong>（{confirmDelete?.name}）移到系统回收站，需要时可以从回收站恢复。
+    {/if}
   </p>
   {#snippet actions()}
     <button class="btn" onclick={() => (deleteOpen = false)}>取消</button>
-    <button class="btn primary" onclick={remove}>移到回收站</button>
+    <button class="btn primary" onclick={remove}>{android ? "删除" : "移到回收站"}</button>
   {/snippet}
 </Modal>
 

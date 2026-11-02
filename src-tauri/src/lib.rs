@@ -150,6 +150,7 @@ pub fn run() {
             resources::files_list,
             resources::file_set_active,
             resources::files_import,
+            resources::save_export_zip,
             resources::files_delete,
             launch::launch_instance,
             launch::kill_game,

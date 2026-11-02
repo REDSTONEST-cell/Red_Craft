@@ -113,9 +113,11 @@
       <input class="input" placeholder="筛选已安装的 Mod…" bind:value={filter} />
     </div>
     <span class="muted small">{mods ? `共 ${mods.length} 个，已启用 ${enabledCount} 个` : "读取中…"}</span>
-    <button class="btn sm" onclick={() => api.openInstanceDir(instance, "mods").catch((e) => showError(e))}>
-      <Icon name="folder" size={12} /> 打开文件夹
-    </button>
+    {#if app.info?.os !== "android"}
+      <button class="btn sm" onclick={() => api.openInstanceDir(instance, "mods").catch((e) => showError(e))}>
+        <Icon name="folder" size={12} /> 打开文件夹
+      </button>
+    {/if}
     {#if onimport}
       <button class="btn sm" onclick={onimport}><Icon name="plus" size={12} /> 导入 Mod</button>
     {/if}

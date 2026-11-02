@@ -569,6 +569,7 @@ export const api = {
   fileSetActive: (instance: string, kind: FileKind, name: string, active: boolean) =>
     call<void>("file_set_active", { instance, kind, name, active }),
   filesImport: (instance: string, kind: FileKind, paths: string[]) => call<string[]>("files_import", { instance, kind, paths }),
+  saveExportZip: (instance: string, name: string) => call<string>("save_export_zip", { instance, name }),
   filesDelete: (instance: string, kind: FileKind, names: string[]) => call<void>("files_delete", { instance, kind, names }),
 
   scanJava: (refresh = false) => call<JavaInstall[]>("scan_java", { refresh }),
