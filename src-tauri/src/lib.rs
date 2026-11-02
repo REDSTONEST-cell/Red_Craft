@@ -4,6 +4,8 @@ mod auth;
 #[cfg(target_os = "android")]
 mod android_game;
 mod background;
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+mod mobile_runtime;
 mod commands;
 mod content;
 mod error;

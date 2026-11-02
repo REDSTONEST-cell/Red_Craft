@@ -21,13 +21,8 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
     let installer = state.installer()?;
     let resolved = installer.resolve(&id)?;
     let (required, _) = crate::launch::required_java(&resolved.json);
-    if required != 17 || resolved.chain.last().is_none_or(|v| v != "1.20.1") {
-        return Err(AppError::msg("当前手机版启动测试支持 1.20.1", "请选择原版或 Fabric 1.20.1；其他版本尚未验证。"));
-    }
-    if resolved.json.main_class != "net.minecraft.client.main.Main"
-        && !resolved.json.main_class.starts_with("net.fabricmc.loader.") {
-        return Err(AppError::msg("当前测试暂不支持这个加载器", "请使用原版或 Fabric 1.20.1。"));
-    }
+    let base = resolved.chain.last().cloned().unwrap_or_default();
+    let runtime = crate::mobile_runtime::mobile_runtime(required, &base)?;
     {
         let mut running = state.running.lock().map_err(|_| AppError::msg("无法读取游戏状态", "请重启启动器。"))?;
         if !running.is_empty() { return Err(AppError::msg("已有游戏正在启动或运行", "请先结束当前游戏。")); }
@@ -62,15 +57,18 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
                 } else { settings.max_memory_mb }
             });
             let opts = LaunchOptions {
-                java: PathBuf::from("java17"), game_dir: game_dir.clone(), auth,
-                max_memory_mb: memory, min_memory_mb: settings.min_memory_mb.min(memory), java_major: 17,
+                java: PathBuf::from(format!("java{}", runtime.java)), game_dir: game_dir.clone(), auth,
+                max_memory_mb: memory, min_memory_mb: settings.min_memory_mb.min(memory), java_major: runtime.java,
                 gc: settings.gc, extra_jvm_args: launch::split_args(config.jvm_args.as_deref().unwrap_or(&settings.jvm_args)),
                 extra_game_args: launch::split_args(&settings.game_args), resolution: Some((1280,720)), fullscreen: false,
                 server: ServerAddress::parse(config.server.as_deref().unwrap_or(&settings.server)),
                 launcher_name: launcher_core::LAUNCHER_ID.into(), launcher_version: launcher_core::LAUNCHER_VERSION.into(),
             };
             let cmd = launch::build_command(&installer.game, &resolved, &installer.env, &opts)?;
-            let request = serde_json::json!({"cwd": game_dir, "args": cmd.args, "mainClass": resolved.json.main_class});
+            let request = serde_json::json!({
+                "cwd": game_dir, "args": cmd.args, "mainClass": resolved.json.main_class,
+                "java": format!("java{}", runtime.java), "renderer": runtime.renderer,
+            });
             crate::settings::write_json(&directory.join("request.json"), &request)?;
             cancel.check()?;
             reporter.stage("准备手机运行时并启动游戏");
@@ -88,7 +86,7 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
                 if pid > 0 && !spawned {
                     spawned = true;
                     if let Ok(mut r) = state.running.lock() { r.insert(id.clone(), pid); }
-                    let _ = app2.emit(GAME_EVENT, GameEvent::Spawned { instance: id.clone(), pid, command: "Android Java 17 · GL4ES".into() });
+                    let _ = app2.emit(GAME_EVENT, GameEvent::Spawned { instance: id.clone(), pid, command: format!("Android Java {} · {}", runtime.java, runtime.renderer_name) });
                 }
                 if spawned { emit_logs(&app2, &id, &directory, &mut offset, &opts.auth.access_token); }
                 let code = status.as_ref().and_then(|s| s["code"].as_i64()).map(|c| c as i32);
