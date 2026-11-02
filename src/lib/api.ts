@@ -555,6 +555,7 @@ export const api = {
   exportModpack: (req: ExportRequest) => call<number>("export_modpack", { req }),
   memoryStatus: () => call<MemoryStatus>("memory_status"),
   optimizeMemory: (elevate: boolean) => call<OptimizeResult>("optimize_memory", { elevate }),
+  trimWebviewMemory: () => call<void>("trim_webview_memory"),
   checkUpdate: () => call<UpdateInfo | null>("check_update"),
   downloadUpdate: () => call<number>("download_update"),
   applyUpdate: () => call<void>("apply_update"),

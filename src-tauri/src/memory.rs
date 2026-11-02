@@ -136,6 +136,30 @@ fn run_elevated(_out: &std::path::Path) -> AppResult<()> {
     Err(AppError::msg("内存优化仅支持 Windows", ""))
 }
 
+/// 启动器当前是否处于隐藏 / 最小化（此时 WebView2 保持低内存模式）
+#[cfg(windows)]
+static HIDDEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// 设置 WebView2 的内存使用目标：LOW 时释放缓存、压缩内存。只在 Windows 上有效，旧版 WebView2 不支持时忽略。
+#[cfg(windows)]
+fn set_webview_memory_low(webview: &tauri::WebviewWindow, low: bool) {
+    let _ = webview.with_webview(move |pw| {
+        use webview2_com::Microsoft::Web::WebView2::Win32::{
+            ICoreWebView2_19, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL,
+        };
+        use windows_core::Interface;
+        let level = if low { COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW } else { COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL };
+        // SAFETY: COM 调用在 WebView 所在线程执行；旧版 WebView2 不支持该接口时忽略
+        unsafe {
+            if let Ok(core) = pw.controller().CoreWebView2() {
+                if let Ok(core) = core.cast::<ICoreWebView2_19>() {
+                    let _ = core.SetMemoryUsageTargetLevel(level);
+                }
+            }
+        }
+    });
+}
+
 /// 启动器隐藏或最小化时（例如游戏运行期间）让 WebView2 降低内存占用：释放缓存、压缩内存，
 /// 重新显示时恢复正常。只在 Windows 上有效。
 pub fn webview_memory_follow_window(window: &tauri::Window) {
@@ -143,28 +167,33 @@ pub fn webview_memory_follow_window(window: &tauri::Window) {
     {
         use tauri::Manager;
         let hidden = !window.is_visible().unwrap_or(true) || window.is_minimized().unwrap_or(false);
-        static LOW: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-        if LOW.swap(hidden, std::sync::atomic::Ordering::Relaxed) == hidden {
+        if HIDDEN.swap(hidden, std::sync::atomic::Ordering::Relaxed) == hidden {
             return;
         }
-        let Some(webview) = window.app_handle().get_webview_window(window.label()) else { return };
-        let _ = webview.with_webview(move |pw| {
-            use webview2_com::Microsoft::Web::WebView2::Win32::{
-                ICoreWebView2_19, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL,
-            };
-            use windows_core::Interface;
-            let level = if hidden { COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW } else { COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL };
-            // SAFETY: COM 调用在 WebView 所在线程执行；旧版 WebView2 不支持该接口时忽略
-            unsafe {
-                if let Ok(core) = pw.controller().CoreWebView2() {
-                    if let Ok(core) = core.cast::<ICoreWebView2_19>() {
-                        let _ = core.SetMemoryUsageTargetLevel(level);
-                    }
-                }
-            }
-        });
+        if let Some(webview) = window.app_handle().get_webview_window(window.label()) {
+            set_webview_memory_low(&webview, hidden);
+        }
     }
     #[cfg(not(windows))]
     let _ = window;
+}
+
+/// 视频背景被移除后，WebView2 不会马上把解码器占用的内存还给系统（#7）。
+/// 短暂切换到低内存模式促使它回收，再恢复正常；启动器隐藏期间保持低内存模式不变。
+#[tauri::command]
+pub async fn trim_webview_memory(webview: tauri::WebviewWindow) {
+    #[cfg(windows)]
+    {
+        if HIDDEN.load(std::sync::atomic::Ordering::Relaxed) {
+            return;
+        }
+        set_webview_memory_low(&webview, true);
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        if !HIDDEN.load(std::sync::atomic::Ordering::Relaxed) {
+            set_webview_memory_low(&webview, false);
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = webview;
 }
 

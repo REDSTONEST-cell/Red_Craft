@@ -141,6 +141,7 @@ pub fn run() {
             content::export_modpack,
             memory::memory_status,
             memory::optimize_memory,
+            memory::trim_webview_memory,
             updater::check_update,
             updater::download_update,
             updater::apply_update,

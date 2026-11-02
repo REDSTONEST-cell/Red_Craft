@@ -36,6 +36,23 @@
   let dropInfo = $state<ModpackInfo | null>(null);
   const isPack = (p: string) => /\.(mrpack|zip)$/i.test(p);
 
+  // 视频（视频背景、背景库中的视频预览）被移除后，WebView2 不会马上把解码器占用的内存还给系统（#7），
+  // 稍后请它回收一次；短时间内多次移除只回收一次
+  $effect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const hasVideo = (n: Node) => n instanceof HTMLVideoElement || (n instanceof Element && n.querySelector("video") !== null);
+    const observer = new MutationObserver((records) => {
+      if (!records.some((r) => [...r.removedNodes].some(hasVideo))) return;
+      clearTimeout(timer);
+      timer = setTimeout(() => void api.trimWebviewMemory().catch(() => {}), 1500);
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => {
+      observer.disconnect();
+      clearTimeout(timer);
+    };
+  });
+
   $effect(() => {
     let unlisten: (() => void) | undefined;
     let alive = true;
