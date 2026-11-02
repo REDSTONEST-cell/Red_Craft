@@ -18,6 +18,7 @@
   import Segmented from "../components/Segmented.svelte";
   import VirtualList from "../components/VirtualList.svelte";
   import ContentDetail from "../components/ContentDetail.svelte";
+  import MobileContentDetail from "../mobile/ContentDetail.svelte";
   import InstallPlan from "../components/InstallPlan.svelte";
   import ModpackInstall from "../components/ModpackInstall.svelte";
   import ResourceManager from "../components/ResourceManager.svelte";
@@ -473,13 +474,24 @@
   {/if}
 </div>
 
-<ContentDetail
-  bind:open={detailOpen}
-  project={current}
-  instance={tab === "modpack" ? null : instanceId}
-  {compatibleOnly}
-  oninstall={onInstall}
-/>
+{#if app.info?.os === "android"}
+  <!-- 手机版：左右两栏，可按版本分类 -->
+  <MobileContentDetail
+    bind:open={detailOpen}
+    project={current}
+    instance={tab === "modpack" ? null : instanceId}
+    {compatibleOnly}
+    oninstall={onInstall}
+  />
+{:else}
+  <ContentDetail
+    bind:open={detailOpen}
+    project={current}
+    instance={tab === "modpack" ? null : instanceId}
+    {compatibleOnly}
+    oninstall={onInstall}
+  />
+{/if}
 <ModpackInstall bind:open={packOpen} source={packSource} title={current?.title ?? ""} />
 {#if current && instanceId}
   <InstallPlan
