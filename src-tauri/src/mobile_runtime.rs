@@ -8,6 +8,8 @@ pub struct MobileRuntime {
     pub lwjgl: &'static str,
     pub renderer: &'static str,
     pub renderer_name: &'static str,
+    /// 关闭 FML 早期加载画面（26.3 起，与 FCL 相同）
+    pub disable_early_window: bool,
 }
 
 /// 游戏使用的 LWJGL 情况（从版本的依赖库中读取）。
@@ -42,8 +44,9 @@ impl LwjglUsage {
 }
 
 /// 按游戏需要的 Java 选择手机上打包的运行时：
-/// 1.17 ~ 1.20.4 用 Java 17，1.20.5 ~ 1.21.x 用 Java 21，26.1 ~ 26.2 用 Java 25 与 LWJGL 3.4.1。
-/// GL4ES 只支持到 1.21.4，更新的版本（以及无法按版本号判断的快照）使用 NG-GL4ES。
+/// 1.17 ~ 1.20.4 用 Java 17，1.20.5 ~ 1.21.x 用 Java 21，26.x 用 Java 25 与 LWJGL 3.4.1。
+/// 渲染器：GL4ES 只支持到 1.21.4，1.21.5 ~ 26.2（以及无法按版本号判断的快照）使用 NG-GL4ES；
+/// 26.3 起游戏改用 SDL3 管理窗口，NG-GL4ES 不再支持，使用 MobileGlues。
 pub fn mobile_runtime(required: u32, base: &str, lwjgl: &LwjglUsage) -> AppResult<MobileRuntime> {
     let java = match required {
         0..=15 => {
@@ -62,12 +65,6 @@ pub fn mobile_runtime(required: u32, base: &str, lwjgl: &LwjglUsage) -> AppResul
             ))
         }
     };
-    if lwjgl.sdl {
-        return Err(AppError::msg(
-            format!("手机版暂不支持 {base}"),
-            "这个版本改用 SDL3 管理游戏窗口，手机版目前支持到 26.2。",
-        ));
-    }
     let lwjgl_version = if launcher_core::version::compare_versions(&lwjgl.version, "3.4") == std::cmp::Ordering::Less {
         "3.3.3"
     } else {
@@ -75,8 +72,14 @@ pub fn mobile_runtime(required: u32, base: &str, lwjgl: &LwjglUsage) -> AppResul
     };
     let numeric = !base.is_empty() && base.chars().all(|c| c.is_ascii_digit() || c == '.');
     let legacy_gl = numeric && launcher_core::version::compare_versions(base, "1.21.5") == std::cmp::Ordering::Less;
-    let (renderer, renderer_name) = if legacy_gl { ("gl4es", "GL4ES") } else { ("ng_gl4es", "NG-GL4ES") };
-    Ok(MobileRuntime { java, lwjgl: lwjgl_version, renderer, renderer_name })
+    let (renderer, renderer_name) = if lwjgl.sdl {
+        ("mobileglues", "MobileGlues")
+    } else if legacy_gl {
+        ("gl4es", "GL4ES")
+    } else {
+        ("ng_gl4es", "NG-GL4ES")
+    };
+    Ok(MobileRuntime { java, lwjgl: lwjgl_version, renderer, renderer_name, disable_early_window: lwjgl.sdl })
 }
 
 #[cfg(test)]
@@ -106,9 +109,13 @@ mod tests {
         let r = mobile_runtime(25, "26.2", &new).unwrap();
         assert_eq!((r.java, r.lwjgl, r.renderer), (25, "3.4.1", "ng_gl4es"));
 
+        assert!(!r.disable_early_window);
+
         let sdl = usage(&["org.lwjgl:lwjgl:3.4.3", "org.lwjgl:lwjgl-sdl:3.4.3"]);
         assert!(sdl.sdl);
-        assert!(mobile_runtime(25, "26.3", &sdl).is_err());
+        let r = mobile_runtime(25, "26.3", &sdl).unwrap();
+        assert_eq!((r.java, r.lwjgl, r.renderer), (25, "3.4.1", "mobileglues"));
+        assert!(r.disable_early_window);
         assert!(mobile_runtime(26, "27.1", &new).is_err());
     }
 }

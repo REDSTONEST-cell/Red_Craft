@@ -69,6 +69,7 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
             let request = serde_json::json!({
                 "cwd": game_dir, "args": cmd.args, "mainClass": resolved.json.main_class,
                 "java": format!("java{}", runtime.java), "renderer": runtime.renderer, "lwjgl": runtime.lwjgl,
+                "disableEarlyWindow": runtime.disable_early_window,
             });
             crate::settings::write_json(&directory.join("request.json"), &request)?;
             cancel.check()?;
