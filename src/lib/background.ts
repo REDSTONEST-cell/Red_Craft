@@ -8,7 +8,8 @@ export interface Appearance {
   blurPx: number;
   overlayOpacity: number;
   panelOpacity: number;
-  motion: "auto" | "static";
+  /** auto：自动播放，系统要求减少动态效果时暂停；always：始终播放；static：静态 */
+  motion: "auto" | "always" | "static";
 }
 export interface BackgroundAsset {
   id: string; title: string; source: "local" | "wallpaperEngine";
@@ -56,7 +57,7 @@ export const backgroundApi = {
 };
 
 export function shouldPlay(visible: boolean, motion: Appearance["motion"], reduced: boolean): boolean {
-  return visible && motion === "auto" && !reduced;
+  return visible && (motion === "always" || (motion === "auto" && !reduced));
 }
 
 export function releaseVideo(node: HTMLVideoElement): void {

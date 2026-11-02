@@ -25,6 +25,15 @@
   const shown = $derived(assets.slice(activePage * 24, (activePage + 1) * 24));
   const dirty = $derived(JSON.stringify(draft) !== JSON.stringify(background.saved));
 
+  // 系统要求减少动态效果（Windows 关闭「在 Windows 中显示动画」）时，自动播放的视频背景会暂停
+  const reducedQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+  let reducedMotion = $state(reducedQuery.matches);
+  $effect(() => {
+    const change = () => (reducedMotion = reducedQuery.matches);
+    reducedQuery.addEventListener("change", change);
+    return () => reducedQuery.removeEventListener("change", change);
+  });
+
   onMount(() => {
     alive = true;
     void refresh().then(() => { if (alive) return scan(); }).catch(e => { if (alive) showError(e, "读取背景库失败"); });
@@ -152,14 +161,15 @@
   </div>{/if}
   <fieldset class="controls" disabled={saving}>
     <label>缩放<select bind:value={draft.fit} onchange={tune}><option value="cover">居中裁切填满</option><option value="contain">完整显示</option></select></label>
-    <label>动态模式<select bind:value={draft.motion} onchange={tune}><option value="auto">自动播放（静音）</option><option value="static">静态</option></select></label>
+    <label>动态模式<select bind:value={draft.motion} onchange={tune}><option value="auto">自动播放（静音）</option><option value="always">始终播放（忽略系统动画设置）</option><option value="static">静态</option></select></label>
+    {#if reducedMotion && draft.motion === "auto"}<p class="motion-hint">系统已关闭动画效果（Windows「在 Windows 中显示动画」），自动播放会暂停；选择「始终播放」可以继续播放视频背景。</p>{/if}
     <label>亮度 {draft.brightness.toFixed(2)}<input type="range" min="0.2" max="1.2" step="0.05" bind:value={draft.brightness} oninput={tune} /></label>
     <label>背景不透明度 {Math.round(draft.backgroundOpacity * 100)}%<input type="range" min="0" max="1" step="0.01" bind:value={draft.backgroundOpacity} oninput={tune} /></label>
     <label>背景模糊度 {draft.blurPx}px<input type="range" min="0" max="24" step="1" bind:value={draft.blurPx} oninput={tune} /></label>
     <label>遮罩强度 {Math.round(draft.overlayOpacity * 100)}%<input type="range" min="0" max="0.8" step="0.05" bind:value={draft.overlayOpacity} oninput={tune} /></label>
   </fieldset>
   <div class="toolbar actions">
-    <button class="btn primary sm" disabled={saving || busy || !dirty || (!!draft.selection && (!!background.error || (!background.ready && draft.motion === "auto")))} onclick={apply}>应用并保存</button>
+    <button class="btn primary sm" disabled={saving || busy || !dirty || (!!draft.selection && (!!background.error || (!background.ready && draft.motion !== "static")))} onclick={apply}>应用并保存</button>
     <button class="btn sm" disabled={saving} onclick={cancel}>取消预览</button>
     <button class="btn sm" disabled={saving} onclick={() => { draft = defaults(); tune(); }}>恢复默认（预览）</button>
     {#if dirty}<span class="help">预览中，尚未保存</span>{/if}
@@ -184,6 +194,7 @@
   article strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .cover { height: 95px; background: var(--paper-2); display: grid; place-items: center; overflow: hidden; }
   .help { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+  .motion-hint { grid-column: 1 / -1; margin: -4px 0 0; font-size: 12px; color: var(--muted); }
   .controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 24px; border: 0; margin: 0; padding: 0; min-width: 0; }
   label { display: grid; gap: 5px; font-size: 12px; }
   input { width: 100%; accent-color: var(--accent); }

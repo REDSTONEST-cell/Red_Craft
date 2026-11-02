@@ -14,7 +14,7 @@
   let player = $state<HTMLVideoElement | null>(null);
   let generation = 0;
   const mediaUrl = (path: string | null) => path ? convertFileSrc(path) : "";
-  const dynamic = $derived(appearance.motion === "auto" && !reduced);
+  const dynamic = $derived(appearance.motion === "always" || (appearance.motion === "auto" && !reduced));
   const playing = $derived(shouldPlay(visible, appearance.motion, reduced));
   const hasMedia = $derived(!!media && ((media.kind === "image" && dynamic) || (media.kind === "video" && dynamic) || !!media.cover));
 

@@ -76,7 +76,7 @@ impl Appearance {
         if self.fit != "contain" {
             self.fit = "cover".into();
         }
-        if self.motion != "static" {
+        if self.motion != "static" && self.motion != "always" {
             self.motion = "auto".into();
         }
         self.brightness = finite(self.brightness, 0.85, 0.2, 1.2);
