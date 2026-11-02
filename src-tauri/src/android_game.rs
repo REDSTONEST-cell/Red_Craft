@@ -22,7 +22,8 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
     let resolved = installer.resolve(&id)?;
     let (required, _) = crate::launch::required_java(&resolved.json);
     let base = resolved.chain.last().cloned().unwrap_or_default();
-    let runtime = crate::mobile_runtime::mobile_runtime(required, &base)?;
+    let lwjgl = crate::mobile_runtime::LwjglUsage::from_libraries(resolved.json.libraries.iter().map(|l| l.name.as_str()));
+    let runtime = crate::mobile_runtime::mobile_runtime(required, &base, &lwjgl)?;
     {
         let mut running = state.running.lock().map_err(|_| AppError::msg("无法读取游戏状态", "请重启启动器。"))?;
         if !running.is_empty() { return Err(AppError::msg("已有游戏正在启动或运行", "请先结束当前游戏。")); }
@@ -67,7 +68,7 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
             let cmd = launch::build_command(&installer.game, &resolved, &installer.env, &opts)?;
             let request = serde_json::json!({
                 "cwd": game_dir, "args": cmd.args, "mainClass": resolved.json.main_class,
-                "java": format!("java{}", runtime.java), "renderer": runtime.renderer,
+                "java": format!("java{}", runtime.java), "renderer": runtime.renderer, "lwjgl": runtime.lwjgl,
             });
             crate::settings::write_json(&directory.join("request.json"), &request)?;
             cancel.check()?;
@@ -98,9 +99,11 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
                         tokio::time::sleep(Duration::from_millis(1500)).await;
                     }
                     emit_logs(&app2, &id, &directory, &mut offset, &opts.auth.access_token);
+                    let log = std::fs::read_to_string(directory.join("game.log")).unwrap_or_default();
+                    // 正常退出时游戏进程可能在写入退出码之前就结束了；游戏日志中有「Stopping!」说明是玩家正常退出
+                    let code = code.or_else(|| stopped_normally(&log).then_some(0));
                     let crashed = !killed && code != Some(0);
-                    let tail = std::fs::read_to_string(directory.join("game.log")).unwrap_or_default();
-                    let tail: Vec<String> = tail.lines().rev().take(80).map(|s| redact(s, &opts.auth.access_token)).collect::<Vec<_>>().into_iter().rev().collect();
+                    let tail: Vec<String> = log.lines().rev().take(80).map(|s| redact(s, &opts.auth.access_token)).collect::<Vec<_>>().into_iter().rev().collect();
                     let causes = if crashed { launch::analyze(&tail.join("\n"), "") } else { vec![] };
                     let _ = app2.emit(GAME_EVENT, GameEvent::Exit { instance: id.clone(), exit: GameExit { code, crashed, crash_report: None, causes, tail } });
                     break;
@@ -119,6 +122,11 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
         result
     });
     Ok(task_id)
+}
+
+/// Minecraft 正常退出（玩家点击「退出游戏」）时会记录「Stopping!」。
+fn stopped_normally(log: &str) -> bool {
+    log.lines().rev().take(400).any(|l| l.contains("Stopping!"))
 }
 
 fn redact(line: &str, token: &str) -> String {
