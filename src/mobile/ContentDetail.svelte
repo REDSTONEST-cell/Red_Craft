@@ -4,6 +4,7 @@
   // 有实例时只列出兼容该实例的版本，可一键安装最新的版本。
   import { api, type ContentVersion, type ProjectHit } from "../lib/api";
   import { count, date, LOADER_LABEL } from "../lib/format";
+  import { filterOptions, matchesFilter, TYPE_LABEL, type VersionFilter } from "../lib/versionFilter";
   import Modal from "../components/Modal.svelte";
   import ProgressBar from "../components/ProgressBar.svelte";
   import VirtualList from "../components/VirtualList.svelte";
@@ -26,67 +27,26 @@
   let versions = $state<ContentVersion[] | null>(null);
   let error = $state<string | null>(null);
   /** 当前选择的分类，null 表示全部 */
-  let game = $state<string | null>(null);
-  let loader = $state<string | null>(null);
-  let type = $state<string | null>(null);
+  let filter = $state<VersionFilter>({ game: null, loader: null, type: null });
 
   $effect(() => {
     if (!open || !project) return;
     const p = project;
     versions = null;
     error = null;
-    game = loader = type = null;
+    filter = { game: null, loader: null, type: null };
     api
       .contentVersions(p.platform, p.id, p.contentType, compatibleOnly ? instance : null)
       .then((v) => (versions = v))
       .catch((e) => (error = `${e.message}${e.hint ? "\n" + e.hint : ""}`));
   });
 
-  const typeLabel: Record<string, string> = { release: "正式", beta: "测试", alpha: "早期" };
-
-  // 正式版号（如 1.21.10）按数值从新到旧；快照等其他版本号排在后面，保持出现顺序（版本列表本身按发布时间从新到旧）
-  const releaseLike = (v: string) => /^\d+(\.\d+)*$/.test(v);
-  function compareGame(a: string, b: string) {
-    const ra = releaseLike(a);
-    const rb = releaseLike(b);
-    if (ra !== rb) return ra ? -1 : 1;
-    if (!ra) return 0;
-    const pa = a.split(".").map(Number);
-    const pb = b.split(".").map(Number);
-    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-      const d = (pb[i] ?? -1) - (pa[i] ?? -1);
-      if (d) return d;
-    }
-    return 0;
-  }
-
-  /** 统计每个分类下的版本数量，只列出实际出现过的分类 */
-  function tally(list: ContentVersion[], pick: (v: ContentVersion) => string[]) {
-    const counts = new Map<string, number>();
-    for (const v of list) for (const k of new Set(pick(v))) counts.set(k, (counts.get(k) ?? 0) + 1);
-    return counts;
-  }
-
-  // 各分类的选项按另外两个分类的当前选择计算数量，选项之间不会出现「选了之后没有结果」
-  const matches = (v: ContentVersion, skip: "game" | "loader" | "type") =>
-    (skip === "game" || game === null || v.gameVersions.includes(game)) &&
-    (skip === "loader" || loader === null || v.loaders.includes(loader)) &&
-    (skip === "type" || type === null || v.releaseType === type);
-
-  const gameOptions = $derived.by(() => {
-    const counts = tally(versions?.filter((v) => matches(v, "game")) ?? [], (v) => v.gameVersions);
-    return [...counts].sort((a, b) => compareGame(a[0], b[0]));
-  });
-  const loaderOptions = $derived([...tally(versions?.filter((v) => matches(v, "loader")) ?? [], (v) => v.loaders)]);
-  const typeOptions = $derived(
-    ["release", "beta", "alpha"]
-      .map((t) => [t, versions?.filter((v) => matches(v, "type") && v.releaseType === t).length ?? 0] as const)
-      .filter(([, n]) => n > 0),
-  );
-
-  const shown = $derived(versions?.filter((v) => matches(v, "game") && matches(v, "loader") && matches(v, "type")) ?? []);
-  const filtered = $derived(game !== null || loader !== null || type !== null);
+  const typeLabel = TYPE_LABEL;
+  const options = $derived(filterOptions(versions ?? [], filter));
+  const shown = $derived(versions?.filter((v) => matchesFilter(v, filter)) ?? []);
+  const filtered = $derived(filter.game !== null || filter.loader !== null || filter.type !== null);
   const best = $derived(shown.find((v) => v.releaseType === "release") ?? shown[0] ?? null);
+  const set = (key: keyof VersionFilter, value: string | null) => (filter = { ...filter, [key]: value });
 </script>
 
 <Modal
@@ -109,39 +69,39 @@
       {/if}
 
       {#if versions && versions.length}
-        {#if typeOptions.length > 1}
+        {#if options.type.length > 1}
           <div class="group">
             <h4>类型</h4>
             <div class="chips">
-              <button class="chip" class:on={type === null} onclick={() => (type = null)}>全部</button>
-              {#each typeOptions as [t, n] (t)}
-                <button class="chip" class:on={type === t} onclick={() => (type = t)}>{typeLabel[t]} <em>{n}</em></button>
+              <button class="chip" class:on={filter.type === null} onclick={() => set("type", null)}>全部</button>
+              {#each options.type as [t, n] (t)}
+                <button class="chip" class:on={filter.type === t} onclick={() => set("type", t)}>{typeLabel[t]} <em>{n}</em></button>
               {/each}
             </div>
           </div>
         {/if}
-        {#if loaderOptions.length > 1}
+        {#if options.loader.length > 1}
           <div class="group">
             <h4>加载器</h4>
             <div class="chips">
-              <button class="chip" class:on={loader === null} onclick={() => (loader = null)}>全部</button>
-              {#each loaderOptions as [l, n] (l)}
-                <button class="chip" class:on={loader === l} onclick={() => (loader = l)}>
+              <button class="chip" class:on={filter.loader === null} onclick={() => set("loader", null)}>全部</button>
+              {#each options.loader as [l, n] (l)}
+                <button class="chip" class:on={filter.loader === l} onclick={() => set("loader", l)}>
                   {LOADER_LABEL[l] ?? l} <em>{n}</em>
                 </button>
               {/each}
             </div>
           </div>
         {/if}
-        {#if gameOptions.length > 1}
+        {#if options.game.length > 1}
           <div class="group games">
             <h4>游戏版本</h4>
             <div class="game-list">
-              <button class="game" class:on={game === null} onclick={() => (game = null)}>
-                <span>全部版本</span><em>{versions.filter((v) => matches(v, "game")).length}</em>
+              <button class="game" class:on={filter.game === null} onclick={() => set("game", null)}>
+                <span>全部版本</span><em>{options.gameTotal}</em>
               </button>
-              {#each gameOptions as [g, n] (g)}
-                <button class="game" class:on={game === g} onclick={() => (game = g)}>
+              {#each options.game as [g, n] (g)}
+                <button class="game" class:on={filter.game === g} onclick={() => set("game", g)}>
                   <span class="mono">{g}</span><em>{n}</em>
                 </button>
               {/each}
@@ -165,7 +125,7 @@
         <div class="list-head">
           <span>{filtered ? `符合条件的版本 ${shown.length} 个` : `全部版本 ${versions.length} 个`}</span>
           {#if filtered}
-            <button class="btn ghost sm" onclick={() => (game = loader = type = null)}>清除筛选</button>
+            <button class="btn ghost sm" onclick={() => (filter = { game: null, loader: null, type: null })}>清除筛选</button>
           {/if}
         </div>
         <div class="list">
