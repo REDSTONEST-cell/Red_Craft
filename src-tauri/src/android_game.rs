@@ -54,7 +54,8 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
             if settings.default_chinese { launch::ensure_chinese(&game_dir, &resolved.json.release_time)?; }
             let memory = config.max_memory_mb.filter(|m| *m > 0).unwrap_or_else(|| {
                 if settings.memory_auto {
-                    crate::mobile_runtime::auto_memory_mb(launcher_core::system::memory().available_mb)
+                    let info = launcher_core::system::memory();
+                    crate::mobile_runtime::auto_memory_mb(info.total_mb, info.available_mb)
                 } else { settings.max_memory_mb }
             });
             let opts = LaunchOptions {

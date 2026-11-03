@@ -152,7 +152,7 @@
   {#snippet actions()}
     <button class="btn" onclick={() => (open = false)}>关闭</button>
     <button class="btn primary" disabled={!best} onclick={() => best && oninstall(best)}>
-      {filtered ? "安装所选分类的最新版本" : "安装最新兼容版本"}{best ? `（${best.versionNumber}）` : ""}
+      {filtered ? "安装所选分类的最新版本" : instance && compatibleOnly ? "安装最新兼容版本" : "安装最新版本"}{best ? `（${best.versionNumber}）` : ""}
     </button>
   {/snippet}
 </Modal>

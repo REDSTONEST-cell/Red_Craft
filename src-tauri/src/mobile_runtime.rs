@@ -91,15 +91,22 @@ pub fn mobile_java(required: u32, base: &str) -> AppResult<u32> {
 }
 
 /// 手机版自动分配的游戏内存（与 FCL 相同）：可用内存先留出 384MB，8GB 以内取 80%，超过 8GB 的部分取 20%，
-/// 最多 16GB。电脑版的上限（原版 2.5GB）在手机上偏小，垃圾回收频繁，游戏卡顿、声音断续。
-pub fn auto_memory_mb(available_mb: u64) -> u32 {
+/// 最多 16GB；且不少于按设备总内存给的下限（6GB 及以下 1GB，12GB 及以下 2GB，更多 4GB）。
+/// 后台应用占用较多时可用内存很小，只按可用内存分配会只有 1GB，26.x 内存不足、频繁回收而严重卡顿。
+pub fn auto_memory_mb(total_mb: u64, available_mb: u64) -> u32 {
+    let minimum = match total_mb {
+        0..=1024 => 512,
+        1025..=6144 => 1024,
+        6145..=12288 => 2048,
+        _ => 4096,
+    };
     let available = available_mb.saturating_sub(384);
     let suggested = if available <= 8192 {
         available * 8 / 10
     } else {
         8192 * 8 / 10 + (available - 8192) * 2 / 10
     };
-    (suggested.min(16384) as u32).max(1024)
+    suggested.min(16384).max(minimum) as u32
 }
 
 #[cfg(test)]
@@ -108,10 +115,12 @@ mod tests {
 
     #[test]
     fn auto_memory_matches_fcl() {
-        assert_eq!(auto_memory_mb(0), 1024);
-        assert_eq!(auto_memory_mb(4384), 3200);
-        assert_eq!(auto_memory_mb(8576), 6553);
-        assert_eq!(auto_memory_mb(18576), 8553);
+        assert_eq!(auto_memory_mb(16384, 0), 4096);
+        assert_eq!(auto_memory_mb(16384, 1500), 4096);
+        assert_eq!(auto_memory_mb(8192, 4384), 3200);
+        assert_eq!(auto_memory_mb(4096, 1000), 1024);
+        assert_eq!(auto_memory_mb(24576, 8576), 6553);
+        assert_eq!(auto_memory_mb(32768, 18576), 8553);
     }
 
     fn usage(libs: &[&str]) -> LwjglUsage {
