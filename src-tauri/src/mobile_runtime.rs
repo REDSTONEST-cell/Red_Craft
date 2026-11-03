@@ -10,6 +10,8 @@ pub struct MobileRuntime {
     pub renderer_name: &'static str,
     /// 关闭 FML 早期加载画面（26.3 起，与 FCL 相同）
     pub disable_early_window: bool,
+    /// MobileGlues 使用 ANGLE（GLES on Vulkan）后端：26.3 的部分着色器直接用驱动的 GLES 无法编译
+    pub angle: bool,
 }
 
 /// 游戏使用的 LWJGL 情况（从版本的依赖库中读取）。
@@ -45,8 +47,9 @@ impl LwjglUsage {
 
 /// 按游戏需要的 Java 选择手机上打包的运行时：
 /// 1.17 ~ 1.20.4 用 Java 17，1.20.5 ~ 1.21.x 用 Java 21，26.x 用 Java 25 与 LWJGL 3.4.1。
-/// 渲染器：GL4ES 只支持到 1.21.4，1.21.5 ~ 26.2（以及无法按版本号判断的快照）使用 NG-GL4ES；
-/// 26.3 起游戏改用 SDL3 管理窗口，NG-GL4ES 不再支持，使用 MobileGlues。
+/// 渲染器：GL4ES 只支持到 1.21.4，1.21.5 ~ 1.21.x（以及无法按版本号判断的快照）使用 NG-GL4ES；
+/// 26.x 使用 MobileGlues（NG-GL4ES 在 26.2 上半透明方块显示错误且卡顿，26.3 起不再支持），
+/// 26.3 起游戏改用 SDL3 管理窗口，并通过 ANGLE 编译新的透明度着色器。
 pub fn mobile_runtime(required: u32, base: &str, lwjgl: &LwjglUsage) -> AppResult<MobileRuntime> {
     let java = mobile_java(required, base)?;
     let lwjgl_version = if launcher_core::version::compare_versions(&lwjgl.version, "3.4") == std::cmp::Ordering::Less {
@@ -56,14 +59,14 @@ pub fn mobile_runtime(required: u32, base: &str, lwjgl: &LwjglUsage) -> AppResul
     };
     let numeric = !base.is_empty() && base.chars().all(|c| c.is_ascii_digit() || c == '.');
     let legacy_gl = numeric && launcher_core::version::compare_versions(base, "1.21.5") == std::cmp::Ordering::Less;
-    let (renderer, renderer_name) = if lwjgl.sdl {
+    let (renderer, renderer_name) = if lwjgl.sdl || lwjgl_version == "3.4.1" {
         ("mobileglues", "MobileGlues")
     } else if legacy_gl {
         ("gl4es", "GL4ES")
     } else {
         ("ng_gl4es", "NG-GL4ES")
     };
-    Ok(MobileRuntime { java, lwjgl: lwjgl_version, renderer, renderer_name, disable_early_window: lwjgl.sdl })
+    Ok(MobileRuntime { java, lwjgl: lwjgl_version, renderer, renderer_name, disable_early_window: lwjgl.sdl, angle: lwjgl.sdl })
 }
 
 /// 游戏（或安装器）需要的 Java 对应手机上打包的哪个 Java：17、21 或 25。
@@ -112,7 +115,8 @@ mod tests {
 
         let new = usage(&["org.lwjgl:lwjgl:3.4.1", "org.lwjgl:lwjgl-glfw:3.4.1", "org.lwjgl:lwjgl-vulkan:3.4.1"]);
         let r = mobile_runtime(25, "26.2", &new).unwrap();
-        assert_eq!((r.java, r.lwjgl, r.renderer), (25, "3.4.1", "ng_gl4es"));
+        assert_eq!((r.java, r.lwjgl, r.renderer), (25, "3.4.1", "mobileglues"));
+        assert!(!r.angle);
 
         assert!(!r.disable_early_window);
 
@@ -120,7 +124,7 @@ mod tests {
         assert!(sdl.sdl);
         let r = mobile_runtime(25, "26.3", &sdl).unwrap();
         assert_eq!((r.java, r.lwjgl, r.renderer), (25, "3.4.1", "mobileglues"));
-        assert!(r.disable_early_window);
+        assert!(r.disable_early_window && r.angle);
         assert!(mobile_runtime(26, "27.1", &new).is_err());
     }
 }
