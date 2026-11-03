@@ -92,7 +92,8 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
                 }
                 if spawned { emit_logs(&app2, &id, &directory, &mut offset, &opts.auth.access_token); }
                 let code = status.as_ref().and_then(|s| s["code"].as_i64()).map(|c| c as i32);
-                let vanished = pid > 0 && !std::path::Path::new(&format!("/proc/{pid}")).exists();
+                // 游戏进程每秒写一次心跳；Android 上无法可靠地通过 /proc 判断其他进程是否存在
+                let vanished = spawned && heartbeat_stale(&directory, start);
                 if code.is_some() || killed || vanished {
                     if vanished && code.is_none() && !killed {
                         let _ = window.eval(&format!("window.RclGame.captureExit('{}', {})", session, pid));
@@ -128,6 +129,69 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
 /// Minecraft 正常退出（玩家点击「退出游戏」）时会记录「Stopping!」。
 fn stopped_normally(log: &str) -> bool {
     log.lines().rev().take(400).any(|l| l.contains("Stopping!"))
+}
+
+/// 心跳超过 10 秒没有更新，说明游戏进程已经结束（包括被系统结束、崩溃）。
+/// 进程刚启动、心跳文件还没出现时，从启动请求算起给 30 秒。
+fn heartbeat_stale(directory: &std::path::Path, start: Instant) -> bool {
+    match std::fs::metadata(directory.join("heartbeat")).and_then(|m| m.modified()) {
+        Ok(time) => time.elapsed().unwrap_or_default() > Duration::from_secs(10),
+        Err(_) => start.elapsed() > Duration::from_secs(30),
+    }
+}
+
+/// 手机上不能直接启动 Java 进程：Forge / NeoForge 安装器、OptiFine 补丁程序等交给 Android 端，
+/// 在独立的 :jvm 进程中用应用内置的 JVM 运行（见 RCL_Android 的 JavaService）。
+pub fn register_java_runner(app: AppHandle) {
+    launcher_core::java::external::set_runner(std::sync::Arc::new(move |job, cancel| {
+        let app = app.clone();
+        Box::pin(async move { run_java(app, job, cancel).await })
+    }));
+}
+
+async fn run_java(
+    app: AppHandle,
+    job: launcher_core::java::external::JavaJob,
+    cancel: launcher_core::download::CancelToken,
+) -> launcher_core::Result<launcher_core::java::external::JavaOutcome> {
+    use launcher_core::CoreError;
+    let state = app.state::<AppState>();
+    let files = state.paths.config_dir.parent().ok_or_else(|| CoreError::Java("无法找到应用数据目录".into()))?.to_path_buf();
+    let session = uuid::Uuid::new_v4().to_string();
+    let directory = files.join("java-session").join(&session);
+    let java = job.java.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "java21".into());
+    let request = serde_json::json!({"java": java, "args": job.args, "cwd": job.cwd});
+    crate::settings::write_json(&directory.join("request.json"), &request).map_err(|e| CoreError::Java(e.to_string()))?;
+    let window = app.get_webview_window("main").ok_or_else(|| CoreError::Java("无法找到启动器界面".into()))?;
+    window.eval(&format!("window.RclGame.runJava('{session}')")).map_err(|e| CoreError::Java(format!("无法运行{}：{e}", job.label)))?;
+    let start = Instant::now();
+    let result = loop {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        if cancel.is_cancelled() {
+            let _ = window.eval("window.RclGame.stop()");
+            break Err(CoreError::Cancelled);
+        }
+        let status: Option<serde_json::Value> = crate::settings::read_json(&directory.join("status.json"));
+        if let Some(code) = status.as_ref().and_then(|s| s["code"].as_i64()) {
+            break Ok(Some(code as i32));
+        }
+        let started = status.is_some();
+        if started && heartbeat_stale(&directory, start) {
+            // 正常结束时进程可能来不及写入退出码，由调用方检查输出判断是否成功
+            break Ok(None);
+        }
+        if !started && start.elapsed() > Duration::from_secs(60) {
+            let _ = window.eval("window.RclGame.stop()");
+            break Err(CoreError::Java(format!("{}没有启动，请重试", job.label)));
+        }
+    };
+    let log = std::fs::read_to_string(directory.join("java.log")).unwrap_or_default();
+    let output: Vec<String> = log.lines().rev().take(40).map(str::to_string).collect::<Vec<_>>().into_iter().rev().collect();
+    if !log.is_empty() {
+        log::info!("[{}] 输出：\n{}", job.label, output.join("\n"));
+    }
+    let _ = std::fs::remove_dir_all(&directory);
+    Ok(launcher_core::java::external::JavaOutcome { code: result?, output })
 }
 
 fn redact(line: &str, token: &str) -> String {

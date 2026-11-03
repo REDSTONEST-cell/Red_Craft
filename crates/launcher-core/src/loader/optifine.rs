@@ -224,6 +224,29 @@ fn inspect(jar: &Path) -> Result<(bool, Option<EmbeddedWrapper>)> {
 
 /// 运行 `java -cp OptiFine.jar optifine.Patcher <原版 jar> <OptiFine.jar> <输出>`。
 async fn patch(java: &Path, installer: &Path, vanilla: &Path, out: &PathBuf, cancel: &CancelToken) -> Result<()> {
+    // 手机版：由宿主在内置 JVM 中运行补丁程序
+    if let Some(run) = crate::java::external::runner() {
+        let job = crate::java::external::JavaJob {
+            java: java.to_path_buf(),
+            args: vec![
+                "-cp".into(),
+                installer.display().to_string(),
+                "optifine.Patcher".into(),
+                vanilla.display().to_string(),
+                installer.display().to_string(),
+                out.display().to_string(),
+            ],
+            cwd: out.parent().map(Path::to_path_buf).unwrap_or_default(),
+            label: "OptiFine 补丁程序".into(),
+        };
+        let result = run(job, cancel.clone()).await?;
+        if result.code.is_some_and(|c| c != 0) || !out.is_file() {
+            let tail = result.output.iter().rev().take(8).rev().cloned().collect::<Vec<_>>().join("\n");
+            let _ = std::fs::remove_file(out);
+            return Err(CoreError::InvalidData(format!("OptiFine 补丁生成失败：\n{tail}")));
+        }
+        return Ok(());
+    }
     let mut cmd = tokio::process::Command::new(java);
     cmd.arg("-cp")
         .arg(installer)

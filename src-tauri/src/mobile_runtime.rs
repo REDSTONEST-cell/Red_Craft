@@ -48,23 +48,7 @@ impl LwjglUsage {
 /// 渲染器：GL4ES 只支持到 1.21.4，1.21.5 ~ 26.2（以及无法按版本号判断的快照）使用 NG-GL4ES；
 /// 26.3 起游戏改用 SDL3 管理窗口，NG-GL4ES 不再支持，使用 MobileGlues。
 pub fn mobile_runtime(required: u32, base: &str, lwjgl: &LwjglUsage) -> AppResult<MobileRuntime> {
-    let java = match required {
-        0..=15 => {
-            return Err(AppError::msg(
-                format!("手机版暂不支持 {base}"),
-                "手机版目前支持 1.17 及更新的版本（1.16.5 及更早的版本需要 Java 8，尚未支持）。",
-            ))
-        }
-        16..=17 => 17,
-        18..=21 => 21,
-        22..=25 => 25,
-        _ => {
-            return Err(AppError::msg(
-                format!("手机版暂不支持 {base}"),
-                format!("这个版本需要 Java {required}，手机版目前最高打包 Java 25。"),
-            ))
-        }
-    };
+    let java = mobile_java(required, base)?;
     let lwjgl_version = if launcher_core::version::compare_versions(&lwjgl.version, "3.4") == std::cmp::Ordering::Less {
         "3.3.3"
     } else {
@@ -80,6 +64,27 @@ pub fn mobile_runtime(required: u32, base: &str, lwjgl: &LwjglUsage) -> AppResul
         ("ng_gl4es", "NG-GL4ES")
     };
     Ok(MobileRuntime { java, lwjgl: lwjgl_version, renderer, renderer_name, disable_early_window: lwjgl.sdl })
+}
+
+/// 游戏（或安装器）需要的 Java 对应手机上打包的哪个 Java：17、21 或 25。
+pub fn mobile_java(required: u32, base: &str) -> AppResult<u32> {
+    Ok(match required {
+        0..=15 => {
+            return Err(AppError::msg(
+                format!("手机版暂不支持 {base}"),
+                "手机版目前支持 1.17 及更新的版本（1.16.5 及更早的版本需要 Java 8，尚未支持）。",
+            ))
+        }
+        16..=17 => 17,
+        18..=21 => 21,
+        22..=25 => 25,
+        _ => {
+            return Err(AppError::msg(
+                format!("手机版暂不支持 {base}"),
+                format!("这个版本需要 Java {required}，手机版目前最高打包 Java 25。"),
+            ))
+        }
+    })
 }
 
 #[cfg(test)]

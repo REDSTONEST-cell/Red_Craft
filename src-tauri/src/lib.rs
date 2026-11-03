@@ -58,6 +58,8 @@ pub fn run() {
         })
         .setup(|app| {
             updater::cleanup(&app.state::<AppState>());
+            #[cfg(target_os = "android")]
+            android_game::register_java_runner(app.handle().clone());
             // Mod 中文名数据库（约 14MB 内存）不在启动时加载，第一次搜索资源时再加载（约 35ms）
             // 保险：前端若因异常没有通知就绪，2 秒后仍然显示窗口
             let handle = app.handle().clone();

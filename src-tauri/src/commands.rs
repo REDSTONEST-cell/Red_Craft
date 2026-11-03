@@ -302,9 +302,14 @@ pub async fn create_instance(
                 }
                 let vanilla = installer.resolve(&entry.id)?;
                 let (required, component) = crate::launch::required_java(&vanilla.json);
-                reporter.stage("选择 Java");
-                let java_override = state.settings().java_path;
-                Some(crate::launch::select_java(state, installer, java_override, required, &component, reporter, cancel).await?.0)
+                if cfg!(target_os = "android") {
+                    // 手机版：安装器在应用内置的 JVM 中运行（见 android_game），这里只传运行时名称
+                    Some(std::path::PathBuf::from(format!("java{}", crate::mobile_runtime::mobile_java(required, &entry.id)?)))
+                } else {
+                    reporter.stage("选择 Java");
+                    let java_override = state.settings().java_path;
+                    Some(crate::launch::select_java(state, installer, java_override, required, &component, reporter, cancel).await?.0)
+                }
             }
             _ => None,
         };

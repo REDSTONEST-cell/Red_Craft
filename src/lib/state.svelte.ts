@@ -144,6 +144,8 @@ function onTaskEvent(e: TaskEvent) {
   if (e.state !== "running") {
     taskWaiters.get(e.id)?.(e);
     taskWaiters.delete(e.id);
+    // 安装 / 导入结束后刷新版本列表：失败时原版等前置版本可能已经装好，列表也要反映出来
+    if (/^(安装|导入)/.test(e.title)) void refreshInstances();
     if (e.state === "failed" && e.error) {
       toast("error", `${e.title}失败`, `${e.error.message}${e.error.hint ? "\n" + e.error.hint : ""}`);
     } else if (e.state === "done" && !e.title.startsWith("启动")) {

@@ -329,6 +329,20 @@ async fn run_installer(
         _ => "--installClient",
     };
     reporter.stage(&format!("运行 {} 安装器", kind.display_name()));
+    // 手机版：由宿主在内置 JVM 中运行安装器；没有退出码时由调用方检查安装器是否生成了版本
+    if let Some(run) = crate::java::external::runner() {
+        let job = crate::java::external::JavaJob {
+            java: java.to_path_buf(),
+            args: vec!["-jar".into(), jar.display().to_string(), flag.into(), root.display().to_string()],
+            cwd: root.to_path_buf(),
+            label: format!("{} 安装器", kind.display_name()),
+        };
+        let out = run(job, cancel.clone()).await?;
+        return match out.code {
+            Some(code) if code != 0 => Err(installer_failed(kind, Some(code), &out.output.join("\n"))),
+            _ => Ok(()),
+        };
+    }
     let mut cmd = tokio::process::Command::new(java);
     cmd.arg("-jar")
         .arg(jar)
@@ -394,21 +408,26 @@ async fn run_installer(
     }
     if !status.success() {
         let tail = tail.lock().map(|t| t.join("\n")).unwrap_or_default();
-        let hint_line = tail
-            .lines()
-            .rev()
-            .find(|l| l.contains("Exception") || l.contains("Error") || l.contains("failed"))
-            .unwrap_or("")
-            .to_string();
-        log::error!("{} 安装器输出：\n{tail}", kind.display_name());
-        return Err(CoreError::InvalidData(format!(
-            "{} 安装器运行失败（退出码 {}）{}",
-            kind.display_name(),
-            status.code().map(|c| c.to_string()).unwrap_or_else(|| "未知".into()),
-            if hint_line.is_empty() { String::new() } else { format!("：{hint_line}") }
-        )));
+        return Err(installer_failed(kind, status.code(), &tail));
     }
     Ok(())
+}
+
+/// 安装器失败的错误信息：附上输出中最后一行异常。
+fn installer_failed(kind: LoaderKind, code: Option<i32>, tail: &str) -> CoreError {
+    let hint_line = tail
+        .lines()
+        .rev()
+        .find(|l| l.contains("Exception") || l.contains("Error") || l.contains("failed"))
+        .unwrap_or("")
+        .to_string();
+    log::error!("{} 安装器输出：\n{tail}", kind.display_name());
+    CoreError::InvalidData(format!(
+        "{} 安装器运行失败（退出码 {}）{}",
+        kind.display_name(),
+        code.map(|c| c.to_string()).unwrap_or_else(|| "未知".into()),
+        if hint_line.is_empty() { String::new() } else { format!("：{hint_line}") }
+    ))
 }
 
 /// 临时目录（下载的安装器）。

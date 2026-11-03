@@ -1,5 +1,6 @@
 //! Java 检测、选择与自动下载。
 
+pub mod external;
 mod runtime;
 mod scan;
 
