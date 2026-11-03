@@ -2,7 +2,7 @@
   import { iconSrc, zhName } from "../lib/zh";
   // 手机版项目详情：左栏是项目信息与版本分类（游戏版本 / 加载器 / 类型），右栏是筛选后的版本列表。
   // 有实例时只列出兼容该实例的版本，可一键安装最新的版本。
-  import { api, type ContentVersion, type ProjectHit } from "../lib/api";
+  import { api, type ContentVersion, type InstanceContext, type ProjectHit } from "../lib/api";
   import { count, date, LOADER_LABEL } from "../lib/format";
   import { filterOptions, matchesFilter, TYPE_LABEL, type VersionFilter } from "../lib/versionFilter";
   import Modal from "../components/Modal.svelte";
@@ -29,12 +29,28 @@
   /** 当前选择的分类，null 表示全部 */
   let filter = $state<VersionFilter>({ game: null, loader: null, type: null });
 
+  /** 要安装到的实例的游戏版本与加载器，用来标出不支持这个实例的 Mod 文件 */
+  let ctx = $state<InstanceContext | null>(null);
+  /** 再点一次才会安装的不兼容版本 */
+  let confirming = $state<string | null>(null);
+
   $effect(() => {
     if (!open || !project) return;
     const p = project;
     versions = null;
     error = null;
+    confirming = null;
     filter = { game: null, loader: null, type: null };
+    ctx = null;
+    if (instance && p.contentType === "mod") {
+      const id = instance;
+      api
+        .contentInstance(id)
+        .then((c) => {
+          if (instance === id) ctx = c;
+        })
+        .catch(() => {});
+    }
     api
       .contentVersions(p.platform, p.id, p.contentType, compatibleOnly ? instance : null)
       .then((v) => (versions = v))
@@ -45,7 +61,28 @@
   const options = $derived(filterOptions(versions ?? [], filter));
   const shown = $derived(versions?.filter((v) => matchesFilter(v, filter)) ?? []);
   const filtered = $derived(filter.game !== null || filter.loader !== null || filter.type !== null);
-  const best = $derived(shown.find((v) => v.releaseType === "release") ?? shown[0] ?? null);
+  /** Mod 文件是否支持要安装到的实例（游戏版本与加载器）；不知道实例信息时视为支持 */
+  function fits(v: ContentVersion) {
+    if (!ctx) return true;
+    const c = ctx;
+    const game = !v.gameVersions.length || v.gameVersions.includes(c.mcVersion);
+    const accepts = (l: string) =>
+      l === c.loader || (c.loader === "quilt" && l === "fabric") || (c.loader === "neoforge" && c.mcVersion === "1.20.1" && l === "forge");
+    const loader = !c.loader || !v.loaders.length || v.loaders.some(accepts);
+    return game && loader;
+  }
+  // 「安装最新版本」优先选支持这个实例的版本，避免装上其他游戏版本的文件（例如给 26.2 装上 26.3 的 Fabric API）
+  const pool = $derived(shown.some(fits) ? shown.filter(fits) : shown);
+  const best = $derived(pool.find((v) => v.releaseType === "release") ?? pool[0] ?? null);
+
+  function install(v: ContentVersion) {
+    if (!fits(v) && confirming !== v.id) {
+      confirming = v.id;
+      return;
+    }
+    confirming = null;
+    oninstall(v);
+  }
   const set = (key: keyof VersionFilter, value: string | null) => (filter = { ...filter, [key]: value });
 </script>
 
@@ -141,7 +178,10 @@
                 </div>
                 <span class="tag" class:accent={v.releaseType === "release"}>{typeLabel[v.releaseType] ?? v.releaseType}</span>
                 <span class="muted small mono date">{date(v.published)}</span>
-                <button class="btn sm" onclick={() => oninstall(v)}>安装</button>
+                {#if !fits(v)}<span class="tag warn">不支持 {ctx?.mcVersion}</span>{/if}
+                <button class="btn sm" class:danger={confirming === v.id} onclick={() => install(v)}>
+                  {confirming === v.id ? "仍要安装" : "安装"}
+                </button>
               </div>
             {/snippet}
           </VirtualList>
@@ -151,13 +191,21 @@
   </div>
   {#snippet actions()}
     <button class="btn" onclick={() => (open = false)}>关闭</button>
-    <button class="btn primary" disabled={!best} onclick={() => best && oninstall(best)}>
-      {filtered ? "安装所选分类的最新版本" : instance && compatibleOnly ? "安装最新兼容版本" : "安装最新版本"}{best ? `（${best.versionNumber}）` : ""}
+    <button class="btn primary" disabled={!best} onclick={() => best && install(best)}>
+      {#if best && confirming === best.id}
+        {best.versionNumber} 不支持 {ctx?.mcVersion}，仍要安装
+      {:else}
+        {filtered ? "安装所选分类的最新版本" : instance && (compatibleOnly || (best && fits(best))) ? "安装最新兼容版本" : "安装最新版本"}{best ? `（${best.versionNumber}）` : ""}
+      {/if}
     </button>
   {/snippet}
 </Modal>
 
 <style>
+  .tag.warn {
+    border-color: var(--danger);
+    color: var(--danger);
+  }
   .layout {
     display: grid;
     grid-template-columns: 280px minmax(0, 1fr);

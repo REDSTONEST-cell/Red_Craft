@@ -131,7 +131,12 @@ pub struct InstanceInfo {
 pub fn instance_isolated(state: &AppState, summary: &InstanceSummary, config: &InstanceConfig) -> bool {
     config
         .isolation
-        .unwrap_or_else(|| state.settings().isolation.applies(summary.loader.is_some(), summary.is_release()))
+        .unwrap_or_else(|| default_isolation(state, summary.loader.is_some(), summary.is_release()))
+}
+
+/// 实例没有单独设置时是否版本隔离。手机版没有这个设置，所有实例都隔离（与手机上启动游戏使用的目录一致）。
+pub fn default_isolation(state: &AppState, modded: bool, release: bool) -> bool {
+    cfg!(target_os = "android") || state.settings().isolation.applies(modded, release)
 }
 
 #[tauri::command]

@@ -50,9 +50,18 @@ pub fn game_memory_mb(state: &AppState, instance: Option<&str>, info: system::Me
     if !settings.memory_auto {
         return settings.max_memory_mb;
     }
-    let modded = instance
-        .and_then(|id| crate::content::instance_context(state, id).ok())
-        .is_some_and(|c| c.loader.is_some());
+    let ctx = instance.and_then(|id| crate::content::instance_context(state, id).ok());
+    if cfg!(target_os = "android") {
+        // 手机版按游戏版本、Mod 数量与手机内存分配（见 mobile_runtime）
+        return match &ctx {
+            Some(c) => {
+                let mods = crate::mobile_runtime::count_mods(&c.game_dir.join("mods"));
+                crate::mobile_runtime::auto_memory_mb(info, &c.mc_version, c.loader.is_some(), mods)
+            }
+            None => crate::mobile_runtime::auto_memory_mb(info, "", false, 0),
+        };
+    }
+    let modded = ctx.is_some_and(|c| c.loader.is_some());
     system::auto_memory_mb(info, modded)
 }
 

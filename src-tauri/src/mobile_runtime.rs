@@ -90,37 +90,134 @@ pub fn mobile_java(required: u32, base: &str) -> AppResult<u32> {
     })
 }
 
-/// 手机版自动分配的游戏内存（与 FCL 相同）：可用内存先留出 384MB，8GB 以内取 80%，超过 8GB 的部分取 20%，
-/// 最多 16GB；且不少于按设备总内存给的下限（6GB 及以下 1GB，12GB 及以下 2GB，更多 4GB）。
-/// 后台应用占用较多时可用内存很小，只按可用内存分配会只有 1GB，26.x 内存不足、频繁回收而严重卡顿。
-pub fn auto_memory_mb(total_mb: u64, available_mb: u64) -> u32 {
-    let minimum = match total_mb {
-        0..=1024 => 512,
-        1025..=6144 => 1024,
-        6145..=12288 => 2048,
-        _ => 4096,
+/// 游戏对内存的需求（MB）：能正常启动的最低值，以及依次分配的三档目标。
+#[derive(Debug, PartialEq, Eq)]
+struct MemoryDemand {
+    minimum: u64,
+    targets: [u64; 3],
+}
+
+/// 按游戏版本划分的时期：0 为 1.17 ~ 1.20.x，1 为 1.21.x（含 24w / 25w 快照），2 为 26.x 起。
+fn version_era(mc: &str) -> u8 {
+    let bytes = mc.as_bytes();
+    // 周快照，例如 25w14a：按年份判断
+    if bytes.len() >= 5 && bytes[..2].iter().all(u8::is_ascii_digit) && bytes[2] == b'w' {
+        let year: u32 = mc[..2].parse().unwrap_or(0);
+        return match year {
+            26.. => 2,
+            24..=25 => 1,
+            _ => 0,
+        };
+    }
+    let mut parts = mc.split(|c: char| !c.is_ascii_digit()).map(|p| p.parse::<u32>().unwrap_or(0));
+    match (parts.next().unwrap_or(0), parts.next().unwrap_or(0)) {
+        (26.., _) => 2,
+        (1, 21..) => 1,
+        _ => 0,
+    }
+}
+
+/// 版本越新、Mod 越多，需要的内存越多（档位参考 PCL：Mod 版本按 Mod 数量增加）。
+fn memory_demand(mc: &str, modded: bool, mods: usize) -> MemoryDemand {
+    let (minimum, targets) = match version_era(mc) {
+        0 => (1024, [1536, 2560, 3584]),
+        1 => (1280, [2048, 3072, 4096]),
+        _ => (1536, [2560, 3584, 4608]),
     };
-    let available = available_mb.saturating_sub(384);
-    let suggested = if available <= 8192 {
-        available * 8 / 10
-    } else {
-        8192 * 8 / 10 + (available - 8192) * 2 / 10
-    };
-    suggested.min(16384).max(minimum) as u32
+    if !modded {
+        return MemoryDemand { minimum, targets };
+    }
+    let n = mods as u64;
+    MemoryDemand {
+        minimum: minimum + 256 + n * 4,
+        targets: [targets[0] + 512 + n * 10, targets[1] + 1024 + n * 20, targets[2] + 1536 + n * 40],
+    }
+}
+
+/// 统计 mods 文件夹中启用的 Mod 数量。
+pub fn count_mods(dir: &std::path::Path) -> usize {
+    std::fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .flatten()
+                .filter(|e| e.file_name().to_string_lossy().to_ascii_lowercase().ends_with(".jar"))
+                .count()
+        })
+        .unwrap_or(0)
+}
+
+/// 手机版自动分配的游戏内存（MB）。
+///
+/// 1. 按游戏版本与 Mod 数量得到需求：最低值与三档目标；
+/// 2. 估计游戏能用的内存：Android 内存不足时会结束后台应用，可用内存（MemAvailable）常常远小于游戏实际能用的，
+///    所以至少按总内存的一半计算；再留出 1GB 给 JVM 的堆外内存、区块缓冲与显存（手机的显存就在内存里）；
+/// 3. 与 PCL 相同分段分配：第一档全部满足，第二档取剩余的 70%，第三档取剩余的 40%；
+/// 4. 不少于最低值，不超过总内存的一半，按 128MB 取整。
+pub fn auto_memory_mb(info: launcher_core::system::MemoryInfo, mc: &str, modded: bool, mods: usize) -> u32 {
+    let demand = memory_demand(mc, modded, mods);
+    let align = |mb: u64| ((mb / 128) * 128).max(512) as u32;
+    if info.total_mb == 0 {
+        // 读不到手机内存时取第一档，最多 2GB
+        return align(demand.targets[0].min(2048).max(demand.minimum));
+    }
+    let mut rest = info.available_mb.max(info.total_mb / 2).saturating_sub(1024) as f64;
+    let (mut give, mut previous) = (0.0, 0.0);
+    for (target, ratio) in demand.targets.iter().zip([1.0, 0.7, 0.4]) {
+        if rest < 64.0 {
+            break;
+        }
+        let delta = *target as f64 - previous;
+        give += (rest * ratio).min(delta);
+        rest -= delta / ratio;
+        previous = *target as f64;
+    }
+    align((give as u64).max(demand.minimum).min(info.total_mb / 2))
 }
 
 #[cfg(test)]
 mod tests {
     use super::{auto_memory_mb, mobile_runtime, LwjglUsage};
 
+    fn mem(total_mb: u64, available_mb: u64) -> launcher_core::system::MemoryInfo {
+        launcher_core::system::MemoryInfo { total_mb, available_mb }
+    }
+
     #[test]
-    fn auto_memory_matches_fcl() {
-        assert_eq!(auto_memory_mb(16384, 0), 4096);
-        assert_eq!(auto_memory_mb(16384, 1500), 4096);
-        assert_eq!(auto_memory_mb(8192, 4384), 3200);
-        assert_eq!(auto_memory_mb(4096, 1000), 1024);
-        assert_eq!(auto_memory_mb(24576, 8576), 6553);
-        assert_eq!(auto_memory_mb(32768, 18576), 8553);
+    fn version_eras() {
+        use super::version_era;
+        assert_eq!(version_era("1.17.1"), 0);
+        assert_eq!(version_era("1.20.1"), 0);
+        assert_eq!(version_era("23w51b"), 0);
+        assert_eq!(version_era("1.21"), 1);
+        assert_eq!(version_era("1.21.11"), 1);
+        assert_eq!(version_era("25w14a"), 1);
+        assert_eq!(version_era("26.2"), 2);
+        assert_eq!(version_era("26.4-snapshot-7"), 2);
+        assert_eq!(version_era("26w02a"), 2);
+        assert_eq!(version_era(""), 0);
+    }
+
+    #[test]
+    fn auto_memory() {
+        // 12GB 手机（系统显示约 11.4GB），后台占用多、可用只有 3.5GB 时仍按总内存的一半估计
+        let phone = mem(11400, 3500);
+        assert_eq!(auto_memory_mb(phone, "26.3", false, 0), 3840);
+        assert_eq!(auto_memory_mb(phone, "26.2", true, 1), 4096);
+        assert_eq!(auto_memory_mb(phone, "1.21.11", false, 0), 3456);
+        assert_eq!(auto_memory_mb(phone, "1.20.1", false, 0), 3200);
+        // 8GB / 6GB / 4GB 手机
+        assert_eq!(auto_memory_mb(mem(7600, 2500), "26.3", false, 0), 2688);
+        assert_eq!(auto_memory_mb(mem(7600, 2500), "1.20.1", false, 0), 2304);
+        assert_eq!(auto_memory_mb(mem(5700, 1800), "26.3", false, 0), 1792);
+        assert_eq!(auto_memory_mb(mem(3700, 1200), "1.20.1", false, 0), 1024);
+        // 低内存手机不超过总内存的一半
+        assert_eq!(auto_memory_mb(mem(3000, 800), "26.3", true, 50), 1408);
+        // 内存充足时不超过最高一档；Mod 很多时继续增加
+        assert_eq!(auto_memory_mb(mem(23000, 12000), "26.3", false, 0), 4608);
+        assert_eq!(auto_memory_mb(mem(23000, 12000), "1.21.1", true, 100), 7552);
+        // 读不到内存
+        assert_eq!(auto_memory_mb(mem(0, 0), "26.3", false, 0), 2048);
+        assert_eq!(auto_memory_mb(mem(0, 0), "1.20.1", false, 0), 1536);
     }
 
     fn usage(libs: &[&str]) -> LwjglUsage {

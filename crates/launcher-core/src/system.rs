@@ -26,7 +26,8 @@ pub fn auto_memory_mb(info: MemoryInfo, modded: bool) -> u32 {
     ((mb / 256) * 256).max(1024) as u32
 }
 
-#[cfg(target_os = "linux")]
+// Android 的 target_os 是 "android" 而不是 "linux"，同样从 /proc/meminfo 读取
+#[cfg(any(target_os = "linux", target_os = "android"))]
 mod imp {
     use super::MemoryInfo;
 
@@ -88,7 +89,7 @@ mod imp {
     }
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
+#[cfg(not(any(target_os = "linux", target_os = "android", target_os = "windows", target_os = "macos")))]
 mod imp {
     pub fn memory() -> super::MemoryInfo {
         super::MemoryInfo::default()
@@ -108,6 +109,6 @@ mod tests {
         assert_eq!(auto_memory_mb(small, true), 1024);
         let mid = MemoryInfo { total_mb: 8192, available_mb: 5000 };
         assert_eq!(auto_memory_mb(mid, true), 3840);
-        assert!(memory().total_mb > 0 || cfg!(not(target_os = "linux")));
+        assert!(memory().total_mb > 0 || cfg!(not(any(target_os = "linux", target_os = "android"))));
     }
 }

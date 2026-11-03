@@ -1,6 +1,6 @@
 <script lang="ts">
   // 手机版设置：只保留手机上用得到的选项，按分组排成卡片列表（类似系统设置）
-  import type { DownloadSource, Settings } from "../../lib/api";
+  import { api, type DownloadSource, type MemoryStatus, type Settings } from "../../lib/api";
   import { app, saveSettings } from "../../lib/state.svelte";
   import Segmented from "../../components/Segmented.svelte";
   import Toggle from "../../components/Toggle.svelte";
@@ -20,8 +20,30 @@
   const speedLabel = (kb: number) => (!kb ? "不限速" : kb >= 1024 ? `${+(kb / 1024).toFixed(1)} MB/s` : `${kb} KB/s`);
   const nearestStep = (kb: number) =>
     !kb ? SPEED_STEPS.length - 1 : SPEED_STEPS.reduce((best, v, i) => (v && Math.abs(v - kb) < Math.abs(SPEED_STEPS[best] - kb) ? i : best), 0);
-  const total = $derived(app.info?.memory.totalMb ?? 4096);
+  // 读不到手机内存时（totalMb 为 0）按 4GB 显示
+  const total = $derived(app.info?.memory.totalMb || 4096);
   const maxMem = $derived(Math.max(1024, Math.floor((total * 0.75) / 256) * 256));
+
+  // 自动分配时显示启动当前版本会分配的内存（与启动时的计算相同）
+  let mem = $state<MemoryStatus | null>(null);
+  $effect(() => {
+    void [s?.memoryAuto, s?.maxMemoryMb, app.settings?.selectedInstance];
+    api
+      .memoryStatus()
+      .then((m) => (mem = m))
+      .catch(() => (mem = null));
+  });
+
+  const memoryHint = $derived.by(() => {
+    const base = "根据手机内存、游戏版本与 Mod 数量决定";
+    if (!s?.memoryAuto || !mem?.gameMb) return base;
+    const target = app.settings?.selectedInstance ? `「${app.settings.selectedInstance}」` : "游戏";
+    return `${base}；启动${target}时分配 ${(mem.gameMb / 1024).toFixed(1)} GB`;
+  });
+
+  // 手机版的版本号由 Android 端提供
+  const host = (window as unknown as { RclGame?: { appVersion?: () => string } }).RclGame;
+  const version = host?.appVersion?.() ?? "";
 </script>
 
 {#if s}
@@ -61,7 +83,7 @@
     <section>
       <h2>游戏</h2>
       <div class="item">
-        <span class="label">自动分配内存<small>根据手机内存和是否安装 Mod 决定</small></span>
+        <span class="label">自动分配内存<small>{memoryHint}</small></span>
         <Toggle checked={s.memoryAuto} onchange={(v) => save({ memoryAuto: v })} />
       </div>
       {#if !s.memoryAuto}
@@ -122,7 +144,7 @@
     <section>
       <h2>关于</h2>
       <div class="item">
-        <span class="label">RCL 手机版<small>预览版 · 游戏启动正在接入中</small></span>
+        <span class="label">Red Craft Launcher 手机版<small>{version ? `版本 ${version}` : "手机版"} · 支持 1.17 ~ 26.x</small></span>
       </div>
       <div class="item">
         <span class="label">开源许可<small>GPL-3.0 · 游戏运行环境基于 Fold Craft Launcher</small></span>

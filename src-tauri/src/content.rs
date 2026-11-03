@@ -53,7 +53,7 @@ pub fn instance_context(state: &AppState, id: &str) -> AppResult<InstanceContext
     let release = resolved.json.kind == "release";
     let isolated = config
         .isolation
-        .unwrap_or_else(|| state.settings().isolation.applies(loader.is_some(), release));
+        .unwrap_or_else(|| crate::commands::default_isolation(state, loader.is_some(), release));
     Ok(InstanceContext {
         id: id.to_string(),
         mc_version,

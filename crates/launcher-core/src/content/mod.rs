@@ -8,6 +8,7 @@ pub mod local;
 pub mod media;
 pub mod zhdb;
 pub mod aggregate;
+pub mod compat;
 mod modpack;
 mod modrinth;
 mod resolve;
