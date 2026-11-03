@@ -65,7 +65,8 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
                 check_mods(&state, &ctx, &reporter, &cancel).await?;
             }
             if settings.default_chinese { launch::ensure_chinese(&game_dir, &resolved.json.release_time)?; }
-            let memory = crate::memory::game_memory_mb(&state, Some(&id), launcher_core::system::memory());
+            let device = launcher_core::system::memory();
+            let memory = crate::memory::game_memory_mb(&state, Some(&id), device);
             let opts = LaunchOptions {
                 java: PathBuf::from(format!("java{}", runtime.java)), game_dir: game_dir.clone(), auth,
                 max_memory_mb: memory, min_memory_mb: settings.min_memory_mb.min(memory), java_major: runtime.java,
@@ -79,6 +80,8 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
                 "cwd": game_dir, "args": cmd.args, "mainClass": resolved.json.main_class,
                 "java": format!("java{}", runtime.java), "renderer": runtime.renderer, "lwjgl": runtime.lwjgl,
                 "disableEarlyWindow": runtime.disable_early_window, "angle": runtime.angle,
+                // 写进游戏日志，便于排查卡顿
+                "memory": {"heap": memory, "total": device.total_mb, "available": device.available_mb},
             });
             crate::settings::write_json(&directory.join("request.json"), &request)?;
             cancel.check()?;

@@ -90,11 +90,11 @@ pub fn mobile_java(required: u32, base: &str) -> AppResult<u32> {
     })
 }
 
-/// 游戏对内存的需求（MB）：能正常启动的最低值，以及依次分配的三档目标。
+/// 游戏对内存的需求（MB）：能正常运行的最低值与合适的目标值。
 #[derive(Debug, PartialEq, Eq)]
 struct MemoryDemand {
     minimum: u64,
-    targets: [u64; 3],
+    target: u64,
 }
 
 /// 按游戏版本划分的时期：0 为 1.17 ~ 1.20.x，1 为 1.21.x（含 24w / 25w 快照），2 为 26.x 起。
@@ -117,21 +117,17 @@ fn version_era(mc: &str) -> u8 {
     }
 }
 
-/// 版本越新、Mod 越多，需要的内存越多（档位参考 PCL：Mod 版本按 Mod 数量增加）。
+/// 版本越新、Mod 越多，需要的内存越多。原版不需要很大的内存：堆越大，手机上的内存压力越大。
 fn memory_demand(mc: &str, modded: bool, mods: usize) -> MemoryDemand {
-    let (minimum, targets) = match version_era(mc) {
-        0 => (1024, [1536, 2560, 3584]),
-        1 => (1280, [2048, 3072, 4096]),
-        _ => (1536, [2560, 3584, 4608]),
+    let (minimum, target) = match version_era(mc) {
+        0 => (1024, 1536),
+        1 => (1024, 2048),
+        _ => (1536, 2560),
     };
     if !modded {
-        return MemoryDemand { minimum, targets };
+        return MemoryDemand { minimum, target };
     }
-    let n = mods as u64;
-    MemoryDemand {
-        minimum: minimum + 256 + n * 4,
-        targets: [targets[0] + 512 + n * 10, targets[1] + 1024 + n * 20, targets[2] + 1536 + n * 40],
-    }
+    MemoryDemand { minimum: minimum + 256, target: (target + 512 + mods as u64 * 16).min(6144) }
 }
 
 /// 统计 mods 文件夹中启用的 Mod 数量。
@@ -146,32 +142,24 @@ pub fn count_mods(dir: &std::path::Path) -> usize {
         .unwrap_or(0)
 }
 
-/// 手机版自动分配的游戏内存（MB）。
+/// 启动前可用内存中留给游戏堆外内存（区块缓冲、显存——手机的显存就在内存里、JVM 自身）与系统的部分。
+const RESERVE_MB: u64 = 1792;
+
+/// 手机版自动分配的游戏内存（MB）：按启动前实际可用的内存（MemAvailable）分配，先留出堆外内存与系统需要的部分，
+/// 再限制在游戏需要的范围内（按版本与 Mod 数量），不超过总内存的一半，按 128MB 取整。
 ///
-/// 1. 按游戏版本与 Mod 数量得到需求：最低值与三档目标；
-/// 2. 估计游戏能用的内存：Android 内存不足时会结束后台应用，可用内存（MemAvailable）常常远小于游戏实际能用的，
-///    所以至少按总内存的一半计算；再留出 1GB 给 JVM 的堆外内存、区块缓冲与显存（手机的显存就在内存里）；
-/// 3. 与 PCL 相同分段分配：第一档全部满足，第二档取剩余的 70%，第三档取剩余的 40%；
-/// 4. 不少于最低值，不超过总内存的一半，按 128MB 取整。
+/// 不能按总内存估计：后台应用占用的内存不会全部让出来（很多手机还会把后台应用压缩到 swap 中保留），
+/// 分配超过实际可用的内存时，系统在游戏运行中不断回收内存，声音断断续续、画面卡顿。
 pub fn auto_memory_mb(info: launcher_core::system::MemoryInfo, mc: &str, modded: bool, mods: usize) -> u32 {
     let demand = memory_demand(mc, modded, mods);
     let align = |mb: u64| ((mb / 128) * 128).max(512) as u32;
     if info.total_mb == 0 {
-        // 读不到手机内存时取第一档，最多 2GB
-        return align(demand.targets[0].min(2048).max(demand.minimum));
+        // 读不到手机内存时取目标值，最多 2GB
+        return align(demand.target.min(2048));
     }
-    let mut rest = info.available_mb.max(info.total_mb / 2).saturating_sub(1024) as f64;
-    let (mut give, mut previous) = (0.0, 0.0);
-    for (target, ratio) in demand.targets.iter().zip([1.0, 0.7, 0.4]) {
-        if rest < 64.0 {
-            break;
-        }
-        let delta = *target as f64 - previous;
-        give += (rest * ratio).min(delta);
-        rest -= delta / ratio;
-        previous = *target as f64;
-    }
-    align((give as u64).max(demand.minimum).min(info.total_mb / 2))
+    let available = if info.available_mb > 0 { info.available_mb } else { info.total_mb / 4 };
+    let budget = available.saturating_sub(RESERVE_MB);
+    align(budget.clamp(demand.minimum, demand.target).min(info.total_mb / 2))
 }
 
 #[cfg(test)]
@@ -199,22 +187,27 @@ mod tests {
 
     #[test]
     fn auto_memory() {
-        // 12GB 手机（系统显示约 11.4GB），后台占用多、可用只有 3.5GB 时仍按总内存的一半估计
-        let phone = mem(11400, 3500);
-        assert_eq!(auto_memory_mb(phone, "26.3", false, 0), 3840);
-        assert_eq!(auto_memory_mb(phone, "26.2", true, 1), 4096);
-        assert_eq!(auto_memory_mb(phone, "1.21.11", false, 0), 3456);
-        assert_eq!(auto_memory_mb(phone, "1.20.1", false, 0), 3200);
-        // 8GB / 6GB / 4GB 手机
-        assert_eq!(auto_memory_mb(mem(7600, 2500), "26.3", false, 0), 2688);
-        assert_eq!(auto_memory_mb(mem(7600, 2500), "1.20.1", false, 0), 2304);
-        assert_eq!(auto_memory_mb(mem(5700, 1800), "26.3", false, 0), 1792);
+        // 12GB 手机（系统显示约 11.4GB），后台占用多、启动前可用 3.5GB：按可用内存分配，不再按总内存估计
+        let busy = mem(11400, 3500);
+        assert_eq!(auto_memory_mb(busy, "26.3", false, 0), 1664);
+        assert_eq!(auto_memory_mb(busy, "26.2", true, 1), 1792);
+        assert_eq!(auto_memory_mb(busy, "1.21.11", false, 0), 1664);
+        assert_eq!(auto_memory_mb(busy, "1.20.1", false, 0), 1536);
+        // 可用内存充足时给到需要的目标值，原版不会分配过多
+        let free = mem(11400, 6000);
+        assert_eq!(auto_memory_mb(free, "26.3", false, 0), 2560);
+        assert_eq!(auto_memory_mb(free, "1.21.11", false, 0), 2048);
+        assert_eq!(auto_memory_mb(free, "1.20.1", false, 0), 1536);
+        assert_eq!(auto_memory_mb(free, "26.2", true, 1), 3072);
+        // 可用内存很少时给能正常运行的最低值
+        assert_eq!(auto_memory_mb(mem(11400, 2000), "26.3", false, 0), 1536);
+        assert_eq!(auto_memory_mb(mem(11400, 2000), "1.20.1", false, 0), 1024);
         assert_eq!(auto_memory_mb(mem(3700, 1200), "1.20.1", false, 0), 1024);
-        // 低内存手机不超过总内存的一半
+        // 不超过总内存的一半
         assert_eq!(auto_memory_mb(mem(3000, 800), "26.3", true, 50), 1408);
-        // 内存充足时不超过最高一档；Mod 很多时继续增加
-        assert_eq!(auto_memory_mb(mem(23000, 12000), "26.3", false, 0), 4608);
-        assert_eq!(auto_memory_mb(mem(23000, 12000), "1.21.1", true, 100), 7552);
+        // Mod 很多时增加，最多 6GB
+        assert_eq!(auto_memory_mb(mem(23000, 12000), "1.21.1", true, 100), 4096);
+        assert_eq!(auto_memory_mb(mem(23000, 16000), "1.21.1", true, 400), 6144);
         // 读不到内存
         assert_eq!(auto_memory_mb(mem(0, 0), "26.3", false, 0), 2048);
         assert_eq!(auto_memory_mb(mem(0, 0), "1.20.1", false, 0), 1536);
