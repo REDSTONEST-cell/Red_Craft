@@ -90,9 +90,29 @@ pub fn mobile_java(required: u32, base: &str) -> AppResult<u32> {
     })
 }
 
+/// 手机版自动分配的游戏内存（与 FCL 相同）：可用内存先留出 384MB，8GB 以内取 80%，超过 8GB 的部分取 20%，
+/// 最多 16GB。电脑版的上限（原版 2.5GB）在手机上偏小，垃圾回收频繁，游戏卡顿、声音断续。
+pub fn auto_memory_mb(available_mb: u64) -> u32 {
+    let available = available_mb.saturating_sub(384);
+    let suggested = if available <= 8192 {
+        available * 8 / 10
+    } else {
+        8192 * 8 / 10 + (available - 8192) * 2 / 10
+    };
+    (suggested.min(16384) as u32).max(1024)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{mobile_runtime, LwjglUsage};
+    use super::{auto_memory_mb, mobile_runtime, LwjglUsage};
+
+    #[test]
+    fn auto_memory_matches_fcl() {
+        assert_eq!(auto_memory_mb(0), 1024);
+        assert_eq!(auto_memory_mb(4384), 3200);
+        assert_eq!(auto_memory_mb(8576), 6553);
+        assert_eq!(auto_memory_mb(18576), 8553);
+    }
 
     fn usage(libs: &[&str]) -> LwjglUsage {
         LwjglUsage::from_libraries(libs.iter().copied())
