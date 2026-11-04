@@ -86,6 +86,7 @@ pub struct Progress {
 
 #[derive(Default)]
 struct Counters {
+    total_files: AtomicUsize,
     done_files: AtomicUsize,
     failed_files: AtomicUsize,
     total_bytes: AtomicU64,
@@ -95,6 +96,12 @@ struct Counters {
 }
 
 impl Counters {
+    /// 还没完成（含正在下载）的文件数
+    fn remaining_files(&self) -> usize {
+        let finished = self.done_files.load(Ordering::Relaxed) + self.failed_files.load(Ordering::Relaxed);
+        self.total_files.load(Ordering::Relaxed).saturating_sub(finished)
+    }
+
     fn snapshot(&self, total_files: usize, speed: u64) -> Progress {
         Progress {
             total_files,
@@ -245,6 +252,7 @@ impl Downloader {
             .collect();
         let total_files = tasks.len();
         let counters = Arc::new(Counters::default());
+        counters.total_files.store(total_files, Ordering::Relaxed);
         counters.total_bytes.store(
             tasks.iter().filter_map(|t| t.size).sum(),
             Ordering::Relaxed,
@@ -366,8 +374,10 @@ impl Downloader {
                 let mut written = 0u64;
                 // 官方优先模式下，第一个（官方）地址缓慢时可以换用后面的镜像
                 let can_switch = i == 0 && candidates.len() > 1 && self.http.checks_slowness();
+                // 最后一次尝试不再因为缓慢而中断，网络本身很慢时至少能下完
+                let last_try = attempt + 1 == self.retries && i + 1 == candidates.len();
                 match self
-                    .fetch_to(url, task, counters, cancel, &mut written, can_switch)
+                    .fetch_to(url, task, counters, cancel, &mut written, can_switch, !last_try)
                     .await
                 {
                     Ok(()) => return Ok(()),
@@ -390,6 +400,7 @@ impl Downloader {
         Err(last_err.unwrap_or(CoreError::Cancelled))
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn fetch_to(
         &self,
         url: &str,
@@ -398,11 +409,13 @@ impl Downloader {
         cancel: &CancelToken,
         written: &mut u64,
         can_switch: bool,
+        can_restart: bool,
     ) -> Result<()> {
         let slow = || {
             self.http.mark_official_slow();
             CoreError::InvalidData(format!("{url} 下载缓慢，换用镜像源"))
         };
+        let stalled = || CoreError::InvalidData(format!("{url} 下载停滞，重新连接"));
         let send = self.http.raw().get(url).send();
         let resp = if can_switch {
             match tokio::time::timeout(SLOW_RESPONSE, send).await {
@@ -410,7 +423,10 @@ impl Downloader {
                 Err(_) => return Err(slow()),
             }
         } else {
-            send.await
+            match tokio::time::timeout(STALL, send).await {
+                Ok(r) => r,
+                Err(_) => return Err(stalled()),
+            }
         }
         .map_err(|e| CoreError::network(url, e))?;
         if !resp.status().is_success() {
@@ -432,7 +448,17 @@ impl Downloader {
         let mut file = tokio::io::BufWriter::with_capacity(256 * 1024, tokio::fs::File::create(&part).await.at(&part)?);
         let mut hasher = Sha1::new();
         let mut stream = resp.bytes_stream();
-        while let Some(chunk) = stream.next().await {
+        loop {
+            // 连接停滞（服务器不再发送数据）时断开重试，不等网络层 30 秒的超时
+            let next = match tokio::time::timeout(STALL, stream.next()).await {
+                Ok(next) => next,
+                Err(_) => {
+                    drop(file);
+                    let _ = tokio::fs::remove_file(&part).await;
+                    return Err(stalled());
+                }
+            };
+            let Some(chunk) = next else { break };
             if cancel.is_cancelled() {
                 drop(file);
                 let _ = tokio::fs::remove_file(&part).await;
@@ -459,6 +485,16 @@ impl Downloader {
                     return Err(slow());
                 }
             }
+            // 批量下载的最后几个文件：带宽都留给它们了，仍然很慢说明这个连接有问题，断开重连或换源
+            if can_restart
+                && self.http.limiter().rate() == 0
+                && counters.total_files.load(Ordering::Relaxed) > TAIL_FILES
+                && tail_too_slow(counters.remaining_files(), started.elapsed(), *written, expected_len)
+            {
+                drop(file);
+                let _ = tokio::fs::remove_file(&part).await;
+                return Err(CoreError::InvalidData(format!("{url} 下载缓慢，重新连接")));
+            }
         }
         file.flush().await.at(&part)?;
         drop(file);
@@ -477,6 +513,25 @@ impl Downloader {
         tokio::fs::rename(&part, &task.path).await.at(&task.path)?;
         Ok(())
     }
+}
+
+/// 连接多久没有收到数据视为停滞，断开重试。
+const STALL: Duration = Duration::from_secs(10);
+/// 剩余文件不多于这个数时进入收尾阶段。
+const TAIL_FILES: usize = 8;
+/// 收尾阶段：下载超过这个时间仍低于 TAIL_SPEED 的文件断开重连。
+const TAIL_CHECK_AFTER: Duration = Duration::from_secs(6);
+const TAIL_SPEED: f64 = 32.0 * 1024.0;
+
+/// 收尾阶段的文件是否慢得应该重新连接。
+fn tail_too_slow(remaining_files: usize, elapsed: Duration, written: u64, expected: u64) -> bool {
+    if remaining_files > TAIL_FILES || elapsed < TAIL_CHECK_AFTER {
+        return false;
+    }
+    if expected > 0 && written >= expected {
+        return false;
+    }
+    (written as f64 / elapsed.as_secs_f64()) < TAIL_SPEED
 }
 
 /// 官方源响应超过这个时间视为缓慢（与 PCL 相同为 4 秒）。
@@ -1032,6 +1087,21 @@ mod tests {
         assert!(!is_valid(&p, Some(&h), Some(6)).await.unwrap());
         assert!(!is_valid(&p, Some("0000"), None).await.unwrap());
         assert_eq!(sha1_file(&p).unwrap(), h);
+    }
+
+    #[test]
+    fn tail_restart_rule() {
+        let s = Duration::from_secs;
+        // 收尾阶段、超过 6 秒、低于 32KB/s：重新连接
+        assert!(tail_too_slow(4, s(8), 40 * 1024, 800 * 1024));
+        // 还有很多文件在下载：带宽被分摊，慢是正常的
+        assert!(!tail_too_slow(500, s(30), 1024, 800 * 1024));
+        // 刚开始下载
+        assert!(!tail_too_slow(4, s(3), 0, 800 * 1024));
+        // 速度正常
+        assert!(!tail_too_slow(4, s(8), 8 * 1024 * 1024, 20 * 1024 * 1024));
+        // 已经下完
+        assert!(!tail_too_slow(4, s(8), 1024, 1024));
     }
 
     #[test]
