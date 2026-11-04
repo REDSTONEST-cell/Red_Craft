@@ -43,7 +43,12 @@ mod imp {
         };
         MemoryInfo {
             total_mb: field("MemTotal:"),
-            available_mb: field("MemAvailable:"),
+            // Android 与系统 ActivityManager.MemoryInfo.availMem 相同：MemFree + Cached（FCL 按它自动分配内存）
+            available_mb: if cfg!(target_os = "android") {
+                field("MemFree:") + field("Cached:")
+            } else {
+                field("MemAvailable:")
+            },
         }
     }
 }

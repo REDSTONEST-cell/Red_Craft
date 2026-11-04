@@ -35,7 +35,7 @@
   });
 
   const memoryHint = $derived.by(() => {
-    const base = "根据手机内存、游戏版本与 Mod 数量决定";
+    const base = "根据手机内存决定（与 FCL 相同）";
     if (!s?.memoryAuto || !mem?.gameMb) return base;
     const target = app.settings?.selectedInstance ? `「${app.settings.selectedInstance}」` : "游戏";
     return `${base}；启动${target}时分配 ${(mem.gameMb / 1024).toFixed(1)} GB`;
