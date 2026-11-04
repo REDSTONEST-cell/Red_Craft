@@ -20,6 +20,13 @@
 
   installIconFallback();
 
+  // 与 FCL 相同：有任务进行时让手机保持 CPU 与 WiFi 活跃，关屏或切到后台时下载不中断
+  const host = (window as unknown as { RclGame?: { keepAwake?: (on: boolean) => void } }).RclGame;
+  $effect(() => {
+    const busy = app.tasks.some((t) => t.state === "running");
+    host?.keepAwake?.(busy);
+  });
+
   let ready = $state(false);
   let systemDark = $state(window.matchMedia("(prefers-color-scheme: dark)").matches);
 

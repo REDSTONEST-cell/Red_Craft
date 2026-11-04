@@ -41,9 +41,21 @@
     return `${base}；启动${target}时分配 ${(mem.gameMb / 1024).toFixed(1)} GB`;
   });
 
-  // 手机版的版本号由 Android 端提供
-  const host = (window as unknown as { RclGame?: { appVersion?: () => string } }).RclGame;
+  // 手机版的版本号与麦克风权限由 Android 端提供
+  type Host = { appVersion?: () => string; hasMicrophone?: () => boolean; requestMicrophone?: () => void };
+  const host = (window as unknown as { RclGame?: Host }).RclGame;
   const version = host?.appVersion?.() ?? "";
+  let microphone = $state(host?.hasMicrophone?.() ?? false);
+  // 授权弹窗或系统设置页返回后刷新
+  $effect(() => {
+    const refresh = () => (microphone = host?.hasMicrophone?.() ?? false);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  });
 </script>
 
 {#if s}
@@ -100,6 +112,16 @@
             />
             <span class="val">{(Math.min(s.maxMemoryMb, maxMem) / 1024).toFixed(2)} GB</span>
           </div>
+        </div>
+      {/if}
+      {#if host?.requestMicrophone}
+        <div class="item">
+          <span class="label">麦克风权限<small>游戏内语音聊天等 Mod 需要</small></span>
+          {#if microphone}
+            <span class="val">已授权</span>
+          {:else}
+            <button class="btn sm" onclick={() => host?.requestMicrophone?.()}>授权</button>
+          {/if}
         </div>
       {/if}
       <div class="item">
