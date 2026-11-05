@@ -1,6 +1,8 @@
 <script lang="ts">
   // 手机版外壳：左侧导航栏 + 页面，横屏全屏。主页、版本、设置是手机专用页面，下载、资源、账号复用电脑版的页面并按手机收紧样式。
   import "./mobile.css";
+  import UpdateDialog from "../components/UpdateDialog.svelte";
+  import { checkUpdate } from "../lib/update.svelte";
   import Rail from "./Rail.svelte";
   import Home from "./pages/Home.svelte";
   import Versions from "./pages/Versions.svelte";
@@ -71,6 +73,7 @@
         ready = true;
         await tick();
         setTimeout(() => api.appReady().catch(() => {}), 16);
+        if (app.settings?.autoCheckUpdate) setTimeout(() => checkUpdate(false), 3000);
       });
   });
 </script>
@@ -104,6 +107,7 @@
 <Toasts />
 <LogViewer />
 <CrashDialog />
+<UpdateDialog />
 
 <style>
   /* 铺满整个屏幕（包括挖孔一侧）：背景画到屏幕边缘，内容按 --m-safe-* 避开挖孔，见 viewport.ts */

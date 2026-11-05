@@ -3,6 +3,7 @@
   import { api, type DownloadSource, type MemoryStatus, type Settings } from "../../lib/api";
   import { app, saveSettings } from "../../lib/state.svelte";
   import Segmented from "../../components/Segmented.svelte";
+  import { checkUpdate, updater } from "../../lib/update.svelte";
   import Toggle from "../../components/Toggle.svelte";
 
   const s = $derived(app.settings!);
@@ -166,7 +167,12 @@
     <section>
       <h2>关于</h2>
       <div class="item">
+        <span class="label">启动时检查更新<small>发现新版本后提示，由你确认下载和安装</small></span>
+        <Toggle checked={s.autoCheckUpdate} onchange={(v) => save({ autoCheckUpdate: v })} />
+      </div>
+      <div class="item">
         <span class="label">Red Craft Launcher 手机版<small>{version ? `版本 ${version}` : "手机版"} · 支持 1.17 ~ 26.x</small></span>
+        <button class="btn sm" disabled={updater.checking || updater.busy} onclick={() => checkUpdate(true)}>{updater.checking ? "检查中…" : "检查更新"}</button>
       </div>
       <div class="item">
         <span class="label">开源许可<small>GPL-3.0 · 游戏运行环境基于 Fold Craft Launcher</small></span>

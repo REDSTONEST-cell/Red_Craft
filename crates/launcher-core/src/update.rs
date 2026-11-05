@@ -30,6 +30,8 @@ pub const SUMS_FILE: &str = "SHA256SUMS.txt";
 pub enum InstallKind {
     /// Windows NSIS 安装版
     Nsis,
+    /// Android arm64 APK
+    Apk,
     /// Windows MSI 安装版
     Msi,
     /// Windows 单文件版
@@ -44,6 +46,7 @@ impl InstallKind {
     /// Release 中对应的文件名后缀。
     fn suffix(self) -> Option<&'static str> {
         match self {
+            InstallKind::Apk => Some("_arm64.apk"),
             InstallKind::Nsis => Some("-setup.exe"),
             InstallKind::Msi => Some(".msi"),
             InstallKind::Portable => Some("_x64win.exe"),
@@ -116,6 +119,10 @@ pub struct Release {
 impl Release {
     /// 当前安装方式对应的文件。Windows 只选 x64 / 当前架构的文件。
     pub fn asset_for(&self, kind: InstallKind) -> Option<&ReleaseAsset> {
+        if kind == InstallKind::Apk {
+            let name = format!("RCL_Android_{}_arm64.apk", self.tag_name.trim_start_matches('v'));
+            return self.assets.iter().find(|a| a.name == name);
+        }
         let suffix = kind.suffix()?;
         self.assets.iter().find(|a| a.name.ends_with(suffix))
     }
@@ -127,7 +134,12 @@ impl Release {
 
 /// 查询最新正式版（GitHub 的 `releases/latest` 不包含预发布版）。
 pub async fn latest_release(http: &reqwest::Client) -> Result<Release> {
-    let url = format!("https://api.github.com/repos/{REPO}/releases/latest");
+    latest_release_for(http, REPO).await
+}
+
+/// 查询指定启动器仓库的正式版；调用方使用内置仓库名。
+pub async fn latest_release_for(http: &reqwest::Client, repo: &str) -> Result<Release> {
+    let url = format!("https://api.github.com/repos/{repo}/releases/latest");
     let resp = http
         .get(&url)
         .header("Accept", "application/vnd.github+json")
@@ -152,7 +164,7 @@ pub fn sum_for(sums: &str, file: &str) -> Option<String> {
     let want = norm(file);
     sums.lines().find_map(|line| {
         let (hash, name) = line.trim().split_once(char::is_whitespace)?;
-        (hash.len() == 64 && norm(name) == want).then(|| hash.to_ascii_lowercase())
+        (hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()) && norm(name) == want).then(|| hash.to_ascii_lowercase())
     })
 }
 
@@ -543,6 +555,17 @@ mod tests {
         assert_eq!(sum_for(&spaced, "Red.Craft_1.0.0_x64-setup.exe"), Some(h.clone()));
         let dotted = format!("{h}  Red.Craft_1.0.0_x64-setup.exe\n");
         assert_eq!(sum_for(&dotted, "Red.Craft_1.0.0_x64-setup.exe"), Some(h));
+    }
+
+    #[test]
+    fn android_assets() {
+        let release: Release = serde_json::from_str(r#"{"tag_name":"v1.1.9","html_url":"https://github.com/x/y","assets":[
+            {"name":"other_arm64.apk","browser_download_url":"wrong"},
+            {"name":"RCL_Android_1.1.9_arm64.apk","browser_download_url":"correct"},
+            {"name":"RCL_Android_1.1.9_x86.apk","browser_download_url":"wrong"}]}"#).unwrap();
+        assert_eq!(release.asset_for(InstallKind::Apk).unwrap().browser_download_url, "correct");
+        assert!(sum_for(&format!("{}  update.apk", "z".repeat(64)), "update.apk").is_none());
+        assert!(!is_newer("v1.1.8", "1.1.9"));
     }
 
     #[test]

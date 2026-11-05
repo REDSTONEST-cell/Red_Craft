@@ -15,6 +15,18 @@ use crate::state::AppState;
 
 /// 最近一次检查到的 Release，以及已下载、等待安装的文件。
 static LATEST: Mutex<Option<Release>> = Mutex::new(None);
+static DOWNLOADING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+struct DownloadGuard;
+impl DownloadGuard {
+    fn acquire() -> AppResult<Self> {
+        DOWNLOADING.compare_exchange(false, true, std::sync::atomic::Ordering::SeqCst, std::sync::atomic::Ordering::SeqCst)
+            .map_err(|_| AppError::msg("更新正在下载", "请等待当前任务完成。"))?;
+        Ok(Self)
+    }
+}
+impl Drop for DownloadGuard {
+    fn drop(&mut self) { DOWNLOADING.store(false, std::sync::atomic::Ordering::SeqCst); }
+}
 static PENDING: Mutex<Option<(InstallKind, PathBuf)>> = Mutex::new(None);
 
 #[derive(Debug, Clone, Serialize)]
@@ -36,6 +48,7 @@ fn current_exe() -> Option<PathBuf> {
 
 /// 当前的安装方式。
 pub fn install_kind() -> InstallKind {
+    if cfg!(target_os = "android") { return InstallKind::Apk; }
     if cfg!(feature = "portable") {
         return InstallKind::Portable;
     }
@@ -114,17 +127,17 @@ pub fn cleanup(state: &AppState) {
 
 /// 检查是否有新的正式版。没有新版本时返回 `None`。
 #[tauri::command]
-pub async fn check_update(state: State<'_, AppState>) -> AppResult<Option<UpdateInfo>> {
-    // 手机版通过 APK 单独发布，不使用桌面版的更新
-    if cfg!(mobile) {
-        return Ok(None);
-    }
+pub async fn check_update(state: State<'_, AppState>, current_version: Option<String>) -> AppResult<Option<UpdateInfo>> {
+    let current = if cfg!(target_os = "android") {
+        current_version.filter(|v| update::parse_version(v).is_some())
+            .ok_or_else(|| AppError::msg("无法读取手机版版本号", "请重新打开启动器。"))?
+    } else { launcher_core::LAUNCHER_VERSION.to_string() };
     let http = state.http()?;
-    let release = update::latest_release(http.raw())
+    let repo = if cfg!(target_os = "android") { "REDSTONEST-cell/RCL_Android" } else { update::REPO };
+    let release = update::latest_release_for(http.raw(), repo)
         .await
         .map_err(|e| AppError::msg(format!("检查更新失败：{e}"), "请检查网络连接后重试。"))?;
-    let current = launcher_core::LAUNCHER_VERSION;
-    if release.draft || release.prerelease || !update::is_newer(&release.tag_name, current) {
+    if release.draft || release.prerelease || !update::is_newer(&release.tag_name, &current) {
         return Ok(None);
     }
     let kind = install_kind();
@@ -147,6 +160,7 @@ pub async fn check_update(state: State<'_, AppState>) -> AppResult<Option<Update
 /// 下载并准备安装新版本，返回任务 id。任务完成后前端调用 `apply_update` 重启。
 #[tauri::command]
 pub async fn download_update(app: AppHandle, state: State<'_, AppState>) -> AppResult<u64> {
+    let busy = DownloadGuard::acquire()?;
     let release = LATEST
         .lock()
         .ok()
@@ -161,6 +175,8 @@ pub async fn download_update(app: AppHandle, state: State<'_, AppState>) -> AppR
     let dir = updates_dir(&state);
     let title = format!("下载 RCL {}", release.tag_name.trim_start_matches('v'));
     Ok(state.tasks.spawn(&app, title, move |reporter, cancel| async move {
+        let _busy = busy;
+        if let Ok(mut p) = PENDING.lock() { *p = None; }
         // 校验值：优先用 GitHub 接口直接给出的 SHA256，旧的 Release 没有时读取 SHA256SUMS.txt。
         // 校验值来自 GitHub 官方，所以文件可以放心经由加速线路下载。
         reporter.stage("获取校验信息");
@@ -182,9 +198,15 @@ pub async fn download_update(app: AppHandle, state: State<'_, AppState>) -> AppR
             (None, None) => None,
         };
 
+        if kind == InstallKind::Apk && expected.is_none() {
+            return Err(AppError::msg("更新缺少有效的 SHA256 校验信息", "请稍后重试。"));
+        }
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).map_err(|e| AppError::msg(format!("无法创建更新目录：{e}"), ""))?;
-        let file = dir.join(&asset.name);
+        if asset.name.contains(['/', '\\']) || asset.name == "." || asset.name == ".." {
+            return Err(AppError::msg("更新文件名无效", ""));
+        }
+        let file = dir.join(if kind == InstallKind::Apk { "update.apk" } else { &asset.name });
         // 测速选线：GitHub 直连与加速线路同时测速，用最快的线路分块并行下载。
         // 只有能校验时才使用加速线路。
         reporter.stage("选择下载线路");
@@ -204,6 +226,7 @@ pub async fn download_update(app: AppHandle, state: State<'_, AppState>) -> AppR
         reporter.stage("下载新版本");
         update::download_fast(http.raw(), &sources, &file, asset.size, reporter.progress.clone(), &cancel).await?;
 
+        cancel.check()?;
         if let Some(expected) = expected {
             reporter.stage("校验文件");
             let f = file.clone();
@@ -214,8 +237,13 @@ pub async fn download_update(app: AppHandle, state: State<'_, AppState>) -> AppR
                 let _ = std::fs::remove_file(&file);
                 return Err(AppError::msg("更新文件校验失败，已删除", "请稍后重试。"));
             }
+            if kind == InstallKind::Apk {
+                std::fs::write(dir.join("update.sha256"), expected)
+                    .map_err(|e| AppError::msg(format!("无法保存校验信息：{e}"), ""))?;
+            }
         }
 
+        cancel.check()?;
         // 单文件版 / AppImage：现在就替换文件（运行中的程序可以改名），重启后即为新版本
         if let Some(target) = replace_target(kind) {
             reporter.stage("替换程序文件");
@@ -268,6 +296,10 @@ pub fn apply_update(app: AppHandle) -> AppResult<()> {
                 .map_err(|e| AppError::msg(format!("无法启动新版本：{e}"), "请手动重新打开启动器。"))?;
         }
         InstallKind::Nsis | InstallKind::Msi => run_installer(kind, &file)?,
+        InstallKind::Apk => {
+            if !file.is_file() { return Err(AppError::msg("更新安装包已丢失", "请重新下载。")); }
+            return Ok(()); // 前端随后调用 Android 安装桥；保留应用，允许取消后重试。
+        }
         InstallKind::Manual => return Err(AppError::msg("当前系统需要手动安装更新", "")),
     }
     log::info!("开始安装更新，启动器即将退出");

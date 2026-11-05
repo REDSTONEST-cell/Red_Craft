@@ -5,9 +5,16 @@
 type Result = { paths?: string[]; ok?: boolean; error?: string; cancelled?: boolean };
 
 interface Host {
+  installUpdate(id: string): void;
   pickFiles(id: string, multiple: boolean): void;
   pickFolder(id: string): void;
   saveFile(id: string, path: string, name: string, mime: string): void;
+}
+
+/** 打开已校验的更新 APK；权限拒绝或安装取消后可以重试。 */
+export async function installUpdate(): Promise<void> {
+  const r = await call((h, id) => h.installUpdate(id));
+  if (r.cancelled) throw new Error("尚未允许安装，请点击安装重试");
 }
 
 const pending = new Map<string, (r: Result) => void>();

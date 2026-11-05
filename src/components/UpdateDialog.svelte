@@ -12,6 +12,7 @@
   const ratio = $derived(task?.progress?.totalBytes ? task.progress.doneBytes / task.progress.totalBytes : 0);
 
   const KIND: Record<string, string> = {
+    apk: "Android 安装包",
     nsis: "安装版",
     msi: "安装版（MSI）",
     portable: "单文件版",
@@ -75,7 +76,7 @@
           {/if}
         </div>
         <ProgressBar size="sm" value={ratio} indeterminate={!task.progress} />
-        <p class="muted small">下载完成后会自动安装并重启启动器。可以先关闭这个窗口，下载会在后台继续。</p>
+        <p class="muted small">{info.kind === "apk" ? "下载并校验后将打开系统安装界面，请确认安装。" : "下载完成后会自动安装并重启启动器。"}可以先关闭这个窗口，下载会在后台继续。</p>
       </div>
     {:else if !info.canInstall}
       <p class="muted small">当前系统需要手动下载安装新版本。</p>
@@ -88,7 +89,10 @@
       <span class="spacer"></span>
       <button class="btn" onclick={() => (updater.open = false)}>稍后</button>
       {#if info?.canInstall}
-        <button class="btn primary" onclick={downloadAndInstall}>{updater.error ? "重试" : "下载并安装"}</button>
+        {#if info.kind === "apk" && updater.downloaded && updater.error}
+          <button class="btn" disabled={updater.busy} onclick={() => { updater.downloaded = false; void downloadAndInstall(); }}>重新下载</button>
+        {/if}
+        <button class="btn primary" disabled={updater.busy} onclick={downloadAndInstall}>{updater.busy ? "处理中…" : updater.downloaded && info.kind === "apk" ? "安装已下载更新" : updater.error ? "重试" : "下载并安装"}</button>
       {:else}
         <button class="btn primary" onclick={() => info && openUrl(info.pageUrl)}>前往下载页</button>
       {/if}

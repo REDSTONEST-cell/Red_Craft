@@ -71,7 +71,7 @@ export interface UpdateInfo {
   current: string;
   notes: string;
   pageUrl: string;
-  kind: "nsis" | "msi" | "portable" | "appImage" | "manual";
+  kind: "apk" | "nsis" | "msi" | "portable" | "appImage" | "manual";
   canInstall: boolean;
   size: number;
 }
@@ -556,7 +556,9 @@ export const api = {
   memoryStatus: () => call<MemoryStatus>("memory_status"),
   optimizeMemory: (elevate: boolean) => call<OptimizeResult>("optimize_memory", { elevate }),
   trimWebviewMemory: () => call<void>("trim_webview_memory"),
-  checkUpdate: () => call<UpdateInfo | null>("check_update"),
+  checkUpdate: () => call<UpdateInfo | null>("check_update", {
+    currentVersion: (window as unknown as { RclGame?: { appVersion?: () => string } }).RclGame?.appVersion?.() ?? null,
+  }),
   downloadUpdate: () => call<number>("download_update"),
   applyUpdate: () => call<void>("apply_update"),
 
