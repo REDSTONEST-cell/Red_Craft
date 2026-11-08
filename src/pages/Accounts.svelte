@@ -7,6 +7,8 @@
   import YggLogin from "../components/YggLogin.svelte";
   import type { Account } from "../lib/api";
 
+  import AccountProfile from "../components/AccountProfile.svelte";
+  let editing = $state<{ account: Account; mode: "skin" | "info" } | null>(null);
   let msOpen = $state(false);
   let yggOpen = $state(false);
   let refreshing = $state<string | null>(null);
@@ -95,6 +97,10 @@
               </div>
               {#if app.selectedAccount === a.id}<span class="tag accent"><Icon name="check" size={10} /> 使用中</span>{/if}
             </button>
+            {#if a.kind.type === "microsoft"}
+              <button class="btn ghost icon sm" title="皮肤与披风" aria-label="皮肤与披风" onclick={() => editing = { account: a, mode: "skin" }}><Icon name="shirt" size={16} /></button>
+              <button class="btn ghost icon sm" title="修改信息" aria-label="修改信息" onclick={() => editing = { account: a, mode: "info" }}><Icon name="edit" size={16} /></button>
+            {/if}
             <button
               class="btn ghost icon sm"
               title={a.kind.type === "offline" ? "重新获取同名正版皮肤" : "刷新登录状态"}
@@ -139,6 +145,9 @@
   </aside>
 </div>
 
+{#if editing}
+  <AccountProfile account={editing.account} mode={editing.mode} onclose={() => editing = null} />
+{/if}
 <MsLogin bind:open={msOpen} />
 <YggLogin bind:open={yggOpen} />
 
@@ -216,3 +225,4 @@
     flex: 1;
   }
 </style>
+
