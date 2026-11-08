@@ -107,7 +107,7 @@
               disabled={refreshing === a.id}
               onclick={() => refresh(a)}
             >
-              <span class:spin={refreshing === a.id}><Icon name="refresh" size={14} /></span>
+              <span class="refresh-icon" class:spin={refreshing === a.id}><Icon name="refresh" size={14} /></span>
             </button>
             <button class="btn ghost icon sm" title="删除账号" onclick={() => remove(a.id)}><Icon name="trash" size={14} /></button>
           </div>
@@ -152,6 +152,15 @@
 <YggLogin bind:open={yggOpen} />
 
 <style>
+  .refresh-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    line-height: 0;
+  }
+
   .grid {
     display: grid;
     grid-template-columns: minmax(0, 1.4fr) minmax(260px, 1fr);
