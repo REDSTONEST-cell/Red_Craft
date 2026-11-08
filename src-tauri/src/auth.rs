@@ -174,4 +174,3 @@ pub async fn ms_refresh_account(state: State<'_, AppState>, id: String) -> AppRe
     let session = microsoft::refresh(http.raw(), &client_id, &stored.ms_refresh_token).await?;
     save_session(&state, &session)
 }
-

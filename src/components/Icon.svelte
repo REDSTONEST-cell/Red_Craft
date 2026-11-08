@@ -94,4 +94,3 @@
     <path d={paths[name] ?? paths.box} fill-rule="evenodd" />
   </svg>
 {/if}
-

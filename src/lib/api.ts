@@ -599,4 +599,3 @@ export function onTask(cb: (e: TaskEvent) => void): Promise<UnlistenFn> {
 export function onGame(cb: (e: GameEvent) => void): Promise<UnlistenFn> {
   return listen<GameEvent>("game", (e) => cb(e.payload));
 }
-
