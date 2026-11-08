@@ -114,7 +114,7 @@ pub async fn ms_browser_finish(state: State<'_, AppState>, flow_id: u64) -> AppR
 }
 
 /// 保存令牌到密钥库，并新增或更新账号列表中的条目（角色名、皮肤可能变化）。
-fn save_session(state: &AppState, session: &MsSession) -> AppResult<Account> {
+pub(crate) fn save_session(state: &AppState, session: &MsSession) -> AppResult<Account> {
     let account = Account::microsoft(&session.profile);
     let json = serde_json::to_string(session).map_err(|e| launcher_core::CoreError::json("登录信息", e))?;
     state.secrets.set(&account.id, &json)?;

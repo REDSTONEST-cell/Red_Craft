@@ -27,7 +27,7 @@ serde_json.workspace = true
 thiserror.workspace = true
 log.workspace = true
 dirs = "6"
-reqwest.workspace = true
+reqwest = { workspace = true, features = ["multipart"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 tempfile = "3"
 percent-encoding = "2"

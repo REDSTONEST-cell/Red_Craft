@@ -8,6 +8,8 @@
   const smoothMode = $derived((app.settings?.corner ?? "rounded") !== "sharp");
 
   const paths: Record<string, string> = {
+    shirt: "M4 2h3v1h2V2h3l3 3-2 3-1-1v7H4V7L3 8 1 5zM5 4v9h6V4H9v1H7V4z",
+    edit: "M11 1l4 4-9 9H2v-4zM4 10v2h2l6-7-2-2z",
     play: "M5 3h2v1h2v1h2v1h2v1h1v2h-1v1h-2v1h-2v1H7v1H5z",
     box: "M2 4h12v2H2zM3 6h10v7H3zm2 2v1h6V8z",
     download: "M7 2h2v6h2v1h-1v1H9v1H7v-1H6V9H5V8h2zM2 12h2v1h8v-1h2v3H2z",
@@ -35,6 +37,8 @@
 
   // 平滑图标：描边路径；fill 为 true 的图标同时填充
   const smooth: Record<string, { d: string; fill?: boolean }> = {
+    shirt: { d: "M8 3l-5 4 3 4 2-2v12h8V9l2 2 3-4-5-4c0 4-8 4-8 0z" },
+    edit: { d: "M15 3l6 6M3 21l1-6L16 3a2 2 0 0 1 3 0l2 2a2 2 0 0 1 0 3L9 20z" },
     play: { d: "M7.5 5.2v13.6a.8.8 0 0 0 1.2.7l10.6-6.8a.8.8 0 0 0 0-1.4L8.7 4.5a.8.8 0 0 0-1.2.7z", fill: true },
     box: { d: "M4 4.5h16a1 1 0 0 1 1 1V8a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5.5a1 1 0 0 1 1-1z M5 9v9.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V9 M10 13h4" },
     download: { d: "M12 3.5v11 M7.5 10.5l4.5 4.5 4.5-4.5 M4 16.5v2A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5v-2" },

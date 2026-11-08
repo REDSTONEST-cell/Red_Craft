@@ -472,7 +472,16 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
   }
 }
 
+export interface AccountProfile {
+  id: string; name: string;
+  skins: { id: string; state: string; url: string; alias: string }[];
+  capes: { id: string; state: string; url: string; alias: string }[];
+}
 export const api = {
+  accountProfile: (id: string) => invoke<AccountProfile>("account_profile", { id }),
+  accountUploadSkin: (id: string, path: string, variant: string) => invoke<void>("account_upload_skin", { id, path, variant }),
+  accountSetCape: (id: string, capeId: string | null) => invoke<void>("account_set_cape", { id, capeId }),
+  accountSaveSkin: (id: string, path: string) => invoke<void>("account_save_skin", { id, path }),
   appInfo: () => call<AppInfo>("app_info"),
   appReady: () => call<void>("app_ready"),
   getSettings: () => call<Settings>("get_settings"),

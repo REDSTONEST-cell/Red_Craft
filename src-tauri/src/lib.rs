@@ -1,6 +1,7 @@
 //! Tauri 外壳：把 launcher-core 包装成 commands 与 events。
 
 mod auth;
+mod account_profile;
 #[cfg(target_os = "android")]
 mod android_game;
 mod background;
@@ -79,6 +80,10 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            account_profile::account_profile,
+            account_profile::account_upload_skin,
+            account_profile::account_set_cape,
+            account_profile::account_save_skin,
             content::content_translations,
             background::background_list,
             background::background_resolve,
