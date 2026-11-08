@@ -1,17 +1,20 @@
 <script lang="ts">
   // 像素头像：离线账号按 UUID 选择 Steve 或 Alex 的配色（与游戏默认皮肤规则一致）。
   let { uuid = "", size = 40, skin = null }: { uuid?: string; size?: number; skin?: string | null } = $props();
-  let skinFailed = $state(false);
+  // Bind failure to the URL so a previous failed request cannot poison a new skin.
+  let failedSkin = $state<string | null>(null);
+  // Recover URLs persisted by older builds as well.
+  const skinSrc = $derived(skin?.replace(/^http:\/\//, "https://") ?? null);
   // 帽子层：与游戏一致，旧版 64×32 皮肤的帽子区域如果完全不透明（例如 Notch 的纯黑），按透明处理
   let showHat = $state(false);
 
   $effect(() => {
-    const src = skin;
+    const src = skinSrc;
     showHat = false;
     if (!src) return;
     const img = new Image();
     img.onload = () => {
-      if (src !== skin) return;
+      if (src !== skinSrc) return;
       try {
         const canvas = document.createElement("canvas");
         canvas.width = 8;
@@ -75,14 +78,17 @@
   const grid = $derived(alex ? ALEX : STEVE);
 </script>
 
-{#if skin && !skinFailed}
+{#if skinSrc && failedSkin !== skinSrc}
   <!-- 皮肤贴图 64×64 或旧版 64×32：脸在 (8,8)，帽子层在 (40,8)；背景按 8 倍放大后偏移 -->
   <span class="avatar skin" style:width="{size}px" style:height="{size}px" role="img" aria-label="皮肤头像">
-    <span class="layer" style:background-image="url({skin})" style:background-size="{size * 8}px auto" style:background-position="-{size}px -{size}px"></span>
+    <span class="layer" style:background-image="url({skinSrc})" style:background-size="{size * 8}px auto" style:background-position="-{size}px -{size}px"></span>
     {#if showHat}
-      <span class="layer" style:background-image="url({skin})" style:background-size="{size * 8}px auto" style:background-position="-{size * 5}px -{size}px"></span>
+      <span class="layer" style:background-image="url({skinSrc})" style:background-size="{size * 8}px auto" style:background-position="-{size * 5}px -{size}px"></span>
     {/if}
-    <img src={skin} alt="" hidden onerror={() => (skinFailed = true)} />
+    {#key skinSrc}
+      {@const requestSrc = skinSrc}
+      <img src={requestSrc} alt="" hidden onerror={() => (failedSkin = requestSrc)} />
+    {/key}
   </span>
 {:else}
 <svg width={size} height={size} viewBox="0 0 8 8" shape-rendering="crispEdges" class="avatar" aria-hidden="true">

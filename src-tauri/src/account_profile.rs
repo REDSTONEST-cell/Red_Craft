@@ -8,6 +8,12 @@ const PROFILE: &str = "https://api.minecraftservices.com/minecraft/profile";
 pub struct Texture { pub id: String, pub state: String, pub url: String, #[serde(default)] pub alias: String }
 #[derive(Serialize, Deserialize)]
 pub struct Profile { pub id: String, pub name: String, #[serde(default)] pub skins: Vec<Texture>, #[serde(default)] pub capes: Vec<Texture> }
+fn secure_texture_url(url: &str) -> String {
+    match url.strip_prefix("http://") {
+        Some(rest) => format!("https://{rest}"),
+        None => url.to_owned(),
+    }
+}
 fn failure() -> AppError { AppError::msg("无法连接 Minecraft 账号服务", "请检查网络后重试。") }
 async fn request(state: &AppState, id: &str, method: reqwest::Method, suffix: &str, body: Option<serde_json::Value>, skin: Option<(Vec<u8>, String)>) -> AppResult<reqwest::Response> {
     let account = state.accounts.read().ok().and_then(|s| s.accounts.iter().find(|a| a.id == id).cloned())
@@ -39,7 +45,11 @@ async fn request(state: &AppState, id: &str, method: reqwest::Method, suffix: &s
 }
 #[tauri::command]
 pub async fn account_profile(state: State<'_, AppState>, id: String) -> AppResult<Profile> {
-    let profile: Profile = request(&state, &id, reqwest::Method::GET, "", None, None).await?.json().await.map_err(|_| failure())?;
+    let mut profile: Profile = request(&state, &id, reqwest::Method::GET, "", None, None).await?.json().await.map_err(|_| failure())?;
+    // Minecraft may return HTTP texture URLs; the WebView only permits HTTPS.
+    for texture in profile.skins.iter_mut().chain(profile.capes.iter_mut()) {
+        texture.url = secure_texture_url(&texture.url);
+    }
     // Only update an existing entry: an in-flight request must never restore a removed account.
     {
         let mut store = state.accounts.write().map_err(|_| failure())?;
@@ -89,6 +99,10 @@ pub async fn account_save_skin(state: State<'_, AppState>, id: String, path: Str
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test] fn texture_urls_use_https() {
+        assert_eq!(secure_texture_url("http://textures.minecraft.net/texture/abc"), "https://textures.minecraft.net/texture/abc");
+        assert_eq!(secure_texture_url("https://textures.minecraft.net/texture/abc"), "https://textures.minecraft.net/texture/abc");
+    }
     #[test] fn rejects_invalid_skin() { assert!(validate_skin(b"not png").is_err()); }
     #[test] fn validates_dimensions() {
         for (w,h,valid) in [(64,64,true),(64,32,true),(32,32,false)] {
