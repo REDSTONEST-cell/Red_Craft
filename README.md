@@ -2,7 +2,7 @@
 
 轻量、快速的 Minecraft Java 版启动器，基于 Tauri 2 + Rust + Svelte 5。
 
-当前正式版：**1.1.7** · [下载](https://github.com/REDSTONEST-cell/Red_Craft/releases)
+当前正式版：**1.1.8** · [下载](https://github.com/REDSTONEST-cell/Red_Craft/releases)
 
 ## 下载
 
