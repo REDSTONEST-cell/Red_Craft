@@ -254,18 +254,36 @@ pub async fn install(
     cancel: &CancelToken,
 ) -> Result<()> {
     let (kind, version) = (choice.kind, choice.version.as_str());
+    let jar = tmp_dir(&installer.game).join(format!("{}-{version}-installer.jar", kind.display_name().to_lowercase()));
+    let result = install_with(installer, choice, mc, name, java, &jar, reporter, cancel).await;
+    // 安装器没有校验信息：无论成功还是失败都删除，下载到的安装器已损坏时下次会重新下载，而不是一直使用坏文件
+    let _ = tokio::fs::remove_file(&jar).await;
+    result
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn install_with(
+    installer: &Installer,
+    choice: &super::LoaderChoice,
+    mc: &str,
+    name: &str,
+    java: &Path,
+    jar: &Path,
+    reporter: &Reporter,
+    cancel: &CancelToken,
+) -> Result<()> {
+    let (kind, version) = (choice.kind, choice.version.as_str());
     let game = &installer.game;
-    let jar = tmp_dir(game).join(format!("{}-{version}-installer.jar", kind.display_name().to_lowercase()));
 
     reporter.stage(&format!("下载 {} 安装器", kind.display_name()));
     installer
         .downloader
-        .download_all(vec![DownloadTask::new(installer_url(kind, version), &jar)], reporter.progress.clone(), cancel)
+        .download_all(vec![DownloadTask::new(installer_url(kind, version), jar)], reporter.progress.clone(), cancel)
         .await?;
 
     reporter.stage("解析安装器");
     let parsed = {
-        let (jar, game, mc, name) = (jar.clone(), game.clone(), mc.to_string(), name.to_string());
+        let (jar, game, mc, name) = (jar.to_path_buf(), game.clone(), mc.to_string(), name.to_string());
         tokio::task::spawn_blocking(move || parse_installer(&jar, &game, &mc, &name))
             .await
             .map_err(|e| CoreError::InvalidData(e.to_string()))??
@@ -291,7 +309,7 @@ pub async fn install(
         ensure_launcher_profiles(game)?;
         let orig_id = parsed.installer_version_id.clone().unwrap_or_default();
         let existed_before = !orig_id.is_empty() && game.version_json(&orig_id).exists();
-        run_installer(java, &jar, game.root(), kind, reporter, cancel).await?;
+        run_installer(java, jar, game.root(), kind, reporter, cancel).await?;
         // 安装器以自己的版本名写入，这里改成实例名
         if !orig_id.is_empty() && orig_id != name {
             let src = game.version_json(&orig_id);
@@ -311,9 +329,7 @@ pub async fn install(
         tokio::fs::create_dir_all(parent).await.at(parent)?;
     }
     let data = serde_json::to_vec_pretty(&parsed.version_json).map_err(|e| CoreError::json("版本 JSON", e))?;
-    tokio::fs::write(&target_json, data).await.at(&target_json)?;
-    let _ = tokio::fs::remove_file(&jar).await;
-    Ok(())
+    tokio::fs::write(&target_json, data).await.at(&target_json)
 }
 
 async fn run_installer(

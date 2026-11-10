@@ -7,7 +7,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use super::{ContentVersion, Modrinth, Platform};
-use crate::download::{sha1_file, CancelToken, DownloadTask, Downloader};
+use crate::download::{sha1_files, CancelToken, DownloadTask, Downloader};
 use crate::error::{CoreError, IoContext, Result};
 use crate::install::Reporter;
 
@@ -73,19 +73,18 @@ pub async fn installed_projects(folder: &Path, platform: Platform, modrinth: Opt
         let known: HashSet<String> = index.files.keys().cloned().collect();
         let folder = folder.to_path_buf();
         let hashes = tokio::task::spawn_blocking(move || {
-            let mut hashes = Vec::new();
-            if let Ok(rd) = std::fs::read_dir(&folder) {
-                for e in rd.flatten() {
-                    let name = e.file_name().to_string_lossy().to_string();
-                    if name.starts_with('.') || known.contains(base_name(&name)) {
-                        continue;
-                    }
-                    if let Ok(h) = sha1_file(&e.path()) {
-                        hashes.push(h);
-                    }
-                }
-            }
-            hashes
+            let paths: Vec<std::path::PathBuf> = std::fs::read_dir(&folder)
+                .map(|rd| {
+                    rd.flatten()
+                        .filter(|e| {
+                            let name = e.file_name().to_string_lossy().to_string();
+                            !name.starts_with('.') && !known.contains(base_name(&name))
+                        })
+                        .map(|e| e.path())
+                        .collect()
+                })
+                .unwrap_or_default();
+            sha1_files(&paths).into_iter().flatten().collect::<Vec<String>>()
         })
         .await
         .unwrap_or_default();

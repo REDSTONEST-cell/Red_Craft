@@ -30,6 +30,8 @@ pub struct AppState {
     pub java: Mutex<Option<Vec<JavaInstall>>>,
     /// 实例 id → 正在运行的游戏进程 pid
     pub running: Mutex<HashMap<String, u32>>,
+    /// 正在准备启动（还没有创建游戏进程）的实例，避免连点两次启动出两个游戏
+    pub launching: Mutex<HashSet<String>>,
     /// 被用户手动结束的实例，退出时不按崩溃处理
     pub killed: Mutex<HashSet<String>>,
     pub secrets: Secrets,
@@ -75,6 +77,7 @@ impl AppState {
             manifest: tokio::sync::Mutex::new(None),
             java: Mutex::new(None),
             running: Mutex::new(HashMap::new()),
+            launching: Mutex::new(HashSet::new()),
             killed: Mutex::new(HashSet::new()),
         }
     }

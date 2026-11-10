@@ -5,7 +5,7 @@ mod http;
 mod source;
 
 pub use downloader::{
-    is_valid, sha1_bytes, sha1_file, CancelToken, DownloadTask, Downloader, Progress, ProgressFn, VerifyCache,
+    is_valid, sha1_bytes, sha1_file, sha1_files, CancelToken, DownloadTask, Downloader, Progress, ProgressFn, VerifyCache,
 };
 pub use http::{user_agent, HttpClient};
 pub use source::{mirror_of, DownloadSource, BMCLAPI, MCIM};

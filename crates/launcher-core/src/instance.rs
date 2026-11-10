@@ -171,14 +171,40 @@ pub fn minecraft_version(game: &GameDir, id: &str) -> Option<String> {
             None => break,
         }
     }
-    let jar = std::fs::File::open(game.version_jar(&cur)).ok()?;
-    let mut zip = zip::ZipArchive::new(jar).ok()?;
-    let mut text = String::new();
-    std::io::Read::read_to_string(&mut zip.by_name("version.json").ok()?, &mut text).ok()?;
-    let v: serde_json::Value = serde_json::from_str(&text).ok()?;
-    v.get("id")
-        .and_then(serde_json::Value::as_str)
-        .map(|s| s.split(" / ").next().unwrap_or(s).to_string())
+    jar_version(&game.version_jar(&cur))
+}
+
+/// 客户端 jar 内 `version.json`（1.14+）记录的游戏版本。
+///
+/// 每次列出实例都要读取，而打开一个几十 MB 的 jar 需要解析上万条目录项，
+/// 所以按「路径 + 大小 + 修改时间」记住结果，jar 没有变化时不再重新打开。
+fn jar_version(jar: &std::path::Path) -> Option<String> {
+    type Seen = std::collections::HashMap<std::path::PathBuf, (u64, Option<std::time::SystemTime>, Option<String>)>;
+    static SEEN: std::sync::OnceLock<std::sync::Mutex<Seen>> = std::sync::OnceLock::new();
+    let meta = std::fs::metadata(jar).ok()?;
+    let key = (meta.len(), meta.modified().ok());
+    let seen = SEEN.get_or_init(Default::default);
+    if key.1.is_some() {
+        if let Some((len, modified, version)) = seen.lock().ok()?.get(jar) {
+            if (*len, *modified) == key {
+                return version.clone();
+            }
+        }
+    }
+    let read = || -> Option<String> {
+        let mut zip = zip::ZipArchive::new(std::fs::File::open(jar).ok()?).ok()?;
+        let mut text = String::new();
+        std::io::Read::read_to_string(&mut zip.by_name("version.json").ok()?, &mut text).ok()?;
+        let v: serde_json::Value = serde_json::from_str(&text).ok()?;
+        v.get("id")
+            .and_then(serde_json::Value::as_str)
+            .map(|s| s.split(" / ").next().unwrap_or(s).to_string())
+    };
+    let version = read();
+    if let Ok(mut s) = seen.lock() {
+        s.insert(jar.to_path_buf(), (key.0, key.1, version.clone()));
+    }
+    version
 }
 
 /// 扫描所有实例（阻塞调用）。

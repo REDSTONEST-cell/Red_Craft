@@ -30,7 +30,12 @@ pub struct AssetObject {
 
 impl AssetObject {
     pub fn url(&self) -> String {
-        format!("{RESOURCES_URL}/{}/{}", &self.hash[..2], self.hash)
+        format!("{RESOURCES_URL}/{}/{}", self.hash.get(..2).unwrap_or(&self.hash), self.hash)
+    }
+
+    /// 哈希是否为 40 位十六进制（同时保证它可以安全地用作文件名）。
+    pub fn valid_hash(&self) -> bool {
+        self.hash.len() == 40 && self.hash.bytes().all(|b| b.is_ascii_hexdigit())
     }
 }
 
@@ -50,6 +55,9 @@ impl AssetIndex {
         for (name, obj) in &self.objects {
             // 防止索引中的路径逃逸出目标目录
             if name.split(['/', '\\']).any(|p| p == "..") {
+                continue;
+            }
+            if !obj.valid_hash() {
                 continue;
             }
             let dest = target.join(name);

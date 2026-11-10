@@ -29,6 +29,20 @@ pub enum GameEvent {
     Exit { instance: String, exit: GameExit },
 }
 
+/// 「正在启动」的标记：丢弃时（包括启动命令中途出错返回）自动解除。
+struct Launching {
+    app: AppHandle,
+    id: String,
+}
+
+impl Drop for Launching {
+    fn drop(&mut self) {
+        if let Ok(mut l) = self.app.state::<AppState>().launching.lock() {
+            l.remove(&self.id);
+        }
+    }
+}
+
 /// 1.6 之前的旧版本 JSON 中常常没有 javaVersion，默认使用 Java 8。
 pub fn required_java(json: &launcher_core::version::VersionJson) -> (u32, String) {
     match &json.java_version {
@@ -63,6 +77,11 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
     if state.running.lock().is_ok_and(|r| r.contains_key(&id)) {
         return Err(AppError::msg("这个版本已经在运行了", "如需重新启动，请先关闭正在运行的游戏。"));
     }
+    // 从这里到游戏进程创建之间（补全文件、下载 Java 可能要很久）同一个版本不能再次启动
+    if !state.launching.lock().is_ok_and(|mut l| l.insert(id.clone())) {
+        return Err(AppError::msg("这个版本正在启动", "请等待当前的启动完成，或在任务列表中取消它。"));
+    }
+    let launching = Launching { app: app.clone(), id: id.clone() };
     let settings = state.settings();
     let accounts = crate::commands::list_accounts(state.clone());
     let account = accounts
@@ -107,6 +126,8 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
     let app2 = app.clone();
     let title = format!("启动 {id}");
     let task_id = tasks.spawn(&app, title, move |reporter, cancel| async move {
+        // 启动任务结束（成功、失败或取消）时解除「正在启动」；成功时进程已记入 running
+        let _launching = launching;
         let state = app2.state::<AppState>();
 
         // 登录凭据：正版账号可能需要先刷新令牌

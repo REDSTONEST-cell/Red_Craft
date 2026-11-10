@@ -129,6 +129,14 @@ pub struct VerifyCache {
 }
 
 impl VerifyCache {
+    /// 同一个记录文件在进程内共用一份记录：只在第一次使用时读取文件，
+    /// 同时进行的任务（例如安装的同时启动游戏）也不会互相覆盖对方新增的记录。
+    pub fn shared(file: PathBuf) -> Arc<Self> {
+        static CACHES: std::sync::OnceLock<std::sync::Mutex<HashMap<PathBuf, Arc<VerifyCache>>>> = std::sync::OnceLock::new();
+        let mut caches = CACHES.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
+        caches.entry(file.clone()).or_insert_with(|| Arc::new(Self::load(file))).clone()
+    }
+
     /// 读取记录文件；不存在或损坏时从空记录开始。
     pub fn load(file: PathBuf) -> Self {
         let mut map = HashMap::new();
@@ -281,6 +289,10 @@ impl Downloader {
             })
         };
 
+        // 已经存在的文件先在一个后台线程里集中检查（大小，以及校验记录）：
+        // 启动前补全文件时几千个文件绝大多数都在，逐个创建异步任务再切换到阻塞线程池读取文件信息要慢得多
+        let tasks = self.skip_present(tasks, &counters, cancel).await?;
+
         let semaphore = Arc::new(Semaphore::new(self.concurrency));
         let mut set = JoinSet::new();
         for task in tasks {
@@ -338,6 +350,51 @@ impl Downloader {
         }
     }
 
+    /// 去掉不需要下载的任务：文件已存在、大小一致，并且不需要校验哈希或校验记录表明它没有变化。
+    /// 需要重新计算哈希或下载的任务原样返回。
+    async fn skip_present(&self, tasks: Vec<DownloadTask>, counters: &Arc<Counters>, cancel: &CancelToken) -> Result<Vec<DownloadTask>> {
+        if tasks.len() < 2 {
+            return Ok(tasks);
+        }
+        let cache = self.verified.clone();
+        let counters = counters.clone();
+        let stop = cancel.clone();
+        let rest = tokio::task::spawn_blocking(move || {
+            let mut rest = Vec::new();
+            let mut stopped = false;
+            for (i, task) in tasks.into_iter().enumerate() {
+                // 被取消时不再检查
+                stopped = stopped || (i % 256 == 0 && stop.is_cancelled());
+                if stopped {
+                    rest.push(task);
+                    continue;
+                }
+                let present = std::fs::metadata(&task.path).is_ok_and(|meta| {
+                    meta.is_file()
+                        && task.size.is_none_or(|s| s == meta.len())
+                        && match (&task.sha1, &cache) {
+                            (None, _) => true,
+                            (Some(sha1), Some(cache)) => cache.known(&task.path, &meta, sha1),
+                            (Some(_), None) => false,
+                        }
+                });
+                if present {
+                    if let Some(size) = task.size {
+                        counters.done_bytes.fetch_add(size, Ordering::Relaxed);
+                    }
+                    counters.done_files.fetch_add(1, Ordering::Relaxed);
+                } else {
+                    rest.push(task);
+                }
+            }
+            rest
+        })
+        .await
+        .map_err(|e| CoreError::InvalidData(format!("检查文件时出错：{e}")))?;
+        cancel.check()?;
+        Ok(rest)
+    }
+
     async fn download_one(
         &self,
         task: &DownloadTask,
@@ -372,19 +429,25 @@ impl Downloader {
             for (i, url) in candidates.iter().enumerate() {
                 cancel.check()?;
                 let mut written = 0u64;
+                let mut counted_total = 0u64;
                 // 官方优先模式下，第一个（官方）地址缓慢时可以换用后面的镜像
                 let can_switch = i == 0 && candidates.len() > 1 && self.http.checks_slowness();
                 // 最后一次尝试不再因为缓慢而中断，网络本身很慢时至少能下完
                 let last_try = attempt + 1 == self.retries && i + 1 == candidates.len();
                 match self
-                    .fetch_to(url, task, counters, cancel, &mut written, can_switch, !last_try)
+                    .fetch_to(url, task, counters, cancel, &mut written, &mut counted_total, can_switch, !last_try)
                     .await
                 {
                     Ok(()) => return Ok(()),
-                    Err(CoreError::Cancelled) => return Err(CoreError::Cancelled),
                     Err(e) => {
-                        // 回滚本次尝试计入的进度
+                        // 没下完的临时文件不留在磁盘上
+                        let _ = tokio::fs::remove_file(part_path(&task.path)).await;
+                        if matches!(e, CoreError::Cancelled) {
+                            return Err(e);
+                        }
+                        // 回滚本次尝试计入的进度（大小未知的文件，总大小是从响应里临时加上的，也要回滚，否则重试时会重复累加）
                         counters.done_bytes.fetch_sub(written, Ordering::Relaxed);
+                        counters.total_bytes.fetch_sub(counted_total, Ordering::Relaxed);
                         log::debug!("下载 {url} 第 {} 次失败: {e}", attempt + 1);
                         // 404 在其它镜像上可能存在，但重试同一地址没有意义
                         let fatal = matches!(e, CoreError::HttpStatus { status: 404, .. });
@@ -408,6 +471,7 @@ impl Downloader {
         counters: &Counters,
         cancel: &CancelToken,
         written: &mut u64,
+        counted_total: &mut u64,
         can_switch: bool,
         can_restart: bool,
     ) -> Result<()> {
@@ -438,6 +502,7 @@ impl Downloader {
         if task.size.is_none() {
             if let Some(len) = resp.content_length() {
                 counters.total_bytes.fetch_add(len, Ordering::Relaxed);
+                *counted_total = len;
             }
         }
 
@@ -701,8 +766,8 @@ impl Downloader {
                         .iter()
                         .enumerate()
                         .filter(|(_, p)| p.active)
-                        .max_by_key(|(_, p)| p.end - p.pos)
-                        .map(|(i, p)| (i, p.end - p.pos));
+                        .max_by_key(|(_, p)| p.end.saturating_sub(p.pos))
+                        .map(|(i, p)| (i, p.end.saturating_sub(p.pos)));
                     if let Some((i, remaining)) = largest.filter(|(_, r)| *r >= PIECE_MIN * 2) {
                         let next = st.next_source;
                         if let Some(src) = st.pick(next, true) {
@@ -868,6 +933,9 @@ async fn flush_piece(
     counters: &Counters,
     done_total: &AtomicU64,
 ) -> Result<()> {
+    // 缓冲期间这个块可能被拆分（结束位置提前）：超出的部分属于新的块，不写入也不计入进度
+    let end = state.lock().expect("split state").pieces[index].end;
+    buf.truncate(end.saturating_sub(*at).min(buf.len() as u64) as usize);
     if buf.is_empty() {
         return Ok(());
     }
@@ -914,7 +982,7 @@ pub async fn is_valid(path: &Path, sha1: Option<&str>, size: Option<u64>) -> Res
 pub fn sha1_file(path: &Path) -> Result<String> {
     let mut file = std::fs::File::open(path).at(path)?;
     let mut hasher = Sha1::new();
-    let mut buf = vec![0u8; 64 * 1024];
+    let mut buf = vec![0u8; 256 * 1024];
     loop {
         let n = file.read(&mut buf).at(path)?;
         if n == 0 {
@@ -923,6 +991,62 @@ pub fn sha1_file(path: &Path) -> Result<String> {
         hasher.update(&buf[..n]);
     }
     Ok(hex::encode(hasher.finalize()))
+}
+
+/// 并行计算多个文件的 SHA1（阻塞调用），结果与 `paths` 一一对应，读不了的文件为 `None`。
+///
+/// 结果按「路径 + 大小 + 修改时间」记在内存里：检查 Mod 更新、解析前置时会反复对同一批文件求哈希，
+/// 没有变化的文件不再重新读取。
+pub fn sha1_files(paths: &[PathBuf]) -> Vec<Option<String>> {
+    type Seen = HashMap<PathBuf, (u64, u128, String)>;
+    static SEEN: std::sync::OnceLock<std::sync::Mutex<Seen>> = std::sync::OnceLock::new();
+    let seen = SEEN.get_or_init(Default::default);
+    let hash_one = |path: &PathBuf| -> Option<String> {
+        let meta = std::fs::metadata(path).ok().filter(|m| m.is_file())?;
+        let key = (meta.len(), VerifyCache::stamp(&meta));
+        if key.1 != 0 {
+            if let Some((len, stamp, sha1)) = seen.lock().ok()?.get(path) {
+                if (*len, *stamp) == key {
+                    return Some(sha1.clone());
+                }
+            }
+        }
+        let sha1 = sha1_file(path).ok()?;
+        if let Ok(mut s) = seen.lock() {
+            // 记录只在进程内有效；数量异常多时清空，避免无限增长
+            if s.len() > 20_000 {
+                s.clear();
+            }
+            s.insert(path.clone(), (key.0, key.1, sha1.clone()));
+        }
+        Some(sha1)
+    };
+    let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(8).min(paths.len());
+    if threads <= 1 {
+        return paths.iter().map(hash_one).collect();
+    }
+    let next = AtomicUsize::new(0);
+    let mut out: Vec<Option<String>> = vec![None; paths.len()];
+    let done: Vec<(usize, Option<String>)> = std::thread::scope(|s| {
+        let workers: Vec<_> = (0..threads)
+            .map(|_| {
+                s.spawn(|| {
+                    let mut mine = Vec::new();
+                    loop {
+                        let i = next.fetch_add(1, Ordering::Relaxed);
+                        let Some(path) = paths.get(i) else { break };
+                        mine.push((i, hash_one(path)));
+                    }
+                    mine
+                })
+            })
+            .collect();
+        workers.into_iter().flat_map(|w| w.join().unwrap_or_default()).collect()
+    });
+    for (i, h) in done {
+        out[i] = h;
+    }
+    out
 }
 
 pub fn sha1_bytes(data: &[u8]) -> String {
@@ -1073,6 +1197,100 @@ mod tests {
             println!("{name}：{:?}", started.elapsed());
             assert_eq!(sha1_file(&path).unwrap(), sha1);
         }
+    }
+
+    #[test]
+    fn hashes_many_files_in_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut paths = Vec::new();
+        for i in 0..40 {
+            let p = dir.path().join(format!("{i}.bin"));
+            std::fs::write(&p, format!("file {i}")).unwrap();
+            paths.push(p);
+        }
+        paths.push(dir.path().join("missing.bin"));
+        paths.push(dir.path().to_path_buf());
+        let hashes = sha1_files(&paths);
+        assert_eq!(hashes.len(), 42);
+        for (i, h) in hashes.iter().take(40).enumerate() {
+            assert_eq!(h.as_deref(), Some(sha1_bytes(format!("file {i}").as_bytes()).as_str()));
+        }
+        assert!(hashes[40].is_none() && hashes[41].is_none());
+        // 内容变化（大小不同）后重新计算，不使用旧记录
+        std::fs::write(&paths[0], b"changed content").unwrap();
+        assert_eq!(sha1_files(&paths[..1])[0].as_deref(), Some(sha1_bytes(b"changed content").as_str()));
+    }
+
+    /// 本地 HTTP 服务：每次请求都返回同样的内容，记录收到的请求数。
+    async fn count_requests(body: &'static [u8]) -> (String, Arc<AtomicUsize>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let hits = Arc::new(AtomicUsize::new(0));
+        let h = hits.clone();
+        tokio::spawn(async move {
+            loop {
+                let (mut sock, _) = listener.accept().await.unwrap();
+                let h = h.clone();
+                tokio::spawn(async move {
+                    let mut req = Vec::new();
+                    let mut b = [0u8; 1024];
+                    loop {
+                        while !req.windows(4).any(|w| w == b"\r\n\r\n") {
+                            let n = sock.read(&mut b).await.unwrap_or(0);
+                            if n == 0 {
+                                return;
+                            }
+                            req.extend_from_slice(&b[..n]);
+                        }
+                        req.clear();
+                        h.fetch_add(1, Ordering::Relaxed);
+                        let head = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", body.len());
+                        if sock.write_all(head.as_bytes()).await.is_err() || sock.write_all(body).await.is_err() {
+                            return;
+                        }
+                    }
+                });
+            }
+        });
+        (format!("http://{addr}"), hits)
+    }
+
+    #[tokio::test]
+    async fn present_files_are_skipped_without_requests() {
+        let (base, hits) = count_requests(b"data").await;
+        let dir = tempfile::tempdir().unwrap();
+        let cache = Arc::new(VerifyCache::load(dir.path().join(".rcl-verified")));
+        let d = Downloader::new(HttpClient::new(crate::download::DownloadSource::Official).unwrap(), 8).with_verify_cache(cache);
+        let sha1 = sha1_bytes(b"data");
+        let tasks = |with_hash: bool| -> Vec<DownloadTask> {
+            (0..30)
+                .map(|i| {
+                    DownloadTask::new(format!("{base}/{i}"), dir.path().join(format!("{i}.bin")))
+                        .sha1(with_hash.then(|| sha1.clone()))
+                        .size(Some(4))
+                })
+                .collect()
+        };
+        let last = Arc::new(std::sync::Mutex::new(Progress::default()));
+        let l = last.clone();
+        let progress: ProgressFn = Arc::new(move |p| *l.lock().unwrap() = p);
+        // 第一次：全部下载
+        d.download_all(tasks(true), progress.clone(), &CancelToken::new()).await.unwrap();
+        assert_eq!(hits.load(Ordering::Relaxed), 30);
+        // 第二次：文件都在且有校验记录，不发请求，进度照常报告为全部完成
+        d.download_all(tasks(true), progress.clone(), &CancelToken::new()).await.unwrap();
+        d.download_all(tasks(false), progress.clone(), &CancelToken::new()).await.unwrap();
+        assert_eq!(hits.load(Ordering::Relaxed), 30);
+        let p = last.lock().unwrap().clone();
+        assert_eq!((p.total_files, p.done_files, p.failed_files, p.done_bytes, p.total_bytes), (30, 30, 0, 120, 120));
+        // 文件被改动或删除后只重新下载那一个
+        std::fs::write(dir.path().join("3.bin"), b"xxxxx").unwrap();
+        std::fs::remove_file(dir.path().join("7.bin")).unwrap();
+        d.download_all(tasks(true), progress, &CancelToken::new()).await.unwrap();
+        assert_eq!(hits.load(Ordering::Relaxed), 32);
+        assert_eq!(std::fs::read(dir.path().join("3.bin")).unwrap(), b"data");
+        assert!(!dir.path().join("3.bin.part").exists());
     }
 
     #[tokio::test]

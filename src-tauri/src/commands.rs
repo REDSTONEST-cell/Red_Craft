@@ -443,26 +443,31 @@ pub fn open_game_dir(app: AppHandle, state: State<'_, AppState>) -> AppResult<()
 /// 打开崩溃报告等文件，只允许游戏目录内的路径。
 #[tauri::command]
 pub fn open_file(app: AppHandle, state: State<'_, AppState>, path: PathBuf) -> AppResult<()> {
-    let root = std::fs::canonicalize(state.game_dir().root()).unwrap_or_default();
-    let target = std::fs::canonicalize(&path).map_err(|e| launcher_core::CoreError::io(&path, e))?;
-    if !target.starts_with(&root) {
-        return Err(AppError::msg("只能打开游戏目录中的文件", ""));
-    }
+    let target = inside_game_dir(state.game_dir().root(), &path).ok_or_else(|| AppError::msg("只能打开游戏目录中的文件", ""))?;
     open_path(&app, &target)
+}
+
+/// 把 `path` 解析成真实路径，并确认它在游戏目录内；不在（或游戏目录本身不存在）时返回 `None`。
+///
+/// 游戏目录无法解析时不能退回空路径：任何路径都以空路径开头，等于放行了所有文件。
+fn inside_game_dir(root: &std::path::Path, path: &std::path::Path) -> Option<PathBuf> {
+    let root = std::fs::canonicalize(root).ok()?;
+    let target = std::fs::canonicalize(path).ok()?;
+    target.starts_with(&root).then_some(target)
 }
 
 /// 读取游戏目录中的文本文件（崩溃报告），最多 1MB。
 #[tauri::command]
 pub async fn read_game_file(state: State<'_, AppState>, path: PathBuf) -> AppResult<String> {
-    let root = std::fs::canonicalize(state.game_dir().root()).unwrap_or_default();
+    let root = state.game_dir().root().to_path_buf();
     blocking(move || -> AppResult<String> {
-        let target = std::fs::canonicalize(&path).map_err(|e| launcher_core::CoreError::io(&path, e))?;
-        if !target.starts_with(&root) {
-            return Err(AppError::msg("只能读取游戏目录中的文件", ""));
-        }
-        let data = std::fs::read(&target).map_err(|e| launcher_core::CoreError::io(&target, e))?;
-        let data = &data[..data.len().min(1 << 20)];
-        Ok(String::from_utf8_lossy(data).into_owned())
+        use std::io::Read;
+        let target = inside_game_dir(&root, &path).ok_or_else(|| AppError::msg("只能读取游戏目录中的文件", ""))?;
+        // 只读取前 1MB，不把整个文件（可能是几百 MB 的日志）载入内存
+        let file = std::fs::File::open(&target).map_err(|e| launcher_core::CoreError::io(&target, e))?;
+        let mut data = Vec::new();
+        file.take(1 << 20).read_to_end(&mut data).map_err(|e| launcher_core::CoreError::io(&target, e))?;
+        Ok(String::from_utf8_lossy(&data).into_owned())
     })
     .await?
 }
@@ -654,5 +659,26 @@ pub fn app_ready(app: AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
         let _ = w.set_focus();
+    }
+}
+
+#[cfg(test)]
+mod path_tests {
+    use super::inside_game_dir;
+
+    #[test]
+    fn only_paths_inside_game_dir_are_allowed() {
+        let dir = tempfile::tempdir().unwrap();
+        let game = dir.path().join("game");
+        std::fs::create_dir_all(game.join("crash-reports")).unwrap();
+        let report = game.join("crash-reports").join("a.txt");
+        std::fs::write(&report, "x").unwrap();
+        let outside = dir.path().join("secret.txt");
+        std::fs::write(&outside, "x").unwrap();
+        assert!(inside_game_dir(&game, &report).is_some());
+        assert!(inside_game_dir(&game, &outside).is_none());
+        assert!(inside_game_dir(&game, &game.join("crash-reports/../../secret.txt")).is_none());
+        // 游戏目录还不存在时不能放行任何文件
+        assert!(inside_game_dir(&dir.path().join("missing"), &outside).is_none());
     }
 }

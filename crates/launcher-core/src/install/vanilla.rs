@@ -47,9 +47,9 @@ pub struct Installer {
 impl Installer {
     pub fn new(downloader: Downloader, game: GameDir) -> Self {
         // 记住已校验过的文件，启动前补全时跳过没有变化的文件的哈希计算
-        let cache = VerifyCache::load(game.root().join(".rcl-verified"));
+        let cache = VerifyCache::shared(game.root().join(".rcl-verified"));
         Installer {
-            downloader: downloader.with_verify_cache(Arc::new(cache)),
+            downloader: downloader.with_verify_cache(cache),
             game,
             env: Environment::current(),
         }
@@ -171,6 +171,10 @@ impl Installer {
                     .map_err(|e| CoreError::InvalidData(e.to_string()))??
             };
             for obj in parsed.objects.values() {
+                // 损坏的索引（哈希不是 40 位十六进制）直接报错，而不是拼出错误的路径
+                if !obj.valid_hash() {
+                    return Err(CoreError::InvalidData(format!("资源索引 {} 已损坏，请重新补全文件", ai.id)));
+                }
                 let sha1 = (verify == Verify::Full).then(|| obj.hash.clone());
                 tasks.push(
                     DownloadTask::new(obj.url(), self.game.asset_object(&obj.hash))

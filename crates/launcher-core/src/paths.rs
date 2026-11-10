@@ -70,7 +70,7 @@ impl GameDir {
     }
 
     pub fn asset_object(&self, hash: &str) -> PathBuf {
-        self.assets().join("objects").join(&hash[..2]).join(hash)
+        self.assets().join("objects").join(hash.get(..2).unwrap_or(hash)).join(hash)
     }
 
     /// 1.7.2 之前的「虚拟」资源目录。

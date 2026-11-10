@@ -243,6 +243,10 @@ impl RunningGame {
 /// 只结束它本身会让游戏继续运行，所以要连同子孙进程一起结束。
 pub fn kill_pid(pid: u32) -> Result<()> {
     let failed = || CoreError::Launch("无法结束游戏进程，它可能已经退出".into());
+    // 进程已经退出时拿不到 pid（记为 0）；pid 0 在 Unix 上表示整个进程组，绝不能拿去结束
+    if pid == 0 {
+        return Err(failed());
+    }
     #[cfg(windows)]
     {
         use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};

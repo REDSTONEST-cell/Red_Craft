@@ -290,18 +290,14 @@ fn check_name(name: &str) -> Result<()> {
 
 /// 计算文件夹中每个 Mod 的 SHA1（阻塞调用）：文件名 → SHA1。
 pub fn hash_mods(folder: &Path) -> HashMap<String, String> {
-    let mut out = HashMap::new();
-    if let Ok(rd) = std::fs::read_dir(folder) {
-        for e in rd.flatten() {
-            let name = e.file_name().to_string_lossy().to_string();
-            if is_mod_file(&name) {
-                if let Ok(h) = crate::download::sha1_file(&e.path()) {
-                    out.insert(name, h);
-                }
-            }
-        }
-    }
-    out
+    let Ok(rd) = std::fs::read_dir(folder) else { return HashMap::new() };
+    let (names, paths): (Vec<String>, Vec<std::path::PathBuf>) = rd
+        .flatten()
+        .map(|e| (e.file_name().to_string_lossy().to_string(), e.path()))
+        .filter(|(name, _)| is_mod_file(name))
+        .unzip();
+    let hashes = crate::download::sha1_files(&paths);
+    names.into_iter().zip(hashes).filter_map(|(name, h)| Some((name, h?))).collect()
 }
 
 #[cfg(test)]
