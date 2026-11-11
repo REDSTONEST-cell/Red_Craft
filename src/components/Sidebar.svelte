@@ -5,13 +5,15 @@
   const items: { page: Page; label: string; icon: string }[] = [
     { page: "launch", label: "启动", icon: "play" },
     { page: "instances", label: "版本", icon: "box" },
+    // 「下载」页面包含游戏与资源（Mod、材质包、光影包、整合包）
     { page: "download", label: "下载", icon: "download" },
-    { page: "mods", label: "资源", icon: "cube" },
     { page: "accounts", label: "账号", icon: "user" },
   ];
 
+  // 资源页现在是「下载」的一部分
+  const currentPage = $derived<Page>(app.page === "mods" ? "download" : app.page);
   const activeIndex = $derived(
-    app.page === "settings" ? -1 : items.findIndex((i) => i.page === app.page),
+    currentPage === "settings" ? -1 : items.findIndex((i) => i.page === currentPage),
   );
 </script>
 
@@ -23,9 +25,9 @@
     {#each items as item}
       <button
         class="item"
-        class:active={app.page === item.page}
+        class:active={currentPage === item.page}
         onclick={() => (app.page = item.page)}
-        aria-current={app.page === item.page ? "page" : undefined}
+        aria-current={currentPage === item.page ? "page" : undefined}
       >
         <Icon name={item.icon} size={20} />
         <span>{item.label}</span>

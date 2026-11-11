@@ -14,6 +14,10 @@
   import Modal from "../components/Modal.svelte";
   import Icon from "../components/Icon.svelte";
   import Toggle from "../components/Toggle.svelte";
+  import type { Snippet } from "svelte";
+
+  // 嵌入「下载」页面时，标题下方显示游戏 / 资源的切换栏
+  let { bar }: { bar?: Snippet } = $props();
 
   type Filter = "release" | "snapshot" | "old";
   let filter = $state<Filter>((localStorage.getItem("rc.versionFilter") as Filter) || "release");
@@ -231,6 +235,7 @@
     </div>
   </div>
 
+  {#if bar}{@render bar()}{/if}
   <div class="table">
     <div class="thead">
       <span>版本</span><span>类型</span><span>发布日期</span><span></span>

@@ -106,6 +106,7 @@ pub fn run() {
             commands::install_instance,
             commands::repair_instance,
             commands::delete_instance,
+            commands::rename_instance,
             commands::get_instance_config,
             commands::save_instance_config,
             commands::select_instance,

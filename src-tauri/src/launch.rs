@@ -197,7 +197,11 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
         if settings.default_chinese {
             launch::ensure_chinese(&game_dir, &release_time)?;
         }
-        let cmd = launch::prepare(&installer, &id, &opts, &reporter, &cancel).await?;
+        let check_files = config.check_files.unwrap_or(true);
+        if !check_files {
+            log::info!("版本 {id} 关闭了启动前补全文件");
+        }
+        let cmd = launch::prepare_with(&installer, &id, &opts, check_files, &reporter, &cancel).await?;
         cancel.check()?;
         reporter.stage("启动游戏");
         let command_line = cmd.display(&opts.auth.access_token);

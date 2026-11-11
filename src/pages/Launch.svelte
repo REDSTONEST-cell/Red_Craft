@@ -103,7 +103,7 @@
         <h2 class="headline">还没有安装游戏</h2>
         <p class="deck">先到「下载」页面挑一个版本安装，几分钟后就能开始游戏。</p>
         <div class="quick">
-          <button class="btn primary" onclick={() => (app.page = "download")}><Icon name="download" size={14} /> 去下载</button>
+          <button class="btn primary" onclick={() => { app.openGames = true; app.page = "download"; }}><Icon name="download" size={14} /> 去下载</button>
         </div>
       {/if}
     </section>

@@ -8,7 +8,6 @@
   import CrashDialog from "./components/CrashDialog.svelte";
   import Launch from "./pages/Launch.svelte";
   import Instances from "./pages/Instances.svelte";
-  import Download from "./pages/Download.svelte";
   import Mods from "./pages/Mods.svelte";
   import Accounts from "./pages/Accounts.svelte";
   import Settings from "./pages/Settings.svelte";
@@ -167,16 +166,15 @@
     <Sidebar />
     <main class="content">
       {#if ready}
-        {#key app.page}
+        {#key app.page === "mods" ? "download" : app.page}
           <div class="page" in:page style:padding-bottom={dockPad}>
             {#if app.page === "launch"}
               <Launch />
             {:else if app.page === "instances"}
               <Instances />
-            {:else if app.page === "download"}
-              <Download />
-            {:else if app.page === "mods"}
-              <Mods />
+            {:else if app.page === "download" || app.page === "mods"}
+              <!-- 下载游戏与下载资源合并在一个页面里，用顶部的选项切换 -->
+              <Mods games />
             {:else if app.page === "accounts"}
               <Accounts />
             {:else if app.page === "settings"}

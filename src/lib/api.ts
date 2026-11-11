@@ -330,6 +330,8 @@ export interface InstanceConfig {
   jvmArgs: string | null;
   server: string | null;
   lastPlayed: number | null;
+  /** 启动前是否补全文件；null 表示默认（补全） */
+  checkFiles: boolean | null;
 }
 
 export type AccountKind =
@@ -504,6 +506,7 @@ export const api = {
     call<{ name: string; version: string } | null>("shader_mod_for", { mc, loader }),
   repairInstance: (id: string) => call<number>("repair_instance", { id }),
   deleteInstance: (id: string) => call<void>("delete_instance", { id }),
+  renameInstance: (id: string, name: string) => call<string>("rename_instance", { id, name }),
   getInstanceConfig: (id: string) => call<InstanceConfig>("get_instance_config", { id }),
   saveInstanceConfig: (id: string, config: InstanceConfig) =>
     call<void>("save_instance_config", { id, config }),

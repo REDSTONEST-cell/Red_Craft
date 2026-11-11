@@ -22,6 +22,8 @@
   import InstallPlan from "../components/InstallPlan.svelte";
   import ModpackInstall from "../components/ModpackInstall.svelte";
   import ResourceManager from "../components/ResourceManager.svelte";
+  import Dropdown from "../components/Dropdown.svelte";
+  import Download from "./Download.svelte";
   import Icon from "../components/Icon.svelte";
   import { fade } from "svelte/transition";
   import Toggle from "../components/Toggle.svelte";
@@ -46,10 +48,18 @@
 
   // 默认聚合搜索两个平台（与 PCL 相同）
   let platform = $state<SearchPlatform>(stored("rc.searchPlatform", "all"));
-  type Tab = ContentType | "installed";
-  let tab = $state<Tab>(stored("rc.contentTab", "mod") as Tab);
-  // 搜索用的类型（「已安装」标签不搜索）
-  const searchType = $derived<ContentType>(tab === "installed" ? "mod" : tab);
+  // 电脑版把「下载游戏」也放在这个页面里（games），手机版仍是单独的页面
+  let { games = false }: { games?: boolean } = $props();
+  type Tab = ContentType | "installed" | "game";
+  function initialTab(): Tab {
+    const saved = stored("rc.contentTab", "mod") as Tab;
+    if (!games) return saved === "game" ? "mod" : saved;
+    // 还没有安装任何版本时先看游戏列表
+    return app.openGames || (app.instancesLoaded && app.instances.length === 0) ? "game" : saved;
+  }
+  let tab = $state<Tab>(initialTab());
+  // 搜索用的类型（「游戏」「资源管理」标签不搜索）
+  const searchType = $derived<ContentType>(tab === "installed" || tab === "game" ? "mod" : tab);
   let sort = $state<SortBy>("relevance");
   // 每类资源各自的搜索词，切换标签时恢复
   let query = $state("");
@@ -96,6 +106,12 @@
   $effect(() => store("rc.searchPlatform", platform));
   $effect(() => store("rc.contentTab", tab));
   $effect(() => store("rc.manageKind", manageKind));
+  // 从「安装新版本」「去下载」等按钮跳转过来
+  $effect(() => {
+    if (!app.openGames) return;
+    if (games) tab = "game";
+    app.openGames = false;
+  });
   // 从主页面「资源管理」「存档」等按钮跳转过来
   $effect(() => {
     const k = app.manage;
@@ -165,7 +181,7 @@
   }
 
   async function search(reset: boolean) {
-    if (tab === "installed") return;
+    if (tab === "installed" || tab === "game") return;
     if (!reset && (loading || !hasMore)) return;
     const gen = ++generation;
     error = null;
@@ -330,13 +346,14 @@
     planOpen = true;
   }
 
-  const tabs: { value: Tab; label: string }[] = [
+  const tabs = $derived<{ value: Tab; label: string }[]>([
+    ...(games ? [{ value: "game" as Tab, label: "游戏" }] : []),
     { value: "mod", label: "Mod" },
     { value: "resourcepack", label: "材质包" },
     { value: "shader", label: "光影包" },
     { value: "modpack", label: "整合包" },
     { value: "installed", label: "资源管理" },
-  ];
+  ]);
   const manageKinds: { value: FileKind; label: string }[] = [
     { value: "mod", label: "Mod" },
     { value: "resourcepack", label: "材质包" },
@@ -345,6 +362,13 @@
   ];
 </script>
 
+{#if tab === "game"}
+  <Download>
+    {#snippet bar()}
+      <div class="bar"><Segmented bind:value={tab} options={tabs} /></div>
+    {/snippet}
+  </Download>
+{:else}
 <div class="wrap">
   <div class="page-head">
     <div>
@@ -359,11 +383,14 @@
     </div>
     <div class="tools">
       {#if tab !== "modpack"}
-        <select class="input inst" bind:value={instanceId} title="安装到的版本">
-          {#each app.instances as i}
-            <option value={i.id}>{i.id}</option>
-          {/each}
-        </select>
+        <span class="inst">
+          <Dropdown
+            bind:value={instanceId}
+            options={app.instances.map((i) => ({ value: i.id, label: i.id }))}
+            placeholder="选择版本"
+            title="安装到的版本"
+          />
+        </span>
       {/if}
       {#if tab !== "installed"}
         <Segmented
@@ -388,12 +415,17 @@
       <Icon name="search" size={14} />
       <input class="input" placeholder={tab === "mod" ? "搜索 Mod，支持中文名…" : `搜索${tabs.find((t) => t.value === tab)?.label}，支持常见中文名…`} bind:value={query} />
     </div>
-    <select class="input sort" bind:value={sort}>
-      <option value="relevance">相关度</option>
-      <option value="downloads">下载量</option>
-      <option value="updated">最近更新</option>
-      <option value="newest">最新发布</option>
-    </select>
+    <span class="sort">
+      <Dropdown
+        bind:value={sort}
+        options={[
+          { value: "relevance", label: "相关度" },
+          { value: "downloads", label: "下载量" },
+          { value: "updated", label: "最近更新" },
+          { value: "newest", label: "最新发布" },
+        ]}
+      />
+    </span>
     {#if tab !== "modpack"}
       <Toggle bind:checked={compatibleOnly} label="仅兼容" />
     {/if}
@@ -473,6 +505,7 @@
   </div>
   {/if}
 </div>
+{/if}
 
 {#if app.info?.os === "android"}
   <!-- 手机版：左右两栏，可按版本分类 -->
@@ -517,6 +550,15 @@
   }
   .inst {
     width: 200px;
+  }
+  .inst,
+  .sort {
+    display: inline-flex;
+    flex: none;
+  }
+  .inst :global(.dropdown),
+  .sort :global(.dropdown) {
+    width: 100%;
   }
   .bar {
     display: flex;

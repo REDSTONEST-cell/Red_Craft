@@ -33,7 +33,22 @@ pub async fn prepare(
     reporter: &Reporter,
     cancel: &CancelToken,
 ) -> Result<LaunchCommand> {
-    installer.complete(id, Verify::Quick, reporter, cancel).await?;
+    prepare_with(installer, id, opts, true, reporter, cancel).await
+}
+
+/// 与 [`prepare`] 相同；`check_files` 为 false 时跳过文件补全（用户在版本设置里关闭了它），
+/// 不联网也不检查文件，缺少文件时由游戏自己报错。
+pub async fn prepare_with(
+    installer: &Installer,
+    id: &str,
+    opts: &LaunchOptions,
+    check_files: bool,
+    reporter: &Reporter,
+    cancel: &CancelToken,
+) -> Result<LaunchCommand> {
+    if check_files {
+        installer.complete(id, Verify::Quick, reporter, cancel).await?;
+    }
     cancel.check()?;
     let resolved = installer.resolve(id)?;
 

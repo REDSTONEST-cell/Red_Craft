@@ -240,6 +240,8 @@ pub struct InstanceConfig {
     pub jvm_args: Option<String>,
     pub server: Option<String>,
     pub last_played: Option<u64>,
+    /// 启动前是否补全文件；`None` 表示默认（补全）
+    pub check_files: Option<bool>,
 }
 
 pub const INSTANCE_CONFIG: &str = "redcraft.json";

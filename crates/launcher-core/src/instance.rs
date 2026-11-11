@@ -247,6 +247,74 @@ pub fn scan_instances(game: &GameDir) -> Vec<InstanceSummary> {
     out
 }
 
+/// 重命名实例（阻塞调用）：版本文件夹、其中的 `<名称>.json` / `<名称>.jar` 以及 JSON 里的 `id` 一起改名。
+///
+/// 实例配置、natives 与版本隔离的存档、Mod 都在版本文件夹里，会跟着一起移动。
+/// 被其他实例继承（`inheritsFrom`）的版本不能改名，否则继承它的实例会找不到父版本。
+pub fn rename_instance(game: &GameDir, old: &str, new: &str) -> crate::error::Result<()> {
+    use crate::error::{CoreError, IoContext};
+    crate::install::validate_instance_name(new)?;
+    if old == new {
+        return Ok(());
+    }
+    if !game.version_json(old).is_file() {
+        return Err(CoreError::VersionNotFound(old.to_string()));
+    }
+    // Windows 与 macOS 的文件名不区分大小写：只改大小写时目标「已存在」的其实是它自己
+    let same_dir = old.to_lowercase() == new.to_lowercase();
+    if game.version_dir(new).exists() && !same_dir {
+        return Err(CoreError::msg(format!("已存在名为「{new}」的版本"), "请换一个版本名称。"));
+    }
+    if let Some(child) = scan_instances(game).iter().find(|s| s.parents.iter().any(|p| p == old)) {
+        return Err(CoreError::msg(
+            format!("「{old}」是「{}」的父版本，不能改名", child.id),
+            "安装了加载器的版本依赖它提供游戏本体，改名后那些版本将无法启动。",
+        ));
+    }
+    let json_path = game.version_json(old);
+    let text = std::fs::read_to_string(&json_path).at(&json_path)?;
+    let mut json: serde_json::Value = serde_json::from_str(&text).map_err(|e| CoreError::json(format!("版本文件 {old}.json"), e))?;
+    json["id"] = new.into();
+    // 部分启动器用 `jar` 字段指向自己的 jar
+    if json.get("jar").and_then(serde_json::Value::as_str) == Some(old) {
+        json["jar"] = new.into();
+    }
+    let data = serde_json::to_vec_pretty(&json).map_err(|e| CoreError::json("版本 JSON", e))?;
+
+    let (from, to) = (game.version_dir(old), game.version_dir(new));
+    std::fs::rename(&from, &to).at(&from)?;
+    // 文件夹已经改名；里面的文件改名失败时把文件夹改回去，保证实例仍然可用
+    let inner = || -> crate::error::Result<()> {
+        let old_jar = to.join(format!("{old}.jar"));
+        if old_jar.is_file() {
+            std::fs::rename(&old_jar, game.version_jar(new)).at(&old_jar)?;
+        }
+        let new_json = game.version_json(new);
+        std::fs::write(&new_json, &data).at(&new_json)?;
+        let old_json = to.join(format!("{old}.json"));
+        if old_json != new_json && !same_dir {
+            std::fs::remove_file(&old_json).at(&old_json)?;
+        } else if old_json != new_json {
+            // 只改大小写：在不区分大小写的文件系统上两个名字是同一个文件，改名即可
+            let _ = std::fs::rename(&old_json, &new_json);
+        }
+        Ok(())
+    };
+    if let Err(e) = inner() {
+        let new_jar = game.version_jar(new);
+        if new_jar.is_file() {
+            let _ = std::fs::rename(&new_jar, to.join(format!("{old}.jar")));
+        }
+        let _ = std::fs::write(to.join(format!("{old}.json")), text);
+        if !same_dir {
+            let _ = std::fs::remove_file(game.version_json(new));
+        }
+        let _ = std::fs::rename(&to, &from);
+        return Err(e);
+    }
+    Ok(())
+}
+
 /// 识别以 LaunchWrapper 方式安装的 OptiFine（库 `optifine:OptiFine:<mc>_<版本>`）。
 pub fn detect_optifine(resolved: &ResolvedVersion) -> Option<String> {
     resolved.json.libraries.iter().find_map(|l| {
@@ -294,6 +362,41 @@ mod tests {
         // 用户单独安装或启动过（有实例配置）则显示
         std::fs::write(game.version_dir("1.21.1").join("redcraft.json"), "{}").unwrap();
         assert!(!is_hidden_base(&game, &all, "1.21.1", "redcraft.json"));
+    }
+
+    #[test]
+    fn renames_instance_with_its_files() {
+        let t = tempfile::tempdir().unwrap();
+        let game = GameDir::new(t.path());
+        let write = |id: &str, json: &str| {
+            std::fs::create_dir_all(game.version_dir(id)).unwrap();
+            std::fs::write(game.version_json(id), json).unwrap();
+        };
+        write("1.20.1", r#"{"id":"1.20.1","type":"release","mainClass":"a.B","libraries":[]}"#);
+        std::fs::write(game.version_jar("1.20.1"), b"jar").unwrap();
+        std::fs::create_dir_all(game.version_dir("1.20.1").join("saves/world")).unwrap();
+        std::fs::write(game.version_dir("1.20.1").join("redcraft.json"), "{}").unwrap();
+        write("fabric", r#"{"id":"fabric","inheritsFrom":"1.21","libraries":[]}"#);
+        write("1.21", r#"{"id":"1.21","type":"release","libraries":[]}"#);
+
+        rename_instance(&game, "1.20.1", "我的生存").unwrap();
+        assert!(!game.version_dir("1.20.1").exists());
+        assert_eq!(std::fs::read(game.version_jar("我的生存")).unwrap(), b"jar");
+        assert!(game.version_dir("我的生存").join("saves/world").is_dir());
+        assert!(game.version_dir("我的生存").join("redcraft.json").is_file());
+        assert!(!game.version_dir("我的生存").join("1.20.1.json").exists());
+        let r = resolve_version(&game, "我的生存").unwrap();
+        assert_eq!((r.json.id.as_str(), r.jar_id.as_str(), r.json.main_class.as_str()), ("我的生存", "我的生存", "a.B"));
+
+        // 重名、非法名称、被继承的父版本、不存在的版本都拒绝，且不改动任何文件
+        assert!(rename_instance(&game, "我的生存", "fabric").is_err());
+        assert!(rename_instance(&game, "我的生存", "a/b").is_err());
+        assert!(rename_instance(&game, "1.21", "1.21-renamed").is_err());
+        assert!(rename_instance(&game, "missing", "x").is_err());
+        assert!(game.version_json("我的生存").is_file() && game.version_json("1.21").is_file());
+        // 继承别的版本的实例可以改名，父版本不受影响
+        rename_instance(&game, "fabric", "Fabric 生存").unwrap();
+        assert_eq!(resolve_version(&game, "Fabric 生存").unwrap().chain, vec!["Fabric 生存", "1.21"]);
     }
 
     #[test]

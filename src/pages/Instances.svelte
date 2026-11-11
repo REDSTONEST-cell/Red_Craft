@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { api, type InstanceConfig, type InstanceInfo } from "../lib/api";
+  import { api, type InstanceConfig, type InstanceInfo, type JavaInstall } from "../lib/api";
+  import Dropdown from "../components/Dropdown.svelte";
+  import Toggle from "../components/Toggle.svelte";
   import { app, refreshInstances, selectInstance, selectedInstance, showError, toast } from "../lib/state.svelte";
   import { KIND_LABEL, LOADER_LABEL, relative } from "../lib/format";
   import Modal from "../components/Modal.svelte";
@@ -145,15 +147,76 @@
   let isolation = $state<"default" | "on" | "off">("default");
   let memory = $state("");
 
+  let newName = $state("");
+  let renaming = $state(false);
+  let checkFiles = $state(true);
+  // 检测到的 Java（打开版本设置时读取，已有缓存时立即返回）
+  let javas = $state<JavaInstall[]>([]);
+  const BROWSE = "\u0000browse";
+
   async function openSettings(i: InstanceInfo) {
     editing = i;
+    newName = i.id;
     try {
       config = await api.getInstanceConfig(i.id);
       isolation = config.isolation === null ? "default" : config.isolation ? "on" : "off";
       memory = config.maxMemoryMb ? String(config.maxMemoryMb) : "";
+      checkFiles = config.checkFiles !== false;
       editOpen = true;
     } catch (e) {
       showError(e);
+      return;
+    }
+    api.scanJava(false).then((list) => (javas = list)).catch(() => {});
+  }
+
+  // Java 选择列表：跟随全局、检测到的 Java、当前手动指定的路径、浏览
+  const javaOptions = $derived.by(() => {
+    const list: { value: string; label: string; hint?: string }[] = [
+      { value: "", label: "跟随全局设置", hint: "由启动器自动选择合适的 Java（推荐）" },
+      ...javas.map((j) => ({ value: j.path, label: `Java ${j.major}（${j.version} · ${j.arch}）`, hint: j.path })),
+    ];
+    const path = config?.javaPath ?? "";
+    if (path && !javas.some((j) => j.path === path)) list.push({ value: path, label: "手动指定", hint: path });
+    list.push({ value: BROWSE, label: "浏览…", hint: "选择电脑上的 java 可执行文件" });
+    return list;
+  });
+  const javaPicked = $derived(javas.find((j) => j.path === config?.javaPath));
+
+  async function pickJava(v: string) {
+    if (!config) return;
+    if (v !== BROWSE) {
+      config.javaPath = v || null;
+      return;
+    }
+    const file = await openDialog({ title: "选择 Java", multiple: false, directory: false }).catch(() => null);
+    if (typeof file !== "string") return;
+    try {
+      const java = await api.probeJava(file);
+      if (!javas.some((j) => j.path === java.path)) javas = [...javas, java];
+      config.javaPath = java.path;
+    } catch (e) {
+      showError(e, "这不是有效的 Java");
+    }
+  }
+
+  const nameChanged = $derived(!!editing && newName.trim() !== "" && newName.trim() !== editing.id);
+
+  // 一键改名：立即生效，版本设置里其他还没保存的修改不受影响
+  async function rename() {
+    if (!editing || !nameChanged) return;
+    renaming = true;
+    try {
+      const name = await api.renameInstance(editing.id, newName.trim());
+      toast("ok", `已改名为 ${name}`);
+      await refreshInstances();
+      if (app.settings?.selectedInstance === editing.id) app.settings.selectedInstance = name;
+      editing = app.instances.find((i) => i.id === name) ?? { ...editing, id: name };
+      newName = name;
+    } catch (e) {
+      showError(e, "改名失败");
+    } finally {
+      renaming = false;
     }
   }
 
@@ -166,6 +229,8 @@
       maxMemoryMb: Number.isFinite(mem) && mem > 0 ? mem : null,
       jvmArgs: config.jvmArgs?.trim() ? config.jvmArgs : null,
       javaPath: config.javaPath?.trim() ? config.javaPath : null,
+      // 默认（补全）不写入配置
+      checkFiles: checkFiles ? null : false,
       server: config.server?.trim() ? config.server : null,
     };
     try {
@@ -194,7 +259,7 @@
     {/if}
     <button class="btn" onclick={importPack}><Icon name="box" size={14} /> 导入整合包</button>
     <button class="btn" onclick={() => (migrateOpen = true)}><Icon name="link" size={14} /> 从其他启动器导入</button>
-    <button class="btn primary" onclick={() => (app.page = "download")}><Icon name="plus" size={14} /> 安装新版本</button>
+    <button class="btn primary" onclick={() => { app.openGames = true; app.page = "download"; }}><Icon name="plus" size={14} /> 安装新版本</button>
   </div>
 </div>
 
@@ -350,6 +415,14 @@
   {#if config}
     <div class="form">
       <div class="field">
+        <label for="rename">版本名称</label>
+        <div class="rename">
+          <input id="rename" class="input" bind:value={newName} disabled={renaming || editing?.running} onkeydown={(e) => e.key === "Enter" && rename()} />
+          <button class="btn" disabled={!nameChanged || renaming || editing?.running} onclick={rename}>{renaming ? "改名中…" : "改名"}</button>
+        </div>
+        {#if editing?.running}<span class="help">游戏运行中，关闭游戏后才能改名。</span>{/if}
+      </div>
+      <div class="field">
         <span class="label">版本隔离</span>
         <Segmented
           bind:value={isolation}
@@ -366,8 +439,14 @@
         <input id="mem" class="input" type="number" min="512" step="256" placeholder="跟随全局设置" bind:value={memory} />
       </div>
       <div class="field">
-        <label for="java">Java 路径</label>
-        <input id="java" class="input" placeholder="跟随全局设置" bind:value={config.javaPath} />
+        <span class="label">Java</span>
+        <Dropdown value={config.javaPath ?? ""} options={javaOptions} onchange={pickJava} />
+        {#if config.javaPath}
+          <span class="help warn">
+            <Icon name="warn" size={12} />
+            {#if javaPicked}已指定 Java {javaPicked.major}。{/if}Java 版本与游戏不匹配时，游戏可能无法启动或直接崩溃；不确定时请选「跟随全局设置」。
+          </span>
+        {/if}
       </div>
       <div class="field">
         <label for="jvm">额外 JVM 参数</label>
@@ -376,6 +455,12 @@
       <div class="field">
         <label for="server">启动后进入服务器</label>
         <input id="server" class="input" placeholder="例如 mc.example.com:25565" bind:value={config.server} />
+      </div>
+      <div class="field">
+        <Toggle bind:checked={checkFiles} label="启动前补全文件" />
+        <span class="help" class:warn={!checkFiles}>
+          {#if checkFiles}每次启动前检查并补全缺失的游戏文件。{:else}已关闭：启动更快，也不需要联网；但文件缺失或损坏时游戏会无法启动，届时请在版本列表中手动「补全文件」。{/if}
+        </span>
       </div>
     </div>
   {/if}
@@ -389,6 +474,19 @@
 <ExportModpack bind:open={exportOpen} instance={exporting} />
 
 <style>
+  .rename {
+    display: flex;
+    gap: 8px;
+  }
+  .rename .input {
+    flex: 1;
+  }
+  .help.warn {
+    color: var(--warn, #b45309);
+  }
+  .help.warn :global(svg) {
+    vertical-align: -2px;
+  }
   .tools {
     display: flex;
     gap: 10px;

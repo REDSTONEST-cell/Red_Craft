@@ -397,6 +397,25 @@ pub async fn delete_instance(state: State<'_, AppState>, id: String) -> AppResul
     Ok(())
 }
 
+/// 重命名版本。运行中、正在启动或被其他版本继承的版本不能改名。
+#[tauri::command]
+pub async fn rename_instance(state: State<'_, AppState>, id: String, name: String) -> AppResult<String> {
+    let name = name.trim().to_string();
+    validate_instance_name(&id)?;
+    validate_instance_name(&name)?;
+    let busy = |set: &str| set == id;
+    if state.running.lock().is_ok_and(|r| r.keys().any(|k| busy(k))) || state.launching.lock().is_ok_and(|l| l.iter().any(|k| busy(k))) {
+        return Err(AppError::msg("这个版本正在运行", "请先关闭游戏再改名。"));
+    }
+    let game = state.game_dir();
+    let (old, new) = (id.clone(), name.clone());
+    blocking(move || launcher_core::instance::rename_instance(&game, &old, &new)).await??;
+    if state.settings().selected_instance.as_deref() == Some(id.as_str()) {
+        state.update_settings(|s| s.selected_instance = Some(name.clone()))?;
+    }
+    Ok(name)
+}
+
 #[tauri::command]
 pub fn get_instance_config(state: State<'_, AppState>, id: String) -> InstanceConfig {
     InstanceConfig::load(&state.game_dir(), &id)
