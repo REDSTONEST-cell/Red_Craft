@@ -6,7 +6,7 @@ mod process;
 
 pub use args::{build_command, split_args, substitute, GcMode, LaunchCommand, LaunchOptions, ServerAddress};
 pub use natives::extract_natives;
-pub use process::{analyze, kill_pid, spawn, CrashCause, GameExit, LogFn, LogLine, RunningGame};
+pub use process::{analyze, kill_pid, spawn, windowless_java, CrashCause, GameExit, LogFn, LogLine, RunningGame};
 
 use crate::download::CancelToken;
 use crate::error::{CoreError, Result};

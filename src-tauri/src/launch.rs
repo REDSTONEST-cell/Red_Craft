@@ -166,6 +166,8 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
         let (java_path, java_major) =
             select_java(&state, &installer, java_override, required, &component, &reporter, &cancel).await?;
 
+        // Windows：改用 javaw.exe 启动，与其他启动器一致，显卡驱动里针对 Minecraft 的配置才会生效
+        let java_path = if cfg!(windows) { launch::windowless_java(&java_path) } else { java_path };
         let opts = LaunchOptions {
             java: java_path,
             game_dir: game_dir.clone(),
@@ -423,8 +425,10 @@ fn prefer_high_performance_gpu(java: &std::path::Path) {
         use std::os::windows::process::CommandExt;
         let path = java.display().to_string();
         let mut targets = vec![path.clone()];
-        // 游戏实际使用 java.exe，同时为 javaw.exe 设置，方便其它启动方式
-        if let Some(w) = path.strip_suffix("java.exe") {
+        // 游戏用 javaw.exe 启动（没有时用 java.exe）；两个都设置，其它启动方式也能生效
+        if let Some(w) = path.strip_suffix("javaw.exe") {
+            targets.push(format!("{w}java.exe"));
+        } else if let Some(w) = path.strip_suffix("java.exe") {
             targets.push(format!("{w}javaw.exe"));
         }
         for t in targets {

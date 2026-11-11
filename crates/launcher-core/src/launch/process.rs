@@ -61,6 +61,22 @@ fn locale_is_utf8(get: impl Fn(&str) -> Option<String>) -> bool {
         })
 }
 
+/// Windows 上启动游戏用的 Java：`java.exe` 旁边有 `javaw.exe` 时改用它，否则原样返回。
+///
+/// 两者是同一个 JVM；区别在于显卡驱动、系统图形设置等按程序文件名套用配置，
+/// 而它们为 Minecraft 准备的配置都认 `javaw.exe`（官方启动器与其他启动器都用它）。
+/// 用 `java.exe` 启动会落到驱动的全局设置上，例如全局开启的插帧会作用到游戏界面。
+pub fn windowless_java(java: &Path) -> PathBuf {
+    let is_java_exe = java.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.eq_ignore_ascii_case("java.exe"));
+    if is_java_exe {
+        let javaw = java.with_file_name("javaw.exe");
+        if javaw.is_file() {
+            return javaw;
+        }
+    }
+    java.to_path_buf()
+}
+
 pub fn spawn(cmd: &LaunchCommand, on_log: LogFn) -> Result<RunningGame> {
     if !cmd.java.exists() && cmd.java.components().count() > 1 {
         return Err(CoreError::Java(format!("找不到 Java：{}", cmd.java.display())));
@@ -399,6 +415,23 @@ pub fn analyze(log: &str, report: &str) -> Vec<CrashCause> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prefers_javaw_next_to_java_exe() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let java = bin.join("java.exe");
+        std::fs::write(&java, b"").unwrap();
+        // 没有 javaw.exe 时保持不变
+        assert_eq!(windowless_java(&java), java);
+        std::fs::write(bin.join("javaw.exe"), b"").unwrap();
+        assert_eq!(windowless_java(&java), bin.join("javaw.exe"));
+        assert_eq!(windowless_java(&bin.join("JAVA.EXE")), bin.join("javaw.exe"));
+        // 已经是 javaw.exe、或不是 java.exe（其他系统的 java）时不变
+        assert_eq!(windowless_java(&bin.join("javaw.exe")), bin.join("javaw.exe"));
+        assert_eq!(windowless_java(&bin.join("java")), bin.join("java"));
+    }
 
     #[test]
     fn utf8_locale() {
