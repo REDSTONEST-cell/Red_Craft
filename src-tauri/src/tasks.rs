@@ -96,6 +96,10 @@ impl Tasks {
                 }),
                 progress: Arc::new(move |p: Progress| {
                     if let Ok(mut ev) = s2.lock() {
+                        // 进度每 200ms 报告一次；没有变化（等待响应、校验文件等）时不必通知界面
+                        if ev.progress.as_ref() == Some(&p) {
+                            return;
+                        }
                         ev.progress = Some(p);
                         e2(&ev);
                     }

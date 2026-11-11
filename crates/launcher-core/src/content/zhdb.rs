@@ -2,7 +2,6 @@
 //!
 //! 用途：搜索结果与已安装 Mod 显示中文名；中文关键词搜索时换成英文名再到 Modrinth / CurseForge 搜索。
 
-use std::collections::HashMap;
 use std::io::Read;
 use std::sync::OnceLock;
 
@@ -10,24 +9,56 @@ use serde::Serialize;
 
 const DATA: &[u8] = include_bytes!("../../assets/mcmod.buf");
 
-#[derive(Debug, Clone)]
-pub struct ZhEntry {
+/// 数据库中的一个条目（字符串借用自数据库）。
+#[derive(Debug, Clone, Copy)]
+pub struct ZhEntry<'a> {
     /// MC 百科的 Mod ID
     pub wiki_id: u32,
     /// 中文名（可能有多个，用 / 分隔）；没有译名时为空
-    pub zh: String,
+    pub zh: &'a str,
     /// 英文原名
-    pub en: String,
-    pub curseforge_slug: Option<String>,
-    pub modrinth_slug: Option<String>,
+    pub en: &'a str,
+    pub curseforge_slug: Option<&'a str>,
+    pub modrinth_slug: Option<&'a str>,
 }
 
+/// 一段文字在 [`ZhDb::text`] 中的位置；长度为 0 表示没有。
+#[derive(Clone, Copy, Default)]
+struct Span {
+    at: u32,
+    len: u32,
+}
+
+struct Record {
+    wiki_id: u32,
+    zh: Span,
+    en: Span,
+    curseforge_slug: Span,
+    modrinth_slug: Span,
+}
+
+/// 条目的一个中文名。同一个条目的各个中文名相邻存放。
+struct Name {
+    entry: u32,
+    /// 原样的中文名
+    name: Span,
+    /// 去掉空白并转小写后的形式（多数与原样相同，此时指向同一段文字）
+    norm: Span,
+    /// `norm` 的字符数
+    chars: u16,
+}
+
+/// 数据库加载后常驻内存，所以存得很紧凑：两万多个条目的全部文字放在一个字符串里，
+/// 条目只记位置；索引是按哈希排序的数组而不是以字符串为键的哈希表。
+/// 相比每个字段各自分配，常驻内存从约 14MB 降到约 3MB。
 pub struct ZhDb {
-    entries: Vec<ZhEntry>,
-    /// 每个条目的各个中文名：(原样, 去掉空白并转小写后的形式, 字符数)，加载时预先算好
-    names: Vec<Vec<(String, String, i64)>>,
-    by_slug: HashMap<String, usize>,
-    by_name: HashMap<String, usize>,
+    text: String,
+    records: Vec<Record>,
+    names: Vec<Name>,
+    /// (slug 的哈希, 条目序号)，按哈希、序号排序
+    by_slug: Vec<(u32, u32)>,
+    /// (英文名 name_key 的哈希, 条目序号)，按哈希、序号排序
+    by_name: Vec<(u32, u32)>,
 }
 
 /// 中文搜索的匹配结果。
@@ -120,6 +151,17 @@ fn split_name(full: &str) -> (String, String) {
     }
 }
 
+/// FNV-1a：索引用的哈希，结果固定（不随进程变化）。命中后还会核对原文，冲突不影响正确性。
+fn hash(s: &str) -> u32 {
+    s.bytes().fold(0x811c_9dc5u32, |h, b| (h ^ u32::from(b)).wrapping_mul(0x0100_0193))
+}
+
+/// 索引中哈希等于 `h` 的条目序号（按序号从小到大）。
+fn candidates(index: &[(u32, u32)], h: u32) -> impl Iterator<Item = usize> + '_ {
+    let start = index.partition_point(|&(x, _)| x < h);
+    index[start..].iter().take_while(move |&&(x, _)| x == h).map(|&(_, i)| i as usize)
+}
+
 impl ZhDb {
     fn load() -> ZhDb {
         let mut raw = Vec::new();
@@ -127,63 +169,107 @@ impl ZhDb {
             log::warn!("Mod 中文名数据库解压失败");
             raw.clear();
         }
-        let mut entries = Vec::new();
+        let mut db = ZhDb { text: String::with_capacity(raw.len()), records: Vec::new(), names: Vec::new(), by_slug: Vec::new(), by_name: Vec::new() };
         for (f, v) in fields(&raw) {
             let (1, Err(msg)) = (f, v) else { continue };
-            let mut e = ZhEntry { wiki_id: 0, zh: String::new(), en: String::new(), curseforge_slug: None, modrinth_slug: None };
+            let mut wiki_id = 0;
             let mut full = String::new();
+            let (mut curseforge_slug, mut modrinth_slug) = (Span::default(), Span::default());
             for (f, v) in fields(msg) {
                 match (f, v) {
-                    (1, Ok(id)) => e.wiki_id = id as u32,
+                    (1, Ok(id)) => wiki_id = id as u32,
                     (2, Err(s)) => full = String::from_utf8_lossy(s).into_owned(),
-                    (3, Err(s)) if !s.is_empty() => e.curseforge_slug = Some(String::from_utf8_lossy(s).to_lowercase()),
-                    (4, Err(s)) if !s.is_empty() => e.modrinth_slug = Some(String::from_utf8_lossy(s).to_lowercase()),
+                    (3, Err(s)) if !s.is_empty() => curseforge_slug = db.push(&String::from_utf8_lossy(s).to_lowercase()),
+                    (4, Err(s)) if !s.is_empty() => modrinth_slug = db.push(&String::from_utf8_lossy(s).to_lowercase()),
                     _ => {}
                 }
             }
-            (e.zh, e.en) = split_name(&full);
-            entries.push(e);
-        }
-        let names = entries
-            .iter()
-            .map(|e| {
-                e.zh.split('/')
-                    .map(|n| {
-                        let norm = normalize(n);
-                        let len = norm.chars().count() as i64;
-                        (n.trim().to_string(), norm, len)
-                    })
-                    .filter(|(_, norm, _)| !norm.is_empty())
-                    .collect()
-            })
-            .collect();
-        let mut by_slug = HashMap::new();
-        let mut by_name = HashMap::new();
-        for (i, e) in entries.iter().enumerate() {
-            for s in [&e.curseforge_slug, &e.modrinth_slug].into_iter().flatten() {
-                by_slug.entry(s.clone()).or_insert(i);
+            let (zh, en) = split_name(&full);
+            let entry = db.records.len() as u32;
+            let (zh_span, en_span) = (db.push(&zh), db.push(&en));
+            // 各个中文名是 zh 的一部分，直接指向 zh 中的位置
+            for n in zh.split('/') {
+                let norm = normalize(n);
+                if norm.is_empty() {
+                    continue;
+                }
+                let trimmed = n.trim();
+                let name = Span { at: zh_span.at + (trimmed.as_ptr() as usize - zh.as_ptr() as usize) as u32, len: trimmed.len() as u32 };
+                let chars = norm.chars().count().min(usize::from(u16::MAX)) as u16;
+                let norm = if norm == trimmed { name } else { db.push(&norm) };
+                db.names.push(Name { entry, name, norm, chars });
             }
-            let k = name_key(&e.en);
-            if !k.is_empty() {
-                by_name.entry(k).or_insert(i);
+            for slug in [curseforge_slug, modrinth_slug] {
+                if slug.len > 0 {
+                    db.by_slug.push((hash(db.get(slug)), entry));
+                }
             }
+            let key = name_key(&en);
+            if !key.is_empty() {
+                db.by_name.push((hash(&key), entry));
+            }
+            db.records.push(Record { wiki_id, zh: zh_span, en: en_span, curseforge_slug, modrinth_slug });
         }
-        ZhDb { entries, names, by_slug, by_name }
+        db.by_slug.sort_unstable();
+        db.by_name.sort_unstable();
+        db.text.shrink_to_fit();
+        db.records.shrink_to_fit();
+        db.names.shrink_to_fit();
+        db.by_slug.shrink_to_fit();
+        db.by_name.shrink_to_fit();
+        db
+    }
+
+    fn push(&mut self, s: &str) -> Span {
+        let at = self.text.len() as u32;
+        self.text.push_str(s);
+        Span { at, len: s.len() as u32 }
+    }
+
+    fn get(&self, span: Span) -> &str {
+        &self.text[span.at as usize..(span.at + span.len) as usize]
+    }
+
+    fn entry(&self, i: usize) -> ZhEntry<'_> {
+        let r = &self.records[i];
+        let opt = |s: Span| (s.len > 0).then(|| self.get(s));
+        ZhEntry {
+            wiki_id: r.wiki_id,
+            zh: self.get(r.zh),
+            en: self.get(r.en),
+            curseforge_slug: opt(r.curseforge_slug),
+            modrinth_slug: opt(r.modrinth_slug),
+        }
     }
 
     pub fn len(&self) -> usize {
-        self.entries.len()
+        self.records.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+        self.records.is_empty()
     }
 
-    /// 按 slug（两个平台通用）或英文名查找。
-    pub fn find(&self, title: &str, slug: Option<&str>) -> Option<&ZhEntry> {
-        slug.and_then(|s| self.by_slug.get(&s.to_lowercase()))
-            .or_else(|| self.by_name.get(&name_key(title)))
-            .map(|&i| &self.entries[i])
+    /// 按 slug（两个平台通用）或英文名查找。有多个条目符合时取最靠前的一个。
+    pub fn find(&self, title: &str, slug: Option<&str>) -> Option<ZhEntry<'_>> {
+        let by_slug = |slug: &str| {
+            let slug = slug.to_lowercase();
+            if slug.is_empty() {
+                return None;
+            }
+            candidates(&self.by_slug, hash(&slug)).find(|&i| {
+                let r = &self.records[i];
+                [r.curseforge_slug, r.modrinth_slug].iter().any(|s| s.len > 0 && self.get(*s) == slug)
+            })
+        };
+        let by_name = || {
+            let key = name_key(title);
+            if key.is_empty() {
+                return None;
+            }
+            candidates(&self.by_name, hash(&key)).find(|&i| name_key(self.get(self.records[i].en)) == key)
+        };
+        slug.and_then(by_slug).or_else(by_name).map(|i| self.entry(i))
     }
 
     /// 资源的中文名（取第一个译名）。
@@ -201,11 +287,17 @@ impl ZhDb {
         }
         let qn = q.chars().count() as i64;
         let mut scored: Vec<(i64, usize, &str)> = Vec::new();
-        for (i, (e, names)) in self.entries.iter().zip(&self.names).enumerate() {
+        let mut rest = self.names.as_slice();
+        while let Some(first) = rest.first() {
+            // 同一个条目的各个中文名相邻，取其中得分最高的
+            let i = first.entry as usize;
+            let count = rest.iter().take_while(|n| n.entry == first.entry).count();
+            let (names, tail) = rest.split_at(count);
+            rest = tail;
             let mut best = 0i64;
             let mut best_name = "";
-            for (name, n, nn) in names {
-                let (n, nn) = (n.as_str(), *nn);
+            for name in names {
+                let (n, nn) = (self.get(name.norm), i64::from(name.chars));
                 let diff = (nn - qn).abs();
                 let s = if n == q {
                     1000
@@ -227,30 +319,30 @@ impl ZhDb {
                 };
                 if s > best {
                     best = s;
-                    best_name = name.as_str();
+                    best_name = self.get(name.name);
                 }
             }
             if best > 0 {
                 // 有平台 slug 的优先（能直接定位），MC 百科 ID 越小通常越知名
-                let bonus = if e.modrinth_slug.is_some() || e.curseforge_slug.is_some() { 30 } else { 0 };
+                let r = &self.records[i];
+                let bonus = if r.modrinth_slug.len > 0 || r.curseforge_slug.len > 0 { 30 } else { 0 };
                 scored.push((best + bonus, i, best_name));
             }
         }
-        scored.sort_by(|a, b| b.0.cmp(&a.0).then(self.entries[a.1].wiki_id.cmp(&self.entries[b.1].wiki_id)));
+        scored.sort_by(|a, b| b.0.cmp(&a.0).then(self.records[a.1].wiki_id.cmp(&self.records[b.1].wiki_id)));
         scored
             .into_iter()
             .take(limit)
             .map(|(_, i, name)| {
-                let e = &self.entries[i];
-                let n = normalize(name);
+                let e = self.entry(i);
                 ZhMatch {
                     wiki_id: e.wiki_id,
                     zh: name.to_string(),
-                    en: e.en.clone(),
-                    keyword: keyword_of(e),
-                    curseforge_slug: e.curseforge_slug.clone(),
-                    modrinth_slug: e.modrinth_slug.clone(),
-                    exact: n == q,
+                    en: e.en.to_string(),
+                    keyword: keyword_of(&e),
+                    curseforge_slug: e.curseforge_slug.map(str::to_string),
+                    modrinth_slug: e.modrinth_slug.map(str::to_string),
+                    exact: normalize(name) == q,
                 }
             })
             .collect()
@@ -259,7 +351,7 @@ impl ZhDb {
 
 /// 从英文名（或 slug）得到搜索用的英文关键词：去掉方括号缩写、版本后缀与标点。
 fn keyword_of(e: &ZhEntry) -> String {
-    let mut s = e.en.clone();
+    let mut s = e.en.to_string();
     // [CSL] 之类的缩写与「 - 副标题」
     while let (Some(a), Some(b)) = (s.find('['), s.find(']')) {
         if b <= a {
@@ -276,8 +368,7 @@ fn keyword_of(e: &ZhEntry) -> String {
         return words.join(" ");
     }
     e.modrinth_slug
-        .as_deref()
-        .or(e.curseforge_slug.as_deref())
+        .or(e.curseforge_slug)
         .map(|s| s.replace(['-', '_'], " "))
         .unwrap_or_default()
 }
@@ -340,7 +431,7 @@ mod tests {
     fn names() {
         assert_eq!(split_name("工业时代2 (Industrial Craft 2)"), ("工业时代2".into(), "Industrial Craft 2".into()));
         assert_eq!(split_name("Some Mod"), ("".into(), "Some Mod".into()));
-        let e = ZhEntry { wiki_id: 1, zh: "x".into(), en: "[CSL] Custom Skin Loader - Fabric".into(), curseforge_slug: None, modrinth_slug: None };
+        let e = ZhEntry { wiki_id: 1, zh: "x", en: "[CSL] Custom Skin Loader - Fabric", curseforge_slug: None, modrinth_slug: None };
         assert_eq!(keyword_of(&e), "Custom Skin Loader");
     }
 }

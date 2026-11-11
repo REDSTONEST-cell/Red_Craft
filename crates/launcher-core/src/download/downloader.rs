@@ -129,12 +129,17 @@ pub struct VerifyCache {
 }
 
 impl VerifyCache {
-    /// 同一个记录文件在进程内共用一份记录：只在第一次使用时读取文件，
-    /// 同时进行的任务（例如安装的同时启动游戏）也不会互相覆盖对方新增的记录。
+    /// 同时进行的任务（例如安装的同时启动游戏）共用同一份记录，不会互相覆盖对方新增的记录。
+    /// 没有任务在使用时记录从内存中释放（几千个文件的记录约 1～2MB），下次使用时重新读取文件。
     pub fn shared(file: PathBuf) -> Arc<Self> {
-        static CACHES: std::sync::OnceLock<std::sync::Mutex<HashMap<PathBuf, Arc<VerifyCache>>>> = std::sync::OnceLock::new();
+        static CACHES: std::sync::OnceLock<std::sync::Mutex<HashMap<PathBuf, std::sync::Weak<VerifyCache>>>> = std::sync::OnceLock::new();
         let mut caches = CACHES.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
-        caches.entry(file.clone()).or_insert_with(|| Arc::new(Self::load(file))).clone()
+        if let Some(cache) = caches.get(&file).and_then(std::sync::Weak::upgrade) {
+            return cache;
+        }
+        let cache = Arc::new(Self::load(file.clone()));
+        caches.insert(file, Arc::downgrade(&cache));
+        cache
     }
 
     /// 读取记录文件；不存在或损坏时从空记录开始。
@@ -510,7 +515,9 @@ impl Downloader {
         let started = Instant::now();
         let part = part_path(&task.path);
         // 写入缓冲：tokio 的每次文件写入都要切换到阻塞线程池，攒到 256KB 再写可以大幅减少切换
-        let mut file = tokio::io::BufWriter::with_capacity(256 * 1024, tokio::fs::File::create(&part).await.at(&part)?);
+        // 缓冲不超过文件本身的大小：资源文件大多只有几 KB 到几十 KB，同时下载几十个时不必各占 256KB
+        let buffer = if expected_len > 0 { (expected_len.min(256 * 1024) as usize).max(8 * 1024) } else { 256 * 1024 };
+        let mut file = tokio::io::BufWriter::with_capacity(buffer, tokio::fs::File::create(&part).await.at(&part)?);
         let mut hasher = Sha1::new();
         let mut stream = resp.bytes_stream();
         loop {
@@ -1197,6 +1204,19 @@ mod tests {
             println!("{name}：{:?}", started.elapsed());
             assert_eq!(sha1_file(&path).unwrap(), sha1);
         }
+    }
+
+    #[test]
+    fn shared_verify_cache_lives_only_while_used() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join(".rcl-verified");
+        let a = VerifyCache::shared(file.clone());
+        let b = VerifyCache::shared(file.clone());
+        assert!(Arc::ptr_eq(&a, &b));
+        let weak = Arc::downgrade(&a);
+        drop((a, b));
+        assert!(weak.upgrade().is_none(), "没有任务使用时应当释放");
+        let _ = VerifyCache::shared(file);
     }
 
     #[test]

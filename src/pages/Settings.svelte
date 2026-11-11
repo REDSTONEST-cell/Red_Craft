@@ -103,7 +103,10 @@
   $effect(() => {
     void [s.memoryAuto, s.maxMemoryMb, app.settings?.selectedInstance];
     refreshMemory();
-    const timer = setInterval(refreshMemory, 2000);
+    // 启动器隐藏或最小化时（例如游戏运行期间）不刷新
+    const timer = setInterval(() => {
+      if (!document.hidden) refreshMemory();
+    }, 2000);
     return () => clearInterval(timer);
   });
   async function optimizeNow() {

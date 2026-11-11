@@ -39,6 +39,23 @@ impl AssetObject {
     }
 }
 
+/// 资源索引中决定资源目录布局的两个标志（见 [`AssetIndex`]）。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+pub struct AssetLayout {
+    #[serde(default, rename = "virtual")]
+    pub is_virtual: bool,
+    #[serde(default)]
+    pub map_to_resources: bool,
+}
+
+impl AssetLayout {
+    /// 只读取布局标志：不为索引里的几千个资源条目分配内存（启动游戏时每次都要读）。
+    pub fn read(path: &Path) -> Result<Self> {
+        let data = std::fs::read(path).at(path)?;
+        serde_json::from_slice(&data).map_err(|e| CoreError::json("资源索引", e))
+    }
+}
+
 impl AssetIndex {
     pub fn read(path: &Path) -> Result<Self> {
         let data = std::fs::read(path).at(path)?;
@@ -88,6 +105,12 @@ mod tests {
         )
         .unwrap();
         assert!(idx.is_virtual && !idx.map_to_resources && idx.needs_copy());
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("legacy.json");
+        std::fs::write(&file, r#"{"objects": {"a": {"hash": "abcdef0123", "size": 3}}, "virtual": true}"#).unwrap();
+        assert_eq!(AssetLayout::read(&file).unwrap(), AssetLayout { is_virtual: true, map_to_resources: false });
+        std::fs::write(&file, r#"{"objects": {}}"#).unwrap();
+        assert_eq!(AssetLayout::read(&file).unwrap(), AssetLayout::default());
         assert_eq!(
             idx.objects["sounds/a.ogg"].url(),
             "https://resources.download.minecraft.net/ab/abcdef0123"

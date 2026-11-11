@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use crate::auth::LaunchAuth;
 use crate::error::{CoreError, Result};
-use crate::install::AssetIndex;
+use crate::install::AssetLayout;
 use crate::paths::GameDir;
 use crate::version::{plan_libraries, rules_allow, Argument, Environment, ResolvedVersion};
 
@@ -202,7 +202,7 @@ pub fn build_command(
         .map(|a| a.id.clone())
         .or_else(|| json.assets.clone())
         .unwrap_or_else(|| "legacy".into());
-    let index = AssetIndex::read(&game.asset_index(&asset_id)).ok();
+    let index = AssetLayout::read(&game.asset_index(&asset_id)).ok();
     let game_assets = match &index {
         Some(i) if i.map_to_resources => opts.game_dir.join("resources"),
         Some(i) if i.is_virtual => game.asset_virtual(&asset_id),

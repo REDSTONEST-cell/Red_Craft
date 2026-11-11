@@ -2,9 +2,9 @@
   import { onMount } from "svelte";
   import { listen } from "@tauri-apps/api/event";
   import { convertFileSrc } from "@tauri-apps/api/core";
-  import { backgroundApi, shouldPlay, controlVideo, releaseVideo, observeVisibility, type ResolvedBackground } from "../lib/background";
+  import { backgroundApi, shouldPlay, yieldsToGame, controlVideo, releaseVideo, observeVisibility, type ResolvedBackground } from "../lib/background";
   import { background, loadBackground } from "../lib/background-state.svelte";
-  import { showError } from "../lib/state.svelte";
+  import { app, showError } from "../lib/state.svelte";
 
   const appearance = $derived(background.preview ?? background.saved);
   const selectedId = $derived(appearance.selection);
@@ -15,7 +15,9 @@
   let generation = 0;
   const mediaUrl = (path: string | null) => path ? convertFileSrc(path) : "";
   const dynamic = $derived(appearance.motion === "always" || (appearance.motion === "auto" && !reduced));
-  const playing = $derived(shouldPlay(visible, appearance.motion, reduced));
+  let focused = $state(document.hasFocus());
+  const gameRunning = $derived(Object.values(app.games).some(g => g.running));
+  const playing = $derived(shouldPlay(visible && !yieldsToGame(gameRunning, focused), appearance.motion, reduced));
   const hasMedia = $derived(!!media && ((media.kind === "image" && dynamic) || (media.kind === "video" && dynamic) || !!media.cover));
 
   onMount(() => {
@@ -27,12 +29,18 @@
       hidden: () => document.hidden,
       change: value => { visible = value; },
     });
+    const focus = () => { focused = true; };
+    const blur = () => { focused = false; };
+    window.addEventListener("focus", focus);
+    window.addEventListener("blur", blur);
     mq.addEventListener("change", change);
     document.addEventListener("visibilitychange", observer.refresh);
     // Native hide/minimize events and explicit launcher hide/show are primary.
     // The initial native query also handles a window already hidden on mount.
     void loadBackground().catch(e => showError(e, "读取背景失败"));
     return () => {
+      window.removeEventListener("focus", focus);
+      window.removeEventListener("blur", blur);
       mq.removeEventListener("change", change);
       document.removeEventListener("visibilitychange", observer.refresh);
       observer.dispose();

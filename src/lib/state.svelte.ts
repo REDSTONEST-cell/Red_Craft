@@ -184,7 +184,8 @@ function onGameEvent(e: Parameters<Parameters<typeof onGame>[0]>[0]) {
     case "log": {
       const lines = logLines.get(e.instance);
       if (!lines) break;
-      lines.push(...e.lines);
+      // 启动器隐藏期间攒下的日志会一次送来几千行，逐行追加（展开成参数在行数很多时会超出引擎限制）
+      for (const line of e.lines) lines.push(line);
       if (lines.length > MAX_LOG_LINES) lines.splice(0, lines.length - MAX_LOG_LINES);
       logVersion.value++;
       break;

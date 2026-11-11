@@ -20,3 +20,10 @@ test('always plays despite reduced motion but pauses when hidden', async () => {
   assert.equal(shouldPlay(false, 'always', true), false);
   assert.equal(shouldPlay(true, 'auto', true), false);
 });
+
+test('dynamic background yields to a running game only while the launcher is unfocused', async () => {
+  const { yieldsToGame } = await backgroundModule();
+  assert.equal(yieldsToGame(true, false), true);
+  assert.equal(yieldsToGame(true, true), false);
+  assert.equal(yieldsToGame(false, false), false);
+});

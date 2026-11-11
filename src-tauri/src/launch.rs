@@ -205,9 +205,11 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
 
         // 日志批量推送，避免大量 IPC 消息拖慢界面
         let buffer: Arc<Mutex<Vec<LogLine>>> = Arc::new(Mutex::new(Vec::new()));
+        let wake = Arc::new(tokio::sync::Notify::new());
         let started = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let on_log = {
             let buffer = buffer.clone();
+            let wake = wake.clone();
             let started = started.clone();
             let app = app2.clone();
             let id = id.clone();
@@ -222,8 +224,14 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
                     after_started(&app);
                 }
                 if let Ok(mut b) = buffer.lock() {
+                    // 启动器隐藏期间日志先攒着：只保留界面能显示的最近若干行
+                    if b.len() >= PENDING_LOG_LINES + PENDING_LOG_LINES / 4 {
+                        let excess = b.len() - PENDING_LOG_LINES;
+                        b.drain(..excess);
+                    }
                     b.push(line);
                 }
+                wake.notify_one();
             })
         };
 
@@ -253,7 +261,14 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
                 let id = id.clone();
                 tauri::async_runtime::spawn(async move {
                     loop {
-                        tokio::time::sleep(Duration::from_millis(120)).await;
+                        // 有新日志才醒来：游戏没有输出时启动器完全空闲
+                        wake.notified().await;
+                        // 启动器隐藏或最小化时不推送（没有人在看，推送只会不断唤醒界面进程），重新显示后一次补上
+                        while !launcher_visible(&app) {
+                            tokio::time::sleep(Duration::from_secs(1)).await;
+                        }
+                        // 攒一小段时间批量推送
+                        tokio::time::sleep(Duration::from_millis(150)).await;
                         flush(&app, &id, &buffer);
                     }
                 })
@@ -432,6 +447,14 @@ fn prefer_high_performance_gpu(java: &std::path::Path) {
     let _ = java;
 }
 
+/// 启动器隐藏期间最多攒多少行日志（与界面保留的行数一致）。
+const PENDING_LOG_LINES: usize = 8000;
+
+/// 启动器窗口当前是否可见（没有隐藏也没有最小化）。状态由窗口事件维护，未知时按可见处理。
+fn launcher_visible(app: &AppHandle) -> bool {
+    app.state::<AppState>().background_visible.lock().map(|v| v.unwrap_or(true)).unwrap_or(true)
+}
+
 fn flush(app: &AppHandle, id: &str, buffer: &Mutex<Vec<LogLine>>) {
     let lines = match buffer.lock() {
         Ok(mut b) if !b.is_empty() => std::mem::take(&mut *b),
@@ -447,6 +470,8 @@ fn flush(app: &AppHandle, id: &str, buffer: &Mutex<Vec<LogLine>>) {
 }
 
 fn after_started(app: &AppHandle) {
+    // 游戏已经起来：把启动器准备启动时用过的内存还给系统
+    tauri::async_runtime::spawn_blocking(system::trim_own_memory);
     let state = app.state::<AppState>();
     match state.settings().after_launch {
         AfterLaunch::Keep => {}

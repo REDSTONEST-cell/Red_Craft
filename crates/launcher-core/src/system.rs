@@ -11,6 +11,28 @@ pub fn memory() -> MemoryInfo {
     imp::memory()
 }
 
+/// 把启动器自身暂时用不到的内存还给系统（阻塞调用）。
+///
+/// 准备启动游戏时启动器会短暂用掉不少内存（解析版本与资源索引、校验文件）；游戏起来之后这些都用不到了。
+/// Windows 上清空自身的工作集，之后用到的页面会自动换回；Linux（glibc）上让分配器归还空闲内存。
+pub fn trim_own_memory() {
+    #[cfg(windows)]
+    // SAFETY: 伪句柄 GetCurrentProcess 不需要关闭；清空工作集不会丢失数据
+    unsafe {
+        use windows_sys::Win32::System::ProcessStatus::K32EmptyWorkingSet;
+        use windows_sys::Win32::System::Threading::GetCurrentProcess;
+        K32EmptyWorkingSet(GetCurrentProcess());
+    }
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    // SAFETY: malloc_trim 是 glibc 的公开接口，可以在任意线程调用
+    unsafe {
+        extern "C" {
+            fn malloc_trim(pad: usize) -> i32;
+        }
+        malloc_trim(0);
+    }
+}
+
 /// 自动分配内存：原版约 2.5GB，有 Mod 时约 4~6GB，不超过总内存的一半，并参考当前可用内存。
 pub fn auto_memory_mb(info: MemoryInfo, modded: bool) -> u32 {
     let want: u64 = if modded { 6144 } else { 2560 };

@@ -79,6 +79,8 @@ impl HttpClient {
             .connect_timeout(Duration::from_secs(15))
             .read_timeout(Duration::from_secs(30))
             .pool_max_idle_per_host(64)
+            // 下载结束后空闲连接（每个都带着 TLS 缓冲）30 秒后关闭，不必保留默认的 90 秒
+            .pool_idle_timeout(Duration::from_secs(30))
             .build()
             .map_err(|e| CoreError::network("(初始化 HTTP 客户端)", e))?;
         Ok(HttpClient {

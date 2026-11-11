@@ -10,7 +10,7 @@ pub use process::{analyze, kill_pid, spawn, CrashCause, GameExit, LogFn, LogLine
 
 use crate::download::CancelToken;
 use crate::error::{CoreError, Result};
-use crate::install::{AssetIndex, Installer, Reporter, Verify};
+use crate::install::{AssetIndex, AssetLayout, Installer, Reporter, Verify};
 
 /// 游戏目录中还没有 options.txt（第一次启动）时写入简体中文语言设置；已有的不覆盖。
 ///
@@ -48,8 +48,9 @@ pub async fn prepare(
         extract_natives(&game, &libs, &env, &natives)?;
         // 1.6 之前的版本从游戏目录的 resources 读取资源
         if let Some(asset_id) = asset_id {
-            if let Ok(index) = AssetIndex::read(&game.asset_index(&asset_id)) {
-                if index.map_to_resources {
+            let index = game.asset_index(&asset_id);
+            if AssetLayout::read(&index).is_ok_and(|l| l.map_to_resources) {
+                if let Ok(index) = AssetIndex::read(&index) {
                     index.copy_to_named_dir(&game, &game_dir.join("resources"))?;
                 }
             }

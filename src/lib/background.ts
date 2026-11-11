@@ -60,6 +60,11 @@ export function shouldPlay(visible: boolean, motion: Appearance["motion"], reduc
   return visible && (motion === "always" || (motion === "auto" && !reduced));
 }
 
+/** 游戏运行期间，启动器不在前台时暂停动态背景：视频解码会和游戏争用显卡与 CPU。回到启动器时继续播放。 */
+export function yieldsToGame(gameRunning: boolean, focused: boolean): boolean {
+  return gameRunning && !focused;
+}
+
 export function releaseVideo(node: HTMLVideoElement): void {
   node.pause();
   node.removeAttribute("src");
