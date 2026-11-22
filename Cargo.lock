@@ -2181,7 +2181,7 @@ dependencies = [
 
 [[package]]
 name = "launcher-core"
-version = "1.1.12"
+version = "1.1.13"
 dependencies = [
  "base64 0.22.1",
  "crc32fast",
@@ -2296,12 +2296,6 @@ name = "lru-slab"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4050469837a6ff301cd14c1f8f24f88549e6d548f24f64e2148eb0f72cebc51f"
-
-[[package]]
-name = "lz4_flex"
-version = "0.11.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "13591d77a9b6d941f7e6fcade7f9dfd9e801308752bde50c0a9bb5852778c22c"
 
 [[package]]
 name = "markup5ever"
@@ -3247,7 +3241,7 @@ checksum = "20675572f6f24e9e76ef639bc5552774ed45f1c30e2951e1e99c59888861c539"
 
 [[package]]
 name = "red-craft"
-version = "1.1.12"
+version = "1.1.13"
 dependencies = [
  "dirs 6.0.0",
  "futures-util",
@@ -3255,7 +3249,6 @@ dependencies = [
  "keyring",
  "launcher-core",
  "log",
- "lz4_flex",
  "percent-encoding",
  "reqwest 0.12.28",
  "serde",

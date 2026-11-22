@@ -57,13 +57,6 @@ pub fn run() {
                 responder.respond(content::serve_icon(app, request).await);
             });
         })
-        // 网页壁纸：只提供壁纸库中网页壁纸项目目录内的文件，见 background::web
-        .register_asynchronous_uri_scheme_protocol("rcwall", |ctx, request, responder| {
-            let app = ctx.app_handle().clone();
-            tauri::async_runtime::spawn_blocking(move || {
-                responder.respond(background::serve_web(&app, &request));
-            });
-        })
         .setup(|app| {
             updater::cleanup(&app.state::<AppState>());
             #[cfg(target_os = "android")]

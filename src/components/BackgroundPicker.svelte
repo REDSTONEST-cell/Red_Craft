@@ -5,7 +5,7 @@
   import { open } from "@tauri-apps/plugin-dialog";
   import { api } from "../lib/api";
   import { waitTask, showError, toast, app } from "../lib/state.svelte";
-  import { backgroundApi, defaults, isVisibleBackgroundAsset, kindLabel, WE_KINDS, type BackgroundLibrary, type BackgroundAsset } from "../lib/background";
+  import { backgroundApi, defaults, isVisibleBackgroundAsset, type BackgroundLibrary, type BackgroundAsset } from "../lib/background";
   import { background, applyBackground, loadBackground } from "../lib/background-state.svelte";
 
   let library = $state<BackgroundLibrary>({ appearance: defaults(), assets: [], roots: [], scanNotes: [] });
@@ -19,11 +19,7 @@
   let taskId = $state<number | null>(null);
   let alive = true;
   const task = $derived(app.tasks.find(t => t.id === taskId));
-  // Wallpaper Engine 壁纸按类型筛选；all 表示全部类型
-  let kind = $state<string>("all");
-  const sourceAssets = $derived(library.assets.filter(a => a.source === source && isVisibleBackgroundAsset(a)));
-  const kindCounts = $derived(WE_KINDS.map(k => ({ kind: k, count: sourceAssets.filter(a => a.kind === k).length })).filter(k => k.count > 0));
-  const assets = $derived(source === "wallpaperEngine" && kind !== "all" ? sourceAssets.filter(a => a.kind === kind) : sourceAssets);
+  const assets = $derived(library.assets.filter(a => a.source === source && isVisibleBackgroundAsset(a)));
   let page = $state(0);
   const activePage = $derived(Math.max(0, Math.min(page, Math.ceil(assets.length / 24) - 1)));
   const shown = $derived(assets.slice(activePage * 24, (activePage + 1) * 24));
@@ -75,7 +71,7 @@
     try {
       const result = await backgroundApi.scan([...roots], forceRefresh);
       if (!alive) return;
-      scanStatus = result.from_cache ? "已读取壁纸缓存；官方自带项目已屏蔽。" : `扫描完成，发现 ${result.entries.length} 个壁纸，已排除官方自带项目。`;
+      scanStatus = result.from_cache ? "已读取视频壁纸缓存；官方自带项目已屏蔽。" : `扫描完成，发现 ${result.entries.length} 个视频壁纸，已排除官方自带项目。`;
       await refresh();
     } catch (e) { if (alive) showError(e, "扫描失败，保留原素材库"); }
     finally { busy = false; }
@@ -135,12 +131,6 @@
     <button class="btn sm" disabled={busy || saving} onclick={() => importFile("image")}>导入图片</button>
     <button class="btn sm" disabled={busy || saving} onclick={() => importFile("video")}>导入视频</button>
   </div>
-  {#if source === "wallpaperEngine" && kindCounts.length > 1}<div class="toolbar kinds" role="group" aria-label="壁纸类型">
-    <button class="btn sm ghost" class:active={kind === "all"} onclick={() => { kind = "all"; page = 0; }}>全部 {sourceAssets.length}</button>
-    {#each kindCounts as k (k.kind)}
-      <button class="btn sm ghost" class:active={kind === k.kind} onclick={() => { kind = k.kind; page = 0; }}>{kindLabel(k.kind)} {k.count}</button>
-    {/each}
-  </div>{/if}
   {#if busy}<div class="status" role="status">{task?.stage ?? "扫描或准备中…"}
     {#if taskId}<button class="btn sm" onclick={() => api.cancelTask(taskId!)}>取消任务</button>{/if}
   </div>{/if}
@@ -153,7 +143,7 @@
           {#key `${asset.id}-${cropRevision}`}<BackgroundThumbnail {asset} />{/key}
         </div>
         <strong title={asset.title}>{asset.title}</strong>
-        <span class="help" title={asset.scanWarning ?? undefined}>{kindLabel(asset.kind)} · {asset.reason ?? asset.scanWarning ?? "可用"}{background.saved.selection === asset.id ? " · 已应用" : ""}</span>
+        <span class="help">{asset.kind} · {asset.reason ?? "可用"}{background.saved.selection === asset.id ? " · 已应用" : ""}</span>
         <div class="toolbar">
           <button class="btn sm" disabled={!!asset.reason || saving} onclick={() => preview(asset)}>预览</button>
           {#if asset.source === "local" && asset.kind === "image"}
@@ -188,7 +178,7 @@
     {#each library.roots as root}<div class="manual-root"><span>{root}</span><button class="btn sm ghost" disabled={busy} onclick={() => scan(library.roots.filter(p => p !== root), true)}>移除目录记录</button></div>{/each}
   </details>{/if}
   {#if library.scanNotes.length}<details><summary>扫描说明（{library.scanNotes.length}）</summary><ul>{#each library.scanNotes as note}<li>{note}</li>{/each}</ul></details>{/if}
-  <p class="help">Wallpaper Engine 支持全部壁纸类型（官方自带项目除外）：视频直接播放；网页壁纸在隔离的沙盒中运行并静音；场景壁纸渲染为静态画面（不含粒子与特效）；应用程序壁纸不会被运行，显示预览图。视频解码取决于系统 WebView2，建议 H.264 MP4。</p>
+  <p class="help">Wallpaper Engine 仅列出视频壁纸，屏蔽官方自带项目和场景、网页等类型。视频解码取决于系统 WebView2，建议 H.264 MP4。</p>
 </div>
 
 {#if cropping}<ImageCropper asset={cropping} initial={library.crops?.[cropping.id]} onclose={() => cropping = null} onsaved={cropped} />{/if}
@@ -198,7 +188,6 @@
   .intro { display: grid; gap: 3px; margin-bottom: 12px; }
   .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
   .active { box-shadow: inset 0 -3px var(--accent); }
-  .kinds { margin-top: 10px; }
   .asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; margin: 16px 0; max-height: 430px; overflow-y: auto; padding: 3px; }
   article { min-width: 0; padding: 10px; display: grid; gap: 8px; background: var(--card); border: 1px solid var(--rule); }
   article.selected { outline: 2px solid var(--accent); }

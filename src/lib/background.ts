@@ -15,26 +15,17 @@ export interface BackgroundAsset {
   id: string; title: string; source: "local" | "wallpaperEngine";
   kind: string; media: string | null; cover: string | null; reason: string | null;
   root?: string;
-  /** 不影响使用的说明，例如「应用程序壁纸不会在启动器中运行，已使用预览图」 */
-  scanWarning?: string | null;
 }
-/** Wallpaper Engine 的壁纸类型 */
-export const WE_KINDS = ["video", "scene", "web", "image", "application"] as const;
-export const KIND_LABEL: Record<string, string> = {
-  video: "视频", scene: "场景", web: "网页", image: "图片", application: "应用程序",
-};
-export const kindLabel = (kind: string) => KIND_LABEL[kind] ?? kind;
 export interface CropRect { x: number; y: number; width: number; height: number }
-/** 本地素材与用户自己的 Wallpaper Engine 壁纸（任何类型）；屏蔽官方自带的 defaultprojects。 */
 export function isVisibleBackgroundAsset(asset: BackgroundAsset): boolean {
-  return asset.source === "local" || !/(^|[\\/])defaultprojects([\\/]|$)/i.test(asset.root ?? "");
+  return asset.source === "local" || (asset.kind === "video" && !!asset.media
+    && !/(^|[\\/])defaultprojects([\\/]|$)/i.test(asset.root ?? ""));
 }
 export interface BackgroundLibrary {
   crops?: Record<string, CropRect>;
   appearance: Appearance; assets: BackgroundAsset[]; roots: string[]; scanNotes: string[];
 }
-/** kind 是显示方式：image / video / web（场景与应用程序壁纸以图片显示）。 */
-export interface ResolvedBackground { id: string; kind: string; media: string | null; cover: string | null; entry?: string | null }
+export interface ResolvedBackground { id: string; kind: string; media: string | null; cover: string | null }
 // 对外扫描 DTO 使用需求约定的 snake_case；存储格式保留兼容。
 export interface WallpaperEntry {
   id: string;
@@ -52,8 +43,6 @@ export interface WallpaperScanResult {
 export const defaults = (): Appearance => ({ selection: null, fit: "cover", brightness: 0.85, backgroundOpacity: 0.75,
   blurPx: 0, overlayOpacity: 0.25, panelOpacity: 0.94, motion: "auto" });
 export const mediaUrl = (path: string | null) => path ? convertFileSrc(path) : "";
-/** 网页壁纸地址：由后端的 rcwall 协议按「素材 ID / 相对路径」提供项目内文件。 */
-export const webUrl = (id: string, entry: string) => `${convertFileSrc("", "rcwall")}${encodeURIComponent(id)}/${entry}`;
 export const backgroundApi = {
   list: () => invoke<BackgroundLibrary>("background_list"),
   resolve: (id: string) => invoke<ResolvedBackground>("background_resolve", { id }),
