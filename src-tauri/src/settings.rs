@@ -138,6 +138,8 @@ pub struct Settings {
     pub glass_opacity: f64,
     /// 毛玻璃的模糊度（像素，0–40）
     pub glass_blur: f64,
+    /// 为空时使用当前主题的玻璃底色。
+    pub glass_color: Option<String>,
     pub selected_instance: Option<String>,
     pub selected_account: Option<String>,
     /// 微软登录使用的 Azure 应用 Client ID；为空时使用编译时内置的值
@@ -203,8 +205,9 @@ impl Default for Settings {
             accent: "#E8590C".into(),
             corner: Corner::default(),
             layout: Layout::default(),
-            glass_opacity: 0.58,
-            glass_blur: 24.0,
+            glass_opacity: 0.2,
+            glass_blur: 10.0,
+            glass_color: None,
             selected_instance: None,
             selected_account: None,
             ms_client_id: String::new(),

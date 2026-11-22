@@ -37,6 +37,7 @@ export interface Settings {
   layout: "minimal" | "ultraMinimal";
   glassOpacity: number;
   glassBlur: number;
+  glassColor: string | null;
   selectedInstance: string | null;
   selectedAccount: string | null;
   msClientId: string;

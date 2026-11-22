@@ -105,29 +105,43 @@
     root.dataset.theme = dark ? "dark" : "light";
     root.dataset.corner = s?.corner ?? "rounded";
     root.dataset.layout = s?.layout === "ultraMinimal" ? "ultraMinimal" : "minimal";
-    // 毛玻璃不透明度：面板使用设定值，顶栏、侧栏等稍实一些
-    const glass = Math.min(0.95, Math.max(0.2, s?.glassOpacity ?? 0.58));
+    // 玻璃底板直接使用设定值，小控件可另用较实的底色。
+    const glass = Math.min(0.95, Math.max(0.2, s?.glassOpacity ?? 0.2));
     root.style.setProperty("--glass-pct", `${Math.round(glass * 100)}%`);
     root.style.setProperty("--glass-strong-pct", `${Math.round(Math.min(0.97, glass + 0.18) * 100)}%`);
-    // 设置了自定义背景时，内容面板至少保留一定不透明度，保证文字可读
-    root.style.setProperty("--glass-content-pct", `${Math.round(Math.max(glass, 0.5) * 100)}%`);
-    const blur = Math.min(40, Math.max(0, s?.glassBlur ?? 24));
+    const blur = Math.min(40, Math.max(0, s?.glassBlur ?? 10));
     root.style.setProperty("--glass-blur-px", `${blur}px`);
+    const tint = s?.glassColor;
+    if (tint && /^#[0-9a-f]{6}$/i.test(tint)) {
+      root.setAttribute("data-glass-tint", "");
+      root.style.setProperty("--glass-tint", tint);
+      const lightText = luminance(tint) < 0.179;
+      root.style.setProperty("--glass-tint-ink", lightText ? "#fff" : "#000");
+      root.style.setProperty("--glass-text-outline", lightText ? "#151515" : "#fff");
+    } else {
+      root.removeAttribute("data-glass-tint");
+      root.style.removeProperty("--glass-tint");
+      root.style.removeProperty("--glass-tint-ink");
+      root.style.removeProperty("--glass-text-outline");
+    }
     const accent = s?.accent || "#E8590C";
     root.style.setProperty("--accent", accent);
     root.style.setProperty("--accent-ink", readableOn(accent));
   });
 
-  function readableOn(hex: string) {
+  function luminance(hex: string) {
     const m = /^#?([0-9a-f]{6})$/i.exec(hex);
-    if (!m) return "#fffaf3";
+    if (!m) return 0;
     const n = parseInt(m[1], 16);
     const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((c) => {
       const v = c / 255;
       return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
     });
-    const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    return lum > 0.4 ? "#1b1209" : "#fffaf3";
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  }
+
+  function readableOn(hex: string) {
+    return luminance(hex) > 0.4 ? "#1b1209" : "#fffaf3";
   }
 
   $effect(() => {
@@ -164,7 +178,7 @@
   {#if !mobile}<TitleBar />{/if}
   <div class="body">
     <Sidebar />
-    <main class="content">
+    <main class="content" class:launch-home={app.page === "launch"}>
       {#if ready}
         {#key app.page === "mods" ? "download" : app.page}
           <div class="page" in:page style:padding-bottom={dockPad}>

@@ -121,6 +121,10 @@
     }
   }
   const accents = ["#E8590C", "#C2410C", "#B45309", "#2F7D32", "#1D4ED8", "#7C3AED", "#BE185D", "#1B1A17"];
+  const glassColors = [
+    ["白色", "#ffffff"], ["藏青", "#0d1524"], ["青蓝", "#66dce6"],
+    ["豆沙粉", "#db90ae"], ["琥珀", "#f4b65e"], ["珊瑚红", "#f16f7d"],
+  ];
 </script>
 
 <div class="page-head">
@@ -526,6 +530,23 @@
     </div>
     {#if s.corner === "glass"}
       <div class="row" transition:page={{ y: 6 }}>
+        <div class="desc"><strong>玻璃颜色</strong></div>
+        <div class="ctl glass-colors" role="group" aria-label="玻璃颜色">
+          {#each glassColors as [label, color]}
+            <button class="glass-swatch" style:background={color} aria-label={label} title={label}
+              aria-pressed={s.glassColor?.toLowerCase() === color}
+              onclick={() => save({ glassColor: color })}></button>
+          {/each}
+          <label class="custom-tint">
+            <input type="color" aria-label="自定义玻璃颜色" value={s.glassColor ?? "#ffffff"}
+              oninput={(e) => (app.settings!.glassColor = s.glassColor = e.currentTarget.value)}
+              onchange={(e) => save({ glassColor: e.currentTarget.value })} />
+            自定义
+          </label>
+          <button class="btn small" aria-pressed={!s.glassColor} onclick={() => save({ glassColor: null })}>跟随主题</button>
+        </div>
+      </div>
+      <div class="row" transition:page={{ y: 6 }}>
         <div class="desc"><strong>玻璃不透明度</strong><span class="help">数值越低越通透；弹出的窗口始终保持较高不透明度以保证可读性</span></div>
         <div class="ctl range">
           <input
@@ -741,6 +762,30 @@
   .swatches {
     gap: 6px;
   }
+  .glass-colors {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .glass-swatch, .custom-tint input {
+    width: 24px;
+    height: 24px;
+    border: 1px solid var(--muted);
+    border-radius: 50%;
+    padding: 0;
+    cursor: pointer;
+  }
+  .glass-colors button[aria-pressed="true"] {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .custom-tint {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+  }
+  .custom-tint input::-webkit-color-swatch-wrapper { padding: 0; }
+  .custom-tint input::-webkit-color-swatch { border: 0; border-radius: 50%; }
   .swatch {
     width: 24px;
     height: 24px;

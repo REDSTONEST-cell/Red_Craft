@@ -9,6 +9,7 @@
   } from "../lib/api";
   import { app, refreshInstances, selectInstance, showError, waitTask } from "../lib/state.svelte";
   import { date, KIND_LABEL, LOADER_LABEL } from "../lib/format";
+  import { fade } from "../lib/motion";
   import VirtualList from "../components/VirtualList.svelte";
   import Segmented from "../components/Segmented.svelte";
   import Modal from "../components/Modal.svelte";
@@ -241,6 +242,8 @@
       <span>版本</span><span>类型</span><span>发布日期</span><span></span>
     </div>
     <div class="tbody">
+      {#key error ? "error" : !list ? "loading" : shown.length ? filter : "empty"}
+      <div class="version-list" transition:fade={{ duration: 150 }}>
       {#if error}
         <div class="empty">
           <h3>获取版本列表失败</h3>
@@ -268,6 +271,8 @@
           {/snippet}
         </VirtualList>
       {/if}
+      </div>
+      {/key}
     </div>
   </div>
 </div>
@@ -436,6 +441,11 @@
   .tbody {
     flex: 1;
     min-height: 0;
+    position: relative;
+  }
+  .version-list {
+    position: absolute;
+    inset: 0;
   }
   .tr {
     height: 48px;

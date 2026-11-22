@@ -12,16 +12,12 @@
 
   // 资源页现在是「下载」的一部分
   const currentPage = $derived<Page>(app.page === "mods" ? "download" : app.page);
-  const activeIndex = $derived(
-    currentPage === "settings" ? -1 : items.findIndex((i) => i.page === currentPage),
-  );
+  const activeIndex = $derived(items.findIndex((i) => i.page === currentPage));
 </script>
 
 <nav class="sidebar">
+  <span class="marker" class:at-settings={currentPage === "settings"} style:--active-index={activeIndex} aria-hidden="true"></span>
   <div class="items">
-    {#if activeIndex >= 0}
-      <span class="marker" style:transform="translateY({activeIndex * 64}px)"></span>
-    {/if}
     {#each items as item}
       <button
         class="item"
@@ -37,6 +33,7 @@
   <button
     class="item settings"
     class:active={app.page === "settings"}
+    aria-current={currentPage === "settings" ? "page" : undefined}
     onclick={() => (app.page = "settings")}
   >
     <Icon name="gear" size={20} />
@@ -46,32 +43,43 @@
 
 <style>
   .sidebar {
+    --item-height: 64px;
+    --nav-padding: 10px;
+    --settings-height: var(--item-height);
+    --bottom-padding: var(--nav-padding);
+    position: relative;
     width: var(--sidebar-w);
     flex: none;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
     border-right: 1px solid var(--rule);
-    padding: 10px 0;
+    padding: var(--nav-padding) 0 var(--bottom-padding);
     background: var(--paper);
   }
   .items {
-    position: relative;
     display: flex;
     flex-direction: column;
   }
   .marker {
     position: absolute;
     left: 0;
-    top: 0;
+    top: calc(var(--nav-padding) + (var(--active-index) + 0.5) * var(--item-height));
     width: 4px;
-    height: 64px;
+    height: var(--item-height);
     background: var(--accent);
-    transition: transform var(--t-mid) var(--ease-out);
-    will-change: transform;
+    transform: translateY(-50%);
+    transition: top var(--t-mid) var(--ease-out);
+    pointer-events: none;
+  }
+  .marker.at-settings {
+    top: calc(100% - var(--bottom-padding) - var(--settings-height) / 2);
+  }
+  .settings {
+    flex: 0 0 var(--settings-height);
   }
   .item {
-    height: 64px;
+    height: var(--item-height);
     border: 0;
     background: transparent;
     display: flex;

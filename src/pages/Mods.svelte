@@ -25,11 +25,11 @@
   import Dropdown from "../components/Dropdown.svelte";
   import Download from "./Download.svelte";
   import Icon from "../components/Icon.svelte";
-  import { fade } from "svelte/transition";
+  import { fade } from "../lib/motion";
   import Toggle from "../components/Toggle.svelte";
   import { iconSrc, zhName } from "../lib/zh";
-  import { getContext, getQuery, getSearch, patchSearch, putContext, putQuery, putSearch } from "../lib/searchCache";
-  import { dur } from "../lib/motion";
+  import { getContext, getQuery, getSearch, loadFirstPage, patchSearch, putContext, putQuery, putSearch } from "../lib/searchCache";
+  import { untrack, onDestroy } from "svelte";
 
   function stored<T extends string>(key: string, fallback: T): T {
     try {
@@ -77,24 +77,21 @@
   const initialId = selectedInstance()?.id ?? null;
   let instanceId = $state<string | null>(initialId);
   let ctx = $state<InstanceContext | null>(initialId ? getContext(initialId) : null);
+  let contextFailure = $state<{ message: string; hint: string } | null>(null);
+  let contextRetry = $state(0);
   let compatibleOnly = $state(true);
 
-  let hits = $state<ProjectHit[]>([]);
+  let hits = $state.raw<ProjectHit[]>([]);
   let total = $state(0);
   let loading = $state(false);
   let error = $state<{ message: string; hint: string } | null>(null);
   let generation = 0;
-  // 每次换成新的一组结果时加一：旧列表淡出、新列表的行淡入
-  let listGen = $state(0);
-  // 正在为哪一组结果重新搜索（这组结果会变淡，直到新结果到来）
-  let staleGen = $state(-1);
   // 中文关键词转换后的提示，例如「万用皮肤补丁 → CustomSkinLoader」，以及其他可能的匹配
   let converted = $state<ZhMatch | null>(null);
   let alternatives = $state<ZhMatch[]>([]);
   // 两个平台各自的分页位置
-  let cursor = { modrinthOffset: 0, curseforgeOffset: 0, modrinthTotal: null as number | null, curseforgeTotal: null as number | null };
+  let cursor = $state.raw({ modrinthOffset: 0, curseforgeOffset: 0, modrinthTotal: null as number | null, curseforgeTotal: null as number | null });
   const hasMore = $derived.by(() => {
-    void hits.length;
     const mr = platform !== "curseforge" && (cursor.modrinthTotal === null || cursor.modrinthOffset < cursor.modrinthTotal);
     const cf = platform !== "modrinth" && (cursor.curseforgeTotal === null || cursor.curseforgeOffset < cursor.curseforgeTotal);
     return mr || cf;
@@ -125,21 +122,27 @@
   // 实例变化时获取它的游戏版本与加载器
   $effect(() => {
     const id = instanceId;
+    void contextRetry;
+    contextFailure = null;
+    let active = true;
     // 读取过的版本信息直接使用，不必等待
     ctx = id ? getContext(id) : null;
     if (!id) return;
     api
       .contentInstance(id)
       .then((c) => {
+        if (!active) return;
         putContext(c);
         if (instanceId !== id) return;
         // 信息没有变化时保持原对象，避免重复搜索
         if (!ctx || ctx.mcVersion !== c.mcVersion || ctx.loader !== c.loader) ctx = c;
       })
-      .catch((e) => showError(e, "读取版本信息失败"));
+      .catch((e) => {
+        if (active) contextFailure = { message: e.message ?? String(e), hint: "请重试，或关闭「仅兼容」查看全部结果。" };
+      });
+    return () => { active = false; };
   });
 
-  const useFilter = $derived(compatibleOnly && searchType !== "modpack" && !!ctx);
 
   // 同一个项目只显示一次：同平台按 id，跨平台按名称
   const nameKey = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
@@ -161,7 +164,7 @@
     const filter = compatibleOnly && type !== "modpack" && ctx;
     return JSON.stringify([platform, type, query.trim(), sort, filter ? ctx!.mcVersion : null, filter ? ctx!.loader : null]);
   }
-  let currentKey = "";
+  let currentKey = $state("");
 
   function request(type: ContentType, from: typeof cursor) {
     const filter = compatibleOnly && type !== "modpack" && ctx;
@@ -180,63 +183,54 @@
     });
   }
 
+  function firstPage(type: ContentType, key: string) {
+    const source = platform;
+    return loadFirstPage(key, async () => {
+      const { hits: pageHits, converted, alternatives, ...cursor } = await request(type, {
+        modrinthOffset: 0, curseforgeOffset: 0, modrinthTotal: null, curseforgeTotal: null,
+      });
+      return {
+        hits: appendUnique([], pageHits), converted, alternatives, cursor,
+        total: (source === "curseforge" ? 0 : cursor.modrinthTotal ?? 0)
+          + (source === "modrinth" ? 0 : cursor.curseforgeTotal ?? 0),
+      };
+    });
+  }
+
+  let disposed = false;
+  onDestroy(() => { disposed = true; generation++; });
+
   async function search(reset: boolean) {
     if (tab === "installed" || tab === "game") return;
-    if (!reset && (loading || !hasMore)) return;
+    if (!reset && (loading || !hasMore || searchKey() !== currentKey)) return;
     const gen = ++generation;
+    const key = searchKey();
+    currentKey = key;
     error = null;
-    if (reset) {
-      currentKey = searchKey();
-      // 已经加载过相同条件的结果时直接显示，不重新请求（与 PCL 相同）
-      const cached = getSearch(currentKey);
-      if (cached) {
-        cursor = { ...cached.cursor };
-        listGen++;
-        hits = cached.hits;
-        total = cached.total;
-        converted = cached.converted;
-        alternatives = cached.alternatives;
-        staleGen = -1;
-        loading = false;
-        prefetch();
-        return;
-      } else {
-        if (hits.length) staleGen = listGen;
-      }
-    }
     loading = true;
-    const from = reset ? { modrinthOffset: 0, curseforgeOffset: 0, modrinthTotal: null, curseforgeTotal: null } : cursor;
-    const key = currentKey;
     try {
-      const res = await request(searchType, from);
-      if (gen !== generation) return;
-      cursor = {
-        modrinthOffset: res.modrinthOffset,
-        curseforgeOffset: res.curseforgeOffset,
-        modrinthTotal: res.modrinthTotal,
-        curseforgeTotal: res.curseforgeTotal,
-      };
-      if (reset) listGen++;
-      hits = reset ? appendUnique([], res.hits) : appendUnique(hits, res.hits);
-      total = (platform !== "curseforge" ? (res.modrinthTotal ?? 0) : 0) + (platform !== "modrinth" ? (res.curseforgeTotal ?? 0) : 0);
       if (reset) {
-        converted = res.converted;
-        alternatives = res.alternatives;
+        const cached = getSearch(key);
+        const page = cached ?? await firstPage(searchType, key);
+        if (gen !== generation) return;
+        ({ hits, total, converted, alternatives, cursor } = page);
+        if (!cached) translate(page.hits, gen);
+        void prefetch();
+      } else {
+        const { hits: more, modrinthOffset, curseforgeOffset, modrinthTotal, curseforgeTotal } = await request(searchType, cursor);
+        if (gen !== generation) return;
+        cursor = { modrinthOffset, curseforgeOffset, modrinthTotal, curseforgeTotal };
+        hits = appendUnique(hits, more);
+        total = (platform === "curseforge" ? 0 : modrinthTotal ?? 0) + (platform === "modrinth" ? 0 : curseforgeTotal ?? 0);
+        putSearch(key, { hits, total, converted, alternatives, cursor });
+        translate(more, gen);
       }
-      putSearch(key, { hits, total, cursor: { ...cursor }, converted, alternatives });
-      translate(res.hits, gen);
-      if (reset) prefetch();
     } catch (e) {
       if (gen !== generation) return;
       const err = e as { message: string; hint: string };
       error = { message: err.message, hint: err.hint };
-      if (reset) hits = [];
     } finally {
-      if (gen === generation) {
-        loading = false;
-        // 没有换成新结果（例如搜索失败）时恢复原样
-        if (staleGen === listGen) staleGen = -1;
-      }
+      if (gen === generation) loading = false;
     }
   }
 
@@ -265,25 +259,11 @@
     prefetching = true;
     try {
       for (const type of ["mod", "resourcepack", "shader", "modpack"] as ContentType[]) {
+        if (disposed || tab === "game" || tab === "installed" || query.trim()) break;
         const key = searchKey(type);
         if (type === searchType || getSearch(key)) continue;
         try {
-          const empty = { modrinthOffset: 0, curseforgeOffset: 0, modrinthTotal: null, curseforgeTotal: null };
-          const res = await request(type, empty);
-          if (key !== searchKey(type)) continue;
-          const total = (platform !== "curseforge" ? (res.modrinthTotal ?? 0) : 0) + (platform !== "modrinth" ? (res.curseforgeTotal ?? 0) : 0);
-          putSearch(key, {
-            hits: appendUnique([], res.hits),
-            total,
-            cursor: {
-              modrinthOffset: res.modrinthOffset,
-              curseforgeOffset: res.curseforgeOffset,
-              modrinthTotal: res.modrinthTotal,
-              curseforgeTotal: res.curseforgeTotal,
-            },
-            converted: res.converted,
-            alternatives: res.alternatives,
-          });
+          await firstPage(type, key);
         } catch {
           /* 预加载失败不影响使用 */
         }
@@ -294,27 +274,33 @@
   }
 
   // 条件变化时重新搜索；输入关键词时防抖
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  let previousType: ContentType | undefined;
+  let previousQuery = "";
   $effect(() => {
-    void [platform, searchType, tab, sort, useFilter, ctx?.mcVersion, ctx?.loader];
-    const q = query;
-    clearTimeout(timer);
-    // 开启「仅兼容」时等版本信息读取完成再搜索，避免先按不筛选搜一遍
-    if (compatibleOnly && instanceId && !ctx && searchType !== "modpack") return;
-    // 输入关键词时防抖；已经加载过的条件（例如切换回之前的标签）立即显示
-    const wait = q && !getSearch(searchKey()) ? 350 : 0;
-    timer = setTimeout(() => search(true), wait);
-    return () => clearTimeout(timer);
+    if (tab === "installed" || tab === "game") return;
+    const key = searchKey();
+    const q = query.trim();
+    const typing = previousType === searchType && previousQuery !== q && !!q;
+    previousType = searchType;
+    previousQuery = q;
+    const waitingForContext = compatibleOnly && instanceId && !ctx && searchType !== "modpack";
+    const failure = waitingForContext ? contextFailure : null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    untrack(() => {
+      if (!getSearch(key) || waitingForContext) {
+        hits = [];
+        total = 0;
+        converted = null;
+        alternatives = [];
+        error = failure;
+        loading = !failure;
+      }
+      if (waitingForContext) return;
+      if (typing && !getSearch(key)) timer = setTimeout(() => search(true), 350);
+      else void search(true);
+    });
+    return () => { clearTimeout(timer); generation++; };
   });
-
-  // 旧结果从当前的透明度淡出（重新搜索期间它已经变淡）
-  function fadeAway(node: Element) {
-    const from = Number(getComputedStyle(node).opacity) || 1;
-    const el = node as HTMLElement;
-    el.style.transition = "none";
-    el.style.pointerEvents = "none";
-    return { duration: dur(160), css: (t: number) => `opacity:${t * from}` };
-  }
 
   // 详情与安装
   let detailOpen = $state(false);
@@ -362,14 +348,17 @@
   ];
 </script>
 
+<div class="download-panels">
 {#if tab === "game"}
+  <div class="download-panel" transition:fade={{ duration: 150 }}>
   <Download>
     {#snippet bar()}
       <div class="bar"><Segmented bind:value={tab} options={tabs} /></div>
     {/snippet}
   </Download>
+  </div>
 {:else}
-<div class="wrap">
+<div class="download-panel wrap" transition:fade={{ duration: 150 }}>
   <div class="page-head">
     <div>
       <div class="kicker">RESOURCES</div>
@@ -432,8 +421,9 @@
     {/if}
   </div>
 
+  <div class="tab-body">
   {#if tab === "installed"}
-    <div class="installed">
+    <div class="installed" transition:fade={{ duration: 150 }}>
       {#if instanceId}
         <ResourceManager instance={instanceId} kind={manageKind} />
       {:else}
@@ -441,31 +431,35 @@
       {/if}
     </div>
   {:else}
+  <div class="search-pane" transition:fade={{ duration: 150 }}>
   <div class="results">
+    {#key error ? "error" : hits.length ? currentKey : loading ? "loading" : "empty"}
+    <div class="result-list" transition:fade={{ duration: 150 }}>
     {#if error}
       <div class="empty">
         <h3>搜索失败</h3>
         <p>{error.message}</p>
         <p class="muted">{error.hint}</p>
-        <button class="btn" style="margin-top:14px" onclick={() => search(true)}>重试</button>
+        <button class="btn" style="margin-top:14px" onclick={() => {
+          if (contextFailure && compatibleOnly && !ctx && searchType !== "modpack") contextRetry++;
+          else void search(true);
+        }}>重试</button>
       </div>
     {:else if loading && hits.length === 0}
       <!-- 第一次加载：与 PCL 一样显示「正在获取 Mod 列表」 -->
-      <div class="fetching" in:fade={{ duration: 150 }}>
+      <div class="fetching">
         <span class="fetch-icon"><Icon name="cube" size={30} /></span>
         <p>正在获取 {tabs.find((t) => t.value === tab)?.label ?? ""} 列表</p>
       </div>
     {:else if !loading && hits.length === 0}
       <div class="empty"><h3>没有找到结果</h3><p>换个关键词，或关闭「仅兼容」试试。</p></div>
     {:else}
-      {#key listGen}
-      <div class="result-list" class:stale={staleGen === listGen} out:fadeAway>
-      <VirtualList items={hits} rowHeight={84} key={(h) => `${h.platform}:${h.id}`} onEnd={() => search(false)} appear>
+      <VirtualList items={hits} rowHeight={84} key={(h) => `${h.platform}:${h.id}`} onEnd={() => search(false)}>
         {#snippet row(h)}
           {@const zh = h.zhName ?? zhName(h.title, h.slug)}
           <button class="hit" onclick={() => openDetail(h)}>
             {#if h.iconUrl}
-              <img src={iconSrc(h.iconUrl)} alt="" loading="lazy" class="icon" />
+              <img src={iconSrc(h.iconUrl)} alt="" loading="lazy" decoding="async" class="icon" />
             {:else}
               <span class="icon blank"><Icon name="cube" size={20} /></span>
             {/if}
@@ -486,9 +480,9 @@
           </button>
         {/snippet}
       </VirtualList>
-      </div>
-      {/key}
     {/if}
+    </div>
+    {/key}
   </div>
   <div class="foot muted small">
     {#if converted}
@@ -503,9 +497,12 @@
     {/if}
     {#if loading}加载中…{:else if total}共 {count(total)} 个结果，已显示 {hits.length} 个{/if}
   </div>
+  </div>
   {/if}
+  </div>
 </div>
 {/if}
+</div>
 
 {#if app.info?.os === "android"}
   <!-- 手机版：左右两栏，可按版本分类 -->
@@ -538,6 +535,20 @@
 {/if}
 
 <style>
+  .download-panels, .tab-body {
+    position: relative;
+    min-height: 0;
+  }
+  .download-panels { height: 100%; }
+  .tab-body { flex: 1; }
+  .download-panel, .installed, .search-pane {
+    position: absolute;
+    inset: 0;
+  }
+  .search-pane {
+    display: flex;
+    flex-direction: column;
+  }
   .wrap {
     height: 100%;
     display: flex;
@@ -625,14 +636,9 @@
     border-top: 1px solid var(--rule-strong);
     position: relative;
   }
-  /* 切换结果时新旧列表叠在同一位置交替淡入淡出，不影响布局 */
   .result-list {
     position: absolute;
     inset: 0;
-    transition: opacity var(--t-mid) var(--ease);
-  }
-  .result-list.stale {
-    opacity: 0.45;
   }
   .hit {
     width: 100%;

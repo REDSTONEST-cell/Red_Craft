@@ -71,7 +71,7 @@
   }
   .backdrop {
     position: fixed;
-    inset: var(--titlebar-h) 0 0 0;
+    inset: 0;
     background: color-mix(in srgb, var(--paper) 70%, transparent);
     z-index: 50;
   }

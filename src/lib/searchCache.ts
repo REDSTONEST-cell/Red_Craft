@@ -34,6 +34,23 @@ export function putSearch(key: string, entry: Omit<CachedSearch, "at"> & { at?: 
   while (searches.size > MAX_ENTRIES) searches.delete(searches.keys().next().value!);
 }
 
+// 用户切换到正在预取的分类时，共用同一项首屏任务。
+const pending = new Map<string, Promise<CachedSearch>>();
+
+export function loadFirstPage(key: string, fetchPage: () => Promise<Omit<CachedSearch, "at">>): Promise<CachedSearch> {
+  const cached = getSearch(key);
+  if (cached) return Promise.resolve(cached);
+  const active = pending.get(key);
+  if (active) return active;
+  const task = fetchPage().then(result => {
+    const entry = { ...result, at: Date.now() };
+    putSearch(key, entry);
+    return entry;
+  }).finally(() => pending.delete(key));
+  pending.set(key, task);
+  return task;
+}
+
 /** 更新已缓存结果中的条目（例如补充了中文简介），不改变缓存时间。 */
 export function patchSearch(key: string, hits: ProjectHit[]) {
   const e = searches.get(key);
