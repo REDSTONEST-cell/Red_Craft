@@ -50,6 +50,21 @@ export interface Settings {
   autoCheckUpdate: boolean;
   optimizeMemory: boolean;
   skippedUpdate: string;
+  /** 主页版本名称左边显示版本图标 */
+  titleIcon: boolean;
+  /** 自定义界面文字；每一项为空时使用内置文字 */
+  customText: CustomText;
+}
+
+export interface CustomText {
+  /** 标题栏名称（默认 RCL） */
+  brand: string;
+  /** 主页小标题（默认「头条 · 当前版本」） */
+  kicker: string;
+  /** 主页大标题（默认为版本名称） */
+  headline: string;
+  /** 主页大标题下方的说明（默认为游戏版本与加载器信息） */
+  deck: string;
 }
 
 export interface MemoryStatus {
@@ -133,6 +148,8 @@ export interface InstanceInfo {
   gameDir: string;
   lastPlayed: number | null;
   running: boolean;
+  /** 自定义版本图标的本地路径；null 表示使用默认图标 */
+  icon: string | null;
 }
 
 export interface OptiFineVersion {
@@ -333,6 +350,8 @@ export interface InstanceConfig {
   lastPlayed: number | null;
   /** 启动前是否补全文件；null 表示默认（补全） */
   checkFiles: boolean | null;
+  /** 自定义图标文件名（只读，通过 setInstanceIcon 修改） */
+  icon: string | null;
 }
 
 export type AccountKind =
@@ -508,6 +527,8 @@ export const api = {
   repairInstance: (id: string) => call<number>("repair_instance", { id }),
   deleteInstance: (id: string) => call<void>("delete_instance", { id }),
   renameInstance: (id: string, name: string) => call<string>("rename_instance", { id, name }),
+  /** 设置自定义版本图标；path 为 null 时恢复默认图标 */
+  setInstanceIcon: (id: string, path: string | null) => call<void>("set_instance_icon", { id, path }),
   getInstanceConfig: (id: string) => call<InstanceConfig>("get_instance_config", { id }),
   saveInstanceConfig: (id: string, config: InstanceConfig) =>
     call<void>("save_instance_config", { id, config }),

@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-pub const SCAN_REVISION: u32 = 2;
+/// 3：扫描结果包含所有壁纸类型（视频、图片、网页、场景、应用程序）。
+pub const SCAN_REVISION: u32 = 3;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct CropRect {
@@ -103,11 +104,9 @@ pub struct Asset {
 }
 
 impl Asset {
-    pub fn is_user_we_video(&self) -> bool {
-        self.source == "wallpaperEngine"
-            && self.kind == "video"
-            && self.media.is_some()
-            && !is_bundled_project(&self.root)
+    /// 用户自己的 Wallpaper Engine 壁纸（创意工坊或 myprojects），任何类型；官方自带项目除外。
+    pub fn is_user_we(&self) -> bool {
+        self.source == "wallpaperEngine" && !is_bundled_project(&self.root)
     }
 }
 
@@ -164,7 +163,7 @@ impl Library {
             entries: self
                 .assets
                 .iter()
-                .filter(|a| a.is_user_we_video())
+                .filter(|a| a.is_user_we())
                 .map(WallpaperEntry::from)
                 .collect(),
             warnings: self.scan_notes.clone(),
@@ -189,7 +188,10 @@ impl Library {
 #[serde(rename_all = "camelCase")]
 pub struct Resolved {
     pub id: String,
+    /// 显示方式：`image`、`video` 或 `web`（与壁纸类型不同：场景与应用程序壁纸以图片显示）
     pub kind: String,
     pub media: Option<PathBuf>,
     pub cover: Option<PathBuf>,
+    /// 网页壁纸入口相对项目根目录的地址（已按路径段编码），由 `rcwall` 协议提供
+    pub entry: Option<String>,
 }

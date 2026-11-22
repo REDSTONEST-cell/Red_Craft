@@ -1,4 +1,4 @@
-use super::{model::*, next_visibility, steam, store};
+use super::{display, model::*, next_visibility, scene, steam, store, web};
 use launcher_core::download::CancelToken;
 
 #[test]
@@ -51,7 +51,7 @@ fn broken_json_falls_back_to_video_without_treating_preview_as_media() {
 }
 
 #[test]
-fn we_scan_omits_image_projects_even_when_extension_is_supported() {
+fn we_scan_lists_image_projects_too() {
     let dir = tempfile::tempdir().unwrap();
     let project = dir.path().join("steamapps/workshop/content/431960/123");
     std::fs::create_dir_all(&project).unwrap();
@@ -60,11 +60,13 @@ fn we_scan_omits_image_projects_even_when_extension_is_supported() {
         .unwrap();
     let (assets, _) =
         steam::scan_roots(vec![dir.path().into()], &CancelToken::new(), |_| {}).unwrap();
-    assert!(assets.is_empty());
+    assert_eq!(assets.len(), 1);
+    assert_eq!(assets[0].kind, "image");
+    assert!(assets[0].reason.is_none());
 }
 
 #[test]
-fn scans_only_non_bundled_videos_even_when_defaultprojects_is_added_manually() {
+fn scans_every_wallpaper_type_but_never_bundled_defaultprojects() {
     let dir = tempfile::tempdir().unwrap();
     let install = dir
         .path()
@@ -84,6 +86,10 @@ fn scans_only_non_bundled_videos_even_when_defaultprojects_is_added_manually() {
     let scene = dir.path().join("steamapps/workshop/content/431960/456");
     std::fs::create_dir_all(&scene).unwrap();
     std::fs::write(scene.join("scene.pkg"), b"unused").unwrap();
+    let web = dir.path().join("steamapps/workshop/content/431960/789");
+    std::fs::create_dir_all(&web).unwrap();
+    std::fs::write(web.join("project.json"), r#"{"type":"web","file":"index.html"}"#).unwrap();
+    std::fs::write(web.join("index.html"), "<html></html>").unwrap();
     let (assets, _) = steam::scan_roots(
         vec![
             dir.path().into(),
@@ -94,8 +100,10 @@ fn scans_only_non_bundled_videos_even_when_defaultprojects_is_added_manually() {
         |_| {},
     )
     .unwrap();
-    assert_eq!(assets.len(), 2);
-    assert!(assets.iter().all(|a| a.kind == "video"));
+    let mut kinds: Vec<_> = assets.iter().map(|a| a.kind.as_str()).collect();
+    kinds.sort();
+    assert_eq!(kinds, ["scene", "video", "video", "web"]);
+    assert!(assets.iter().all(|a| a.reason.is_none()));
     assert!(!assets.iter().any(|a| a
         .root
         .starts_with(std::fs::canonicalize(&official).unwrap())));
@@ -111,8 +119,13 @@ fn scene_pkg_is_classified_without_json_and_never_served_as_media() {
     let asset = steam::project(dir.path()).unwrap();
     assert_eq!(asset.kind, "scene");
     assert!(asset.media.is_none());
-    assert!(asset.reason.is_some());
-    assert_eq!(asset.cover.unwrap().file_name().unwrap(), "preview.jpg");
+    assert!(asset.reason.is_none());
+    assert_eq!(asset.cover.as_ref().unwrap().file_name().unwrap(), "preview.jpg");
+    // 损坏的包无法渲染时回退到预览图，而不是把包本身交给前端。
+    let config = tempfile::tempdir().unwrap();
+    let resolved = display(config.path(), asset.clone()).unwrap();
+    assert_eq!(resolved.kind, "image");
+    assert_eq!(resolved.media, asset.cover);
 }
 
 #[test]
@@ -252,8 +265,9 @@ fn scene_with_gif_preview_is_never_a_video() {
     .unwrap();
     let asset = steam::project(dir.path()).unwrap();
     assert_eq!(asset.kind, "scene");
-    assert!(asset.reason.is_some());
     assert!(asset.media.is_none());
+    // 没有场景包也没有可用预览图：不可用。
+    assert!(asset.reason.is_some());
 }
 
 #[test]
@@ -383,9 +397,16 @@ fn video_and_cover_parent_traversal_are_never_authorized() {
 }
 
 #[test]
-fn animated_gif_covers_fall_back_instead_of_bypassing_static_mode() {
+fn animated_gif_covers_are_reencoded_as_a_single_static_frame() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("preview.gif"), b"GIF89a").unwrap();
+    {
+        let file = std::fs::File::create(dir.path().join("preview.gif")).unwrap();
+        let mut encoder = image::codecs::gif::GifEncoder::new(file);
+        for shade in [0u8, 255] {
+            let frame = image::RgbaImage::from_pixel(4, 3, image::Rgba([shade, 0, 0, 255]));
+            encoder.encode_frame(image::Frame::new(frame)).unwrap();
+        }
+    }
     std::fs::write(
         dir.path().join("movie.mp4"),
         b"\x00\x00\x00\x18ftypisom0000",
@@ -398,7 +419,12 @@ fn animated_gif_covers_fall_back_instead_of_bypassing_static_mode() {
     .unwrap();
     let asset = steam::project(dir.path()).unwrap();
     assert!(asset.media.is_some());
-    assert!(asset.cover.is_none());
+    let cover = asset.cover.unwrap();
+    assert_eq!(cover.file_name().unwrap(), "preview.gif");
+    let id = uuid::Uuid::new_v4().to_string();
+    let still = store::still_cover(dir.path(), &id, &cover).unwrap();
+    assert_eq!(still.extension().unwrap(), "png");
+    assert_eq!(image::image_dimensions(&still).unwrap(), (4, 3));
 }
 
 #[test]

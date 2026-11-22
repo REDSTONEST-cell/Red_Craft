@@ -12,6 +12,7 @@
   import { KIND_LABEL, LOADER_LABEL, relative } from "../lib/format";
   import Avatar from "../components/Avatar.svelte";
   import Icon from "../components/Icon.svelte";
+  import InstanceIcon from "../components/InstanceIcon.svelte";
   import ProgressBar from "../components/ProgressBar.svelte";
 
   const inst = $derived(selectedInstance());
@@ -54,6 +55,9 @@
     if (k?.type === "microsoft") return "微软账号";
     return k?.type === "yggdrasil" && k.serverName ? `外置 · ${k.serverName}` : "外置登录";
   });
+
+  // 自定义文字（设置 → 外观）；每项为空时使用默认文字
+  const text = $derived(app.settings?.customText ?? { brand: "", kicker: "", headline: "", deck: "" });
 </script>
 
 <div class="front">
@@ -61,8 +65,18 @@
   <div class="columns">
     <section class="lead">
       {#if inst}
-        <div class="kicker">头条 · 当前版本</div>
-        <h2 class="headline">{inst.id}</h2>
+        <div class="kicker">{text.kicker || "头条 · 当前版本"}</div>
+        {#if app.settings?.titleIcon}
+          <div class="title-row">
+            <InstanceIcon {inst} size={56} />
+            <h2 class="headline" title={text.headline ? inst.id : undefined}>{text.headline || inst.id}</h2>
+          </div>
+        {:else}
+          <h2 class="headline" title={text.headline ? inst.id : undefined}>{text.headline || inst.id}</h2>
+        {/if}
+        {#if text.deck}
+          <p class="deck">{text.deck}</p>
+        {:else}
         <p class="deck">
           Minecraft {inst.mcVersion}
           · {KIND_LABEL[inst.kind] ?? inst.kind}
@@ -70,6 +84,7 @@
           {#if inst.optifine}· OptiFine {inst.optifine.replaceAll("_", " ")}{/if}
           · {inst.isolated ? "版本隔离" : "共用游戏目录"}
         </p>
+        {/if}
         <p class="byline">上次游玩：{relative(inst.lastPlayed)}</p>
         <div class="quick">
           <button class="btn sm" onclick={() => api.openInstanceDir(inst.id).catch((e) => showError(e))}>
@@ -173,6 +188,16 @@
     line-height: 1.05;
     margin: 6px 0 12px;
     word-break: break-word;
+  }
+  .title-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin: 6px 0 12px;
+  }
+  .title-row .headline {
+    margin: 0;
+    min-width: 0;
   }
   .deck {
     font-family: var(--serif);

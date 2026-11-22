@@ -111,6 +111,7 @@ fn hidden(name: &str, instance_id: &str) -> bool {
         || name.ends_with("-natives")
         || name.ends_with(".log")
         || name.ends_with(".tmp")
+        || crate::instance::is_instance_icon_name(name)
 }
 
 /// 递归列出文件（相对路径使用 `/`），跳过安装记录与已禁用的文件。
@@ -343,6 +344,7 @@ mod tests {
             ("options.txt", "lang:zh_cn"),
             ("inst.jar", "jar"),
             ("logs/latest.log", "log"),
+            ("rcl-icon-0123abcd.png", "png"),
         ] {
             let p = g.join(p);
             std::fs::create_dir_all(p.parent().unwrap()).unwrap();
@@ -351,6 +353,7 @@ mod tests {
         let entries = export_entries(&g, "inst").unwrap();
         let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
         assert!(!names.contains(&"inst.jar") && !names.contains(&"logs"));
+        assert!(!names.contains(&"rcl-icon-0123abcd.png"));
         assert!(entries.iter().find(|e| e.name == "mods").unwrap().default);
         assert!(!entries.iter().find(|e| e.name == "saves").unwrap().default);
         assert_eq!(entries.iter().find(|e| e.name == "mods").unwrap().files, 1);
