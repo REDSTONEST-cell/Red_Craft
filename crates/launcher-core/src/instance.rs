@@ -315,6 +315,15 @@ pub fn rename_instance(game: &GameDir, old: &str, new: &str) -> crate::error::Re
     Ok(())
 }
 
+/// 启动器保存在版本目录中的自定义版本图标文件名：`rcl-icon-<8~32 位小写十六进制>.png`。
+///
+/// 只接受这种由启动器生成的名字，被改动的配置不能借图标指向版本目录外或其他文件。
+pub fn is_instance_icon_name(name: &str) -> bool {
+    name.strip_prefix("rcl-icon-")
+        .and_then(|s| s.strip_suffix(".png"))
+        .is_some_and(|hex| (8..=32).contains(&hex.len()) && hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
+}
+
 /// 识别以 LaunchWrapper 方式安装的 OptiFine（库 `optifine:OptiFine:<mc>_<版本>`）。
 pub fn detect_optifine(resolved: &ResolvedVersion) -> Option<String> {
     resolved.json.libraries.iter().find_map(|l| {
@@ -334,6 +343,15 @@ pub fn is_hidden_base(game: &GameDir, all: &[InstanceSummary], id: &str, config_
 mod tests {
     use super::*;
     use crate::version::{resolve_with, VersionJson};
+
+    #[test]
+    fn instance_icon_names_are_strict() {
+        assert!(is_instance_icon_name("rcl-icon-0123abcd.png"));
+        for bad in ["rcl-icon-.png", "rcl-icon-0123ABCD.png", "rcl-icon-0123abcd.jpg", "../rcl-icon-0123abcd.png",
+            "rcl-icon-0123abcd.png/x", "icon.png", "rcl-icon-0123abc.png", "rcl-icon-01/3abcd.png"] {
+            assert!(!is_instance_icon_name(bad), "{bad}");
+        }
+    }
 
     fn resolved(json: &str) -> ResolvedVersion {
         let v: VersionJson = serde_json::from_str(json).unwrap();

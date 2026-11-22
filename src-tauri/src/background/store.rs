@@ -98,8 +98,10 @@ pub fn video(path: &Path) -> AppResult<()> {
         .read(&mut header)
         .at(path)?;
     let valid = match ext.as_str() {
-        "mp4" => n >= 12 && &header[4..8] == b"ftyp",
-        "webm" => n >= 4 && header[..4] == [0x1a, 0x45, 0xdf, 0xa3],
+        "mp4" | "m4v" => n >= 12 && &header[4..8] == b"ftyp",
+        // QuickTime 文件可能以 moov / mdat / wide / free 原子开头。
+        "mov" => n >= 12 && [b"ftyp", b"moov", b"mdat", b"wide", b"free"].iter().any(|a| &header[4..8] == *a),
+        "webm" | "mkv" => n >= 4 && header[..4] == [0x1a, 0x45, 0xdf, 0xa3],
         _ => false,
     };
     if !valid {
@@ -118,7 +120,7 @@ pub fn load(config: &Path) -> Library {
     // Upgrade old mixed-type scan caches without touching source wallpaper files.
     library
         .assets
-        .retain(|a| a.source == "local" || a.is_user_we_video());
+        .retain(|a| a.source == "local" || a.is_user_we());
     if library
         .appearance
         .selection

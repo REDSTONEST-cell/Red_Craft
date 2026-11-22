@@ -64,6 +64,7 @@ pub fn save_settings(state: State<'_, AppState>, settings: Settings) -> AppResul
     settings.concurrency = settings.concurrency.clamp(1, 256);
     settings.game_dir = settings.game_dir.filter(|p| !p.as_os_str().is_empty());
     settings.java_path = settings.java_path.filter(|p| !p.as_os_str().is_empty());
+    settings.title_text = crate::settings::normalize_title_text(&settings.title_text);
     state.save_settings(settings)
 }
 
@@ -126,6 +127,8 @@ pub struct InstanceInfo {
     game_dir: PathBuf,
     last_played: Option<u64>,
     running: bool,
+    /// 自定义版本图标（已授权给 asset 协议）；`None` 时前端显示默认图标
+    icon: Option<PathBuf>,
 }
 
 pub fn instance_isolated(state: &AppState, summary: &InstanceSummary, config: &InstanceConfig) -> bool {
@@ -140,7 +143,7 @@ pub fn default_isolation(state: &AppState, modded: bool, release: bool) -> bool 
 }
 
 #[tauri::command]
-pub async fn list_instances(state: State<'_, AppState>) -> AppResult<Vec<InstanceInfo>> {
+pub async fn list_instances(app: AppHandle, state: State<'_, AppState>) -> AppResult<Vec<InstanceInfo>> {
     let game = state.game_dir();
     let g = game.clone();
     let list = blocking(move || scan_instances(&g)).await?;
@@ -159,11 +162,15 @@ pub async fn list_instances(state: State<'_, AppState>) -> AppResult<Vec<Instanc
                 summary.mc_version = v;
             }
             let isolated = instance_isolated(&state, &summary, &config);
+            let icon = config
+                .icon_path(&game, &summary.id)
+                .filter(|p| app.asset_protocol_scope().allow_file(p).is_ok());
             InstanceInfo {
                 game_dir: game.instance_game_dir(&summary.id, isolated),
                 isolated,
                 last_played: config.last_played,
                 running: running.contains_key(&summary.id),
+                icon,
                 summary,
             }
         })
@@ -422,9 +429,73 @@ pub fn get_instance_config(state: State<'_, AppState>, id: String) -> InstanceCo
 }
 
 #[tauri::command]
-pub fn save_instance_config(state: State<'_, AppState>, id: String, config: InstanceConfig) -> AppResult<()> {
+pub fn save_instance_config(state: State<'_, AppState>, id: String, mut config: InstanceConfig) -> AppResult<()> {
     validate_instance_name(&id)?;
-    Ok(config.save(&state.game_dir(), &id)?)
+    let game = state.game_dir();
+    // 图标只通过 set_instance_icon 修改，这里保留磁盘上的值，避免旧的前端数据覆盖刚换好的图标
+    config.icon = InstanceConfig::load(&game, &id).icon;
+    Ok(config.save(&game, &id)?)
+}
+
+/// 版本图标源文件的大小上限
+const ICON_MAX_BYTES: u64 = 16 * 1024 * 1024;
+
+/// 设置或清除自定义版本图标。图片会被裁切缩放为 256×256 的 PNG，保存在版本目录中；原图不受影响。
+#[tauri::command]
+pub async fn set_instance_icon(state: State<'_, AppState>, id: String, path: Option<PathBuf>) -> AppResult<()> {
+    validate_instance_name(&id)?;
+    let game = state.game_dir();
+    blocking(move || write_instance_icon(&game, &id, path.as_deref())).await?
+}
+
+pub(crate) fn write_instance_icon(game: &launcher_core::paths::GameDir, id: &str, source: Option<&std::path::Path>) -> AppResult<()> {
+    use launcher_core::error::IoContext;
+    let dir = game.version_dir(id);
+    if !game.version_json(id).is_file() {
+        return Err(AppError::msg(format!("找不到版本 {id}"), "这个版本可能已被删除，请刷新列表。"));
+    }
+    let mut config = InstanceConfig::load(game, id);
+    let old = config.icon_path(game, id);
+    config.icon = match source {
+        None => None,
+        Some(source) => {
+            let size = std::fs::metadata(source).at(source)?.len();
+            if size > ICON_MAX_BYTES {
+                return Err(AppError::msg("图片超过 16 MiB", "请选择更小的图片作为版本图标。"));
+            }
+            let mut reader = image::ImageReader::open(source).at(source)?.with_guessed_format().at(source)?;
+            let mut limits = image::Limits::default();
+            limits.max_alloc = Some(256 * 1024 * 1024);
+            limits.max_image_width = Some(16384);
+            limits.max_image_height = Some(16384);
+            reader.limits(limits);
+            let picture = reader.decode().map_err(|e| {
+                AppError::msg(format!("图片无法读取：{e}"), "支持 PNG、JPG、WebP、GIF、BMP 与 ICO 图片。")
+            })?;
+            let icon = picture.resize_to_fill(256, 256, image::imageops::FilterType::Lanczos3);
+            let name = format!("rcl-icon-{}.png", &uuid::Uuid::new_v4().simple().to_string()[..12]);
+            let tmp = tempfile::NamedTempFile::new_in(&dir).at(&dir)?;
+            icon.save_with_format(tmp.path(), image::ImageFormat::Png)
+                .map_err(|e| AppError::msg(format!("无法保存版本图标：{e}"), "请检查版本目录的写入权限。"))?;
+            let dest = dir.join(&name);
+            tmp.persist_noclobber(&dest)
+                .map_err(|e| launcher_core::CoreError::Io { path: dest.clone(), source: e.error })?;
+            Some(name)
+        }
+    };
+    if let Err(e) = config.save(game, id) {
+        // 配置没写进去：删掉刚生成的新图标，保留原来的
+        if let Some(new) = config.icon_path(game, id) {
+            let _ = std::fs::remove_file(new);
+        }
+        return Err(e.into());
+    }
+    if let Some(old) = old.filter(|p| Some(p) != config.icon_path(game, id).as_ref()) {
+        if let Err(e) = std::fs::remove_file(&old) {
+            log::warn!("删除旧版本图标 {} 失败：{e}", old.display());
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -435,7 +506,7 @@ pub fn select_instance(state: State<'_, AppState>, id: Option<String>) -> AppRes
 /// 打开实例相关目录：`root`（游戏运行目录）、`mods`、`saves`、`resourcepacks`、`screenshots`、`logs`。
 #[tauri::command]
 pub async fn open_instance_dir(app: AppHandle, state: State<'_, AppState>, id: String, sub: String) -> AppResult<()> {
-    let list = list_instances(state.clone()).await?;
+    let list = list_instances(app.clone(), state.clone()).await?;
     let inst = list
         .into_iter()
         .find(|i| i.summary.id == id)
@@ -699,5 +770,54 @@ mod path_tests {
         assert!(inside_game_dir(&game, &game.join("crash-reports/../../secret.txt")).is_none());
         // 游戏目录还不存在时不能放行任何文件
         assert!(inside_game_dir(&dir.path().join("missing"), &outside).is_none());
+    }
+}
+
+#[cfg(test)]
+mod icon_tests {
+    use super::write_instance_icon;
+    use crate::settings::InstanceConfig;
+    use launcher_core::paths::GameDir;
+
+    #[test]
+    fn icon_is_normalized_replaced_and_cleared_without_touching_source() {
+        let dir = tempfile::tempdir().unwrap();
+        let game = GameDir::new(dir.path().join("game"));
+        std::fs::create_dir_all(game.version_dir("inst")).unwrap();
+        std::fs::write(game.version_json("inst"), "{}").unwrap();
+        let source = dir.path().join("图标.jpg");
+        image::RgbImage::from_pixel(600, 300, image::Rgb([200, 10, 10])).save(&source).unwrap();
+        let bytes = std::fs::read(&source).unwrap();
+
+        write_instance_icon(&game, "inst", Some(&source)).unwrap();
+        let first = InstanceConfig::load(&game, "inst").icon_path(&game, "inst").unwrap();
+        assert_eq!(image::image_dimensions(&first).unwrap(), (256, 256));
+        assert_eq!(std::fs::read(&source).unwrap(), bytes);
+
+        write_instance_icon(&game, "inst", Some(&source)).unwrap();
+        let second = InstanceConfig::load(&game, "inst").icon_path(&game, "inst").unwrap();
+        assert_ne!(first, second);
+        assert!(!first.exists(), "旧图标应被删除");
+
+        write_instance_icon(&game, "inst", None).unwrap();
+        assert!(InstanceConfig::load(&game, "inst").icon.is_none());
+        assert!(!second.exists());
+        assert!(source.exists());
+    }
+
+    #[test]
+    fn invalid_images_and_missing_versions_are_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let game = GameDir::new(dir.path().join("game"));
+        let bad = dir.path().join("bad.png");
+        std::fs::write(&bad, b"not an image").unwrap();
+        assert!(write_instance_icon(&game, "missing", Some(&bad)).is_err());
+        std::fs::create_dir_all(game.version_dir("inst")).unwrap();
+        std::fs::write(game.version_json("inst"), "{}").unwrap();
+        assert!(write_instance_icon(&game, "inst", Some(&bad)).is_err());
+        assert!(InstanceConfig::load(&game, "inst").icon.is_none());
+        let leftovers: Vec<_> = std::fs::read_dir(game.version_dir("inst")).unwrap().flatten()
+            .filter(|e| e.file_name() != "inst.json").collect();
+        assert!(leftovers.is_empty(), "失败时不应留下临时文件");
     }
 }

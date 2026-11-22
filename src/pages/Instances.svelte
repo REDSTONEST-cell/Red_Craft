@@ -6,6 +6,7 @@
   import { KIND_LABEL, LOADER_LABEL, relative } from "../lib/format";
   import Modal from "../components/Modal.svelte";
   import Icon from "../components/Icon.svelte";
+  import InstanceIcon from "../components/InstanceIcon.svelte";
   import Segmented from "../components/Segmented.svelte";
   import ModpackInstall from "../components/ModpackInstall.svelte";
   import ImportLauncher from "../components/ImportLauncher.svelte";
@@ -220,6 +221,37 @@
     }
   }
 
+  // 版本图标：选择图片或恢复默认后立即生效，与改名一样不影响其他未保存的设置
+  let iconBusy = $state(false);
+
+  async function changeIcon(reset: boolean) {
+    if (!editing) return;
+    let path: string | null = null;
+    if (!reset) {
+      const file = await openDialog({
+        title: "选择版本图标",
+        multiple: false,
+        directory: false,
+        filters: [{ name: "图片", extensions: ["png", "jpg", "jpeg", "webp", "gif", "bmp", "ico"] }],
+      }).catch(() => null);
+      if (typeof file !== "string") return;
+      path = file;
+    }
+    iconBusy = true;
+    try {
+      const id = editing.id;
+      await api.setInstanceIcon(id, path);
+      await refreshInstances();
+      editing = app.instances.find((i) => i.id === id) ?? editing;
+      if (config) config.icon = (await api.getInstanceConfig(id)).icon;
+      toast("ok", reset ? "已恢复默认图标" : "版本图标已更新");
+    } catch (e) {
+      showError(e, "设置图标失败");
+    } finally {
+      iconBusy = false;
+    }
+  }
+
   async function saveConfig() {
     if (!editing || !config) return;
     const mem = parseInt(memory, 10);
@@ -318,9 +350,7 @@
             onchange={(e) => (picked[inst.id] = e.currentTarget.checked)}
           />
         {/if}
-        <div class="badge" data-loader={inst.loader?.kind ?? (inst.optifine ? "optifine" : "vanilla")}>
-          <span>{inst.loader ? LOADER_LABEL[inst.loader.kind][0] : inst.optifine ? "O" : "V"}</span>
-        </div>
+        <InstanceIcon {inst} current={current?.id === inst.id} />
         <div class="main">
           <h3>
             {inst.id}
@@ -423,6 +453,15 @@
         {#if editing?.running}<span class="help">游戏运行中，关闭游戏后才能改名。</span>{/if}
       </div>
       <div class="field">
+        <span class="label">版本图标</span>
+        <div class="icon-row">
+          {#if editing}<InstanceIcon inst={editing} size={56} />{/if}
+          <button class="btn" disabled={iconBusy} onclick={() => changeIcon(false)}>{iconBusy ? "处理中…" : "选择图片"}</button>
+          <button class="btn ghost" disabled={iconBusy || !editing?.icon} onclick={() => changeIcon(true)}>恢复默认</button>
+        </div>
+        <span class="help">支持 PNG、JPG、WebP、GIF、BMP、ICO，会裁切为正方形；开启「设置 → 标题图标」后显示在主页版本名称左边。</span>
+      </div>
+      <div class="field">
         <span class="label">版本隔离</span>
         <Segmented
           bind:value={isolation}
@@ -481,6 +520,11 @@
   .rename .input {
     flex: 1;
   }
+  .icon-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
   .help.warn {
     color: var(--warn, #b45309);
   }
@@ -505,43 +549,6 @@
   }
   .row:hover {
     background: var(--accent-soft);
-  }
-  .badge {
-    width: 44px;
-    height: 44px;
-    display: grid;
-    place-items: center;
-    border: 1.5px solid var(--ink);
-    box-shadow: var(--shadow-sm);
-    font-family: var(--serif);
-    font-weight: 900;
-    font-size: 20px;
-    background: var(--card);
-    flex: none;
-  }
-  .badge[data-loader="fabric"] {
-    background: #dbcfb0;
-    color: #1b1a17;
-  }
-  .badge[data-loader="forge"] {
-    background: #3b3f4a;
-    color: #fff;
-  }
-  .badge[data-loader="neoforge"] {
-    background: #d6812b;
-    color: #fff;
-  }
-  .badge[data-loader="optifine"] {
-    background: #a3262a;
-    color: #fff;
-  }
-  .badge[data-loader="quilt"] {
-    background: #8a5cc8;
-    color: #fff;
-  }
-  .row.current .badge {
-    background: var(--accent);
-    color: var(--accent-ink);
   }
   .main {
     flex: 1;

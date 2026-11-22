@@ -1,4 +1,4 @@
-use super::{model::*, next_visibility, steam, store};
+use super::{display, model::*, next_visibility, scene, steam, store, web};
 use launcher_core::download::CancelToken;
 
 #[test]
@@ -51,7 +51,7 @@ fn broken_json_falls_back_to_video_without_treating_preview_as_media() {
 }
 
 #[test]
-fn we_scan_omits_image_projects_even_when_extension_is_supported() {
+fn we_scan_lists_image_projects_too() {
     let dir = tempfile::tempdir().unwrap();
     let project = dir.path().join("steamapps/workshop/content/431960/123");
     std::fs::create_dir_all(&project).unwrap();
@@ -60,11 +60,13 @@ fn we_scan_omits_image_projects_even_when_extension_is_supported() {
         .unwrap();
     let (assets, _) =
         steam::scan_roots(vec![dir.path().into()], &CancelToken::new(), |_| {}).unwrap();
-    assert!(assets.is_empty());
+    assert_eq!(assets.len(), 1);
+    assert_eq!(assets[0].kind, "image");
+    assert!(assets[0].reason.is_none());
 }
 
 #[test]
-fn scans_only_non_bundled_videos_even_when_defaultprojects_is_added_manually() {
+fn scans_every_wallpaper_type_but_never_bundled_defaultprojects() {
     let dir = tempfile::tempdir().unwrap();
     let install = dir
         .path()
@@ -84,6 +86,10 @@ fn scans_only_non_bundled_videos_even_when_defaultprojects_is_added_manually() {
     let scene = dir.path().join("steamapps/workshop/content/431960/456");
     std::fs::create_dir_all(&scene).unwrap();
     std::fs::write(scene.join("scene.pkg"), b"unused").unwrap();
+    let web = dir.path().join("steamapps/workshop/content/431960/789");
+    std::fs::create_dir_all(&web).unwrap();
+    std::fs::write(web.join("project.json"), r#"{"type":"web","file":"index.html"}"#).unwrap();
+    std::fs::write(web.join("index.html"), "<html></html>").unwrap();
     let (assets, _) = steam::scan_roots(
         vec![
             dir.path().into(),
@@ -94,8 +100,10 @@ fn scans_only_non_bundled_videos_even_when_defaultprojects_is_added_manually() {
         |_| {},
     )
     .unwrap();
-    assert_eq!(assets.len(), 2);
-    assert!(assets.iter().all(|a| a.kind == "video"));
+    let mut kinds: Vec<_> = assets.iter().map(|a| a.kind.as_str()).collect();
+    kinds.sort();
+    assert_eq!(kinds, ["scene", "video", "video", "web"]);
+    assert!(assets.iter().all(|a| a.reason.is_none()));
     assert!(!assets.iter().any(|a| a
         .root
         .starts_with(std::fs::canonicalize(&official).unwrap())));
@@ -111,8 +119,13 @@ fn scene_pkg_is_classified_without_json_and_never_served_as_media() {
     let asset = steam::project(dir.path()).unwrap();
     assert_eq!(asset.kind, "scene");
     assert!(asset.media.is_none());
-    assert!(asset.reason.is_some());
-    assert_eq!(asset.cover.unwrap().file_name().unwrap(), "preview.jpg");
+    assert!(asset.reason.is_none());
+    assert_eq!(asset.cover.as_ref().unwrap().file_name().unwrap(), "preview.jpg");
+    // 损坏的包无法渲染时回退到预览图，而不是把包本身交给前端。
+    let config = tempfile::tempdir().unwrap();
+    let resolved = display(config.path(), asset.clone()).unwrap();
+    assert_eq!(resolved.kind, "image");
+    assert_eq!(resolved.media, asset.cover);
 }
 
 #[test]
@@ -252,8 +265,9 @@ fn scene_with_gif_preview_is_never_a_video() {
     .unwrap();
     let asset = steam::project(dir.path()).unwrap();
     assert_eq!(asset.kind, "scene");
-    assert!(asset.reason.is_some());
     assert!(asset.media.is_none());
+    // 没有场景包也没有可用预览图：不可用。
+    assert!(asset.reason.is_some());
 }
 
 #[test]
@@ -383,9 +397,16 @@ fn video_and_cover_parent_traversal_are_never_authorized() {
 }
 
 #[test]
-fn animated_gif_covers_fall_back_instead_of_bypassing_static_mode() {
+fn animated_gif_covers_are_reencoded_as_a_single_static_frame() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("preview.gif"), b"GIF89a").unwrap();
+    {
+        let file = std::fs::File::create(dir.path().join("preview.gif")).unwrap();
+        let mut encoder = image::codecs::gif::GifEncoder::new(file);
+        for shade in [0u8, 255] {
+            let frame = image::RgbaImage::from_pixel(4, 3, image::Rgba([shade, 0, 0, 255]));
+            encoder.encode_frame(image::Frame::new(frame)).unwrap();
+        }
+    }
     std::fs::write(
         dir.path().join("movie.mp4"),
         b"\x00\x00\x00\x18ftypisom0000",
@@ -398,7 +419,13 @@ fn animated_gif_covers_fall_back_instead_of_bypassing_static_mode() {
     .unwrap();
     let asset = steam::project(dir.path()).unwrap();
     assert!(asset.media.is_some());
-    assert!(asset.cover.is_none());
+    let cover = asset.cover.unwrap();
+    assert_eq!(cover.file_name().unwrap(), "preview.gif");
+    let id = uuid::Uuid::new_v4().to_string();
+    let still = store::still_cover(dir.path(), &id, &cover).unwrap();
+    assert_eq!(still.extension().unwrap(), "png");
+    let (w, h) = image::image_dimensions(&still).unwrap();
+    assert_eq!(w * 3, h * 4);
 }
 
 #[test]
@@ -460,4 +487,208 @@ fn failed_library_replacement_preserves_previous_config() {
     drop(locked);
     assert_eq!(std::fs::read(&path).unwrap(), bytes);
     assert_eq!(store::load(dir.path()).appearance.brightness, 0.6);
+}
+
+// ───────────── 场景与网页壁纸 ─────────────
+
+fn le(n: i32) -> [u8; 4] {
+    n.to_le_bytes()
+}
+
+/// 按 Wallpaper Engine 的 .tex 格式构造一张单图片、单 mipmap 的纹理。
+fn tex(format: i32, container: &str, free_image: i32, size: (i32, i32), image: (i32, i32), data: &[u8], lz4: bool) -> Vec<u8> {
+    let mut out = b"TEXV0005\0TEXI0001\0".to_vec();
+    for n in [format, 0, size.0, size.1, image.0, image.1, 0] {
+        out.extend(le(n));
+    }
+    out.extend(container.as_bytes());
+    out.push(0);
+    out.extend(le(1));
+    if container == "TEXB0003" {
+        out.extend(le(free_image));
+    }
+    out.extend(le(1));
+    out.extend(le(size.0));
+    out.extend(le(size.1));
+    let payload = if lz4 { lz4_flex::block::compress(data) } else { data.to_vec() };
+    if container != "TEXB0001" {
+        out.extend(le(lz4 as i32));
+        out.extend(le(data.len() as i32));
+    }
+    out.extend(le(payload.len() as i32));
+    out.extend(payload);
+    out
+}
+
+fn pkg(files: &[(&str, Vec<u8>)]) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend(le(8));
+    out.extend(b"PKGV0001");
+    out.extend(le(files.len() as i32));
+    let mut offset = 0;
+    for (name, bytes) in files {
+        out.extend(le(name.len() as i32));
+        out.extend(name.as_bytes());
+        out.extend(le(offset));
+        out.extend(le(bytes.len() as i32));
+        offset += bytes.len() as i32;
+    }
+    for (_, bytes) in files {
+        out.extend(bytes);
+    }
+    out
+}
+
+#[test]
+fn tex_decodes_raw_lz4_and_crops_padding() {
+    // 4×2 纹理，实际图片 3×1。
+    let pixels: Vec<u8> = (0..8u8).flat_map(|i| [i * 10, 1, 2, 255]).collect();
+    let image = scene::decode_tex(&tex(0, "TEXB0002", -1, (4, 2), (3, 1), &pixels, true)).unwrap();
+    assert_eq!(image.dimensions(), (3, 1));
+    assert_eq!(image.get_pixel(2, 0).0, [20, 1, 2, 255]);
+    assert_eq!(scene::tex_size(&tex(0, "TEXB0001", -1, (4, 2), (3, 1), &pixels, false)), Some((3, 1)));
+}
+
+#[test]
+fn tex_decodes_bc1_and_embedded_png() {
+    // BC1：两种端点色（纯红、纯蓝），索引 0 与 1 交替。
+    let block = [0x00, 0xf8, 0x1f, 0x00, 0x44, 0x44, 0x44, 0x44];
+    let image = scene::decode_tex(&tex(7, "TEXB0002", -1, (4, 4), (4, 4), &block, false)).unwrap();
+    assert_eq!(image.get_pixel(0, 0).0, [255, 0, 0, 255]);
+    assert_eq!(image.get_pixel(1, 0).0, [0, 0, 255, 255]);
+
+    let mut png = Vec::new();
+    image::RgbaImage::from_pixel(5, 3, image::Rgba([9, 8, 7, 255]))
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .unwrap();
+    let image = scene::decode_tex(&tex(0, "TEXB0003", 13, (5, 3), (5, 3), &png, false)).unwrap();
+    assert_eq!(image.dimensions(), (5, 3));
+    assert_eq!(image.get_pixel(4, 2).0, [9, 8, 7, 255]);
+}
+
+#[test]
+fn corrupt_tex_and_pkg_are_errors_not_panics() {
+    assert!(scene::decode_tex(b"").is_err());
+    assert!(scene::decode_tex(b"TEXV0005\0TEXI0001\0").is_err());
+    let mut huge = tex(0, "TEXB0002", -1, (4, 4), (4, 4), &[0; 64], false);
+    let len = huge.len();
+    huge[len - 68..len - 64].copy_from_slice(&le(i32::MAX));
+    assert!(scene::decode_tex(&huge).is_err());
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("scene.pkg");
+    std::fs::write(&path, b"\xff\xff\xff\x7fPKGV").unwrap();
+    assert!(scene::Source::package(&path).is_err());
+}
+
+#[test]
+fn scene_layers_are_composited_at_their_scene_positions() {
+    // 4×2 场景：灰色底色，右半边放一个 2×2 的红色图层（场景坐标 y 轴向上）。
+    let red: Vec<u8> = std::iter::repeat_n([255u8, 0, 0, 255], 4).flatten().collect();
+    let files = [
+        (
+            "scene.json",
+            br#"{"general":{"clearcolor":"0.5 0.5 0.5","orthogonalprojection":{"width":4,"height":2}},
+                "objects":[{"image":"models/red.json","origin":"3 1 0","size":"2 2","visible":true},
+                           {"image":"models/hidden.json","origin":"1 1 0","size":"2 2","visible":{"value":false}},
+                           {"particle":"particles/snow.json"}]}"#
+                .to_vec(),
+        ),
+        ("models/red.json", br#"{"material":"materials/red.json"}"#.to_vec()),
+        ("models/hidden.json", br#"{"material":"materials/red.json"}"#.to_vec()),
+        ("materials/red.json", br#"{"passes":[{"textures":["red"]}]}"#.to_vec()),
+        ("materials/red.tex", tex(0, "TEXB0002", -1, (2, 2), (2, 2), &red, false)),
+    ];
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("scene.pkg"), pkg(&files)).unwrap();
+    let source = scene::Source::open(dir.path(), None).unwrap();
+    let image = scene::render(&source).unwrap();
+    assert_eq!(image.dimensions(), (4, 2));
+    assert_eq!(image.get_pixel(0, 0).0, [128, 128, 128, 255]);
+    assert_eq!(image.get_pixel(3, 1).0, [255, 0, 0, 255]);
+
+    // 选择壁纸时渲染并缓存为 PNG，项目原文件保持不变。
+    std::fs::write(dir.path().join("project.json"), r#"{"type":"scene","file":"scene.pkg"}"#).unwrap();
+    let asset = steam::project(dir.path()).unwrap();
+    let config = tempfile::tempdir().unwrap();
+    let resolved = display(config.path(), asset.clone()).unwrap();
+    assert_eq!(resolved.kind, "image");
+    let png = resolved.media.unwrap();
+    assert!(png.starts_with(std::fs::canonicalize(config.path()).unwrap()));
+    assert_eq!(image::image_dimensions(&png).unwrap(), (4, 2));
+    scene::cleanup(config.path(), &asset.id, None);
+    assert!(!png.exists());
+}
+
+#[test]
+fn unpacked_scene_directory_renders_and_rejects_traversal() {
+    let dir = tempfile::tempdir().unwrap();
+    let project = dir.path().join("project");
+    std::fs::create_dir_all(project.join("materials")).unwrap();
+    std::fs::write(project.join("scene.json"), r#"{"objects":[]}"#).unwrap();
+    let blue: Vec<u8> = std::iter::repeat_n([0u8, 0, 255, 255], 6).flatten().collect();
+    std::fs::write(project.join("materials/Big.tex"), tex(0, "TEXB0002", -1, (3, 2), (3, 2), &blue, false)).unwrap();
+    std::fs::write(dir.path().join("secret.json"), "{}").unwrap();
+    let source = scene::Source::open(&project, None).unwrap();
+    // 没有图层时回退到最大的纹理。
+    assert_eq!(scene::render(&source).unwrap().dimensions(), (3, 2));
+    assert!(source.read("../secret.json", 1024).is_err());
+}
+
+#[test]
+fn web_and_application_projects_are_listed_safely() {
+    let dir = tempfile::tempdir().unwrap();
+    let web = dir.path().join("web");
+    std::fs::create_dir_all(web.join("页面 1")).unwrap();
+    std::fs::write(web.join("project.json"), r#"{"type":"web","file":"页面 1/index.html"}"#).unwrap();
+    std::fs::write(web.join("页面 1/index.html"), "<html></html>").unwrap();
+    let asset = steam::project(&web).unwrap();
+    assert_eq!(asset.kind, "web");
+    let config = tempfile::tempdir().unwrap();
+    let resolved = display(config.path(), asset).unwrap();
+    assert_eq!(resolved.kind, "web");
+    assert!(resolved.media.is_none());
+    assert_eq!(resolved.entry.as_deref(), Some("%E9%A1%B5%E9%9D%A2%201/index.html"));
+
+    let app = dir.path().join("app");
+    std::fs::create_dir_all(&app).unwrap();
+    std::fs::write(app.join("project.json"), r#"{"type":"application","file":"run.exe"}"#).unwrap();
+    std::fs::write(app.join("run.exe"), b"MZ").unwrap();
+    let asset = steam::project(&app).unwrap();
+    assert!(asset.media.is_none() && asset.reason.is_some());
+    image::RgbImage::new(4, 3).save(app.join("preview.jpg")).unwrap();
+    let asset = steam::project(&app).unwrap();
+    assert!(asset.media.is_none() && asset.reason.is_none() && asset.scan_warning.is_some());
+    let resolved = display(config.path(), asset.clone()).unwrap();
+    assert_eq!(resolved.kind, "image");
+    assert_eq!(resolved.media, asset.cover);
+}
+
+#[test]
+fn web_protocol_paths_reject_traversal_and_shim_runs_first() {
+    assert_eq!(
+        web::parse("/we-1/%E9%A1%B5%E9%9D%A2%201/index.html"),
+        Some(("we-1".into(), std::path::PathBuf::from("页面 1").join("index.html")))
+    );
+    for bad in ["/we-1/../x", "/we-1/%2e%2e/x", "/we-1/a%2fb", "/we-1/a%5cb", "/we-1/C%3A", "/we-1/", "/we-1", "//x"] {
+        assert!(web::parse(bad).is_none(), "{bad}");
+    }
+    let html = web::inject(b"<!DOCTYPE html><HTML><Head><script>mine()</script></head></html>", &serde_json::json!({"c": {"value": "</script>"}}));
+    let html = String::from_utf8(html).unwrap();
+    let shim = html.find("wallpaperPropertyListener").unwrap();
+    assert!(html.starts_with("<!DOCTYPE html><HTML><Head><script>"));
+    assert!(shim < html.find("mine()").unwrap());
+    assert!(html.contains("<\\/script>"));
+    assert_eq!(web::mime(std::path::Path::new("a.JS")), "text/javascript; charset=utf-8");
+    assert!(!web::CSP.contains("ipc"));
+}
+
+#[test]
+fn quicktime_and_matroska_videos_are_accepted_by_container_header() {
+    let dir = tempfile::tempdir().unwrap();
+    for (name, bytes) in [("a.mov", &b"\x00\x00\x00\x08wide0000"[..]), ("b.mkv", &[0x1a, 0x45, 0xdf, 0xa3, 0][..]), ("c.m4v", &b"\x00\x00\x00\x18ftypM4V "[..])] {
+        std::fs::write(dir.path().join(name), bytes).unwrap();
+        store::video(&dir.path().join(name)).unwrap();
+    }
+    std::fs::write(dir.path().join("d.mov"), b"not a movie at all").unwrap();
+    assert!(store::video(&dir.path().join("d.mov")).is_err());
 }

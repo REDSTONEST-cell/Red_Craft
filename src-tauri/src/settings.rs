@@ -162,6 +162,18 @@ pub struct Settings {
     pub optimize_memory: bool,
     /// 用户选择跳过的版本，不再提示
     pub skipped_update: String,
+    /// 主页版本名称左边显示版本图标（默认关闭）
+    pub title_icon: bool,
+    /// 标题栏左上角显示的文字；为空时显示「RCL」
+    pub title_text: String,
+}
+
+/// 标题栏文字最多保留的字符数
+pub const TITLE_TEXT_MAX: usize = 32;
+
+/// 去掉首尾空白、把换行等合并为空格，并限制长度。
+pub fn normalize_title_text(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(TITLE_TEXT_MAX).collect()
 }
 
 impl Settings {
@@ -220,6 +232,8 @@ impl Default for Settings {
             auto_check_update: true,
             optimize_memory: false,
             skipped_update: String::new(),
+            title_icon: false,
+            title_text: String::new(),
         }
     }
 }
@@ -245,6 +259,8 @@ pub struct InstanceConfig {
     pub last_played: Option<u64>,
     /// 启动前是否补全文件；`None` 表示默认（补全）
     pub check_files: Option<bool>,
+    /// 自定义版本图标：版本目录中由启动器生成的 `rcl-icon-<hex>.png`；`None` 表示默认图标
+    pub icon: Option<String>,
 }
 
 pub const INSTANCE_CONFIG: &str = "redcraft.json";
@@ -255,6 +271,12 @@ impl InstanceConfig {
     }
     pub fn save(&self, game: &GameDir, id: &str) -> Result<()> {
         write_json(&game.version_dir(id).join(INSTANCE_CONFIG), self)
+    }
+    /// 自定义图标的完整路径。文件名必须是启动器生成的格式且文件存在，否则视为没有图标。
+    pub fn icon_path(&self, game: &GameDir, id: &str) -> Option<PathBuf> {
+        let name = self.icon.as_deref().filter(|n| launcher_core::instance::is_instance_icon_name(n))?;
+        let path = game.version_dir(id).join(name);
+        path.is_file().then_some(path)
     }
 }
 
@@ -381,6 +403,35 @@ mod tests {
         assert_eq!(s.corner, Corner::Rounded);
         assert_eq!(s.layout, Layout::Minimal);
         assert_eq!(s.speed_limit_kb, 0);
+        assert!(!s.title_icon);
+    }
+
+    #[test]
+    fn title_text_defaults_empty_and_normalizes() {
+        let s: Settings = serde_json::from_str(r#"{"concurrency": 8}"#).unwrap();
+        assert_eq!(s.title_text, "");
+        assert_eq!(normalize_title_text("  我的\n启动器  "), "我的 启动器");
+        assert_eq!(normalize_title_text("   "), "");
+        assert_eq!(normalize_title_text(&"长".repeat(100)).chars().count(), TITLE_TEXT_MAX);
+    }
+
+    #[test]
+    fn instance_icon_path_rejects_tampered_names() {
+        let dir = tempfile::tempdir().unwrap();
+        let game = GameDir::new(dir.path().join("game"));
+        let version = game.version_dir("inst");
+        std::fs::create_dir_all(&version).unwrap();
+        std::fs::write(version.join("rcl-icon-0123abcd.png"), b"png").unwrap();
+        std::fs::write(dir.path().join("game/secret.png"), b"x").unwrap();
+        let mut config = InstanceConfig { icon: Some("rcl-icon-0123abcd.png".into()), ..Default::default() };
+        assert_eq!(config.icon_path(&game, "inst"), Some(version.join("rcl-icon-0123abcd.png")));
+        for bad in ["../secret.png", "../../secret.png", "rcl-icon-ffffffff.png"] {
+            config.icon = Some(bad.into());
+            assert!(config.icon_path(&game, "inst").is_none(), "{bad}");
+        }
+        // 旧配置没有 icon 字段也能读取
+        let old: InstanceConfig = serde_json::from_str(r#"{"maxMemoryMb":2048}"#).unwrap();
+        assert!(old.icon.is_none());
     }
 
     #[test]

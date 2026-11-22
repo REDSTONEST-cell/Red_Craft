@@ -156,8 +156,8 @@ fn extension(path: &Path) -> String {
 
 fn media_kind(path: &Path) -> Option<&'static str> {
     match extension(path).as_str() {
-        "mp4" | "webm" => Some("video"),
-        "jpg" | "jpeg" | "png" | "webp" => Some("image"),
+        "mp4" | "m4v" | "webm" | "mov" | "mkv" => Some("video"),
+        "jpg" | "jpeg" | "png" | "webp" | "gif" | "bmp" => Some("image"),
         _ => None,
     }
 }
@@ -254,27 +254,48 @@ pub fn project(root: &Path) -> AppResult<Asset> {
         reason: None,
         scan_warning: warning,
     };
-    // Scene 只用 preview.jpg；绝不把包或旁边的纹理当成媒体。
-    let previews: Vec<_> = if scene {
-        vec!["preview.jpg"]
-    } else {
-        value["preview"]
-            .as_str()
-            .into_iter()
-            .chain(["preview.jpg", "preview.png", "preview.webp"])
-            .collect()
-    };
+    // 预览图只作为封面：显示前总会被重新编码为单帧 PNG，动图不会绕过静态模式。
+    let previews: Vec<_> = value["preview"]
+        .as_str()
+        .into_iter()
+        .chain(["preview.jpg", "preview.png", "preview.webp", "preview.gif"])
+        .collect();
     asset.cover = previews.into_iter().find_map(|name| {
         store::inside(&root, &root.join(name))
             .ok()
             .filter(|p| media_kind(p) == Some("image"))
     });
+    // 主体无法直接显示时用预览图代替；连预览图都没有才标记为不可用。
+    let fallback = |asset: &mut Asset, why: String| {
+        if asset.cover.is_some() {
+            asset.scan_warning = Some(format!("{why}，已使用预览图"));
+        } else {
+            asset.reason = Some(format!("{why}，且没有预览图"));
+        }
+    };
     if scene {
-        asset.reason = Some("场景壁纸：仅显示 preview.jpg，不解包或播放 .pkg".into());
+        // 场景在选择时才渲染（解包与解码纹理较慢），扫描时只确认场景文件存在。
+        let pkg = declared_file
+            .filter(|f| extension(Path::new(f)) == "pkg")
+            .unwrap_or("scene.pkg");
+        let present = store::inside(&root, &root.join(pkg)).is_ok() || root.join("scene.json").is_file();
+        if !present {
+            fallback(&mut asset, "缺少 scene.pkg".into());
+        }
         return Ok(asset);
     }
-    if matches!(kind, "web" | "application") {
-        asset.reason = Some(format!("{kind} 壁纸仅显示信息，不执行项目代码"));
+    if kind == "web" {
+        let entry = declared_file.unwrap_or("index.html");
+        match store::inside(&root, &root.join(entry)) {
+            Ok(path) if matches!(extension(&path).as_str(), "html" | "htm") => asset.media = Some(path),
+            Ok(_) => fallback(&mut asset, "网页壁纸入口不是 HTML 文件".into()),
+            Err(e) => fallback(&mut asset, e.to_string()),
+        }
+        return Ok(asset);
+    }
+    if kind == "application" {
+        // 绝不执行项目里的程序。
+        fallback(&mut asset, "应用程序壁纸不会在启动器中运行".into());
         return Ok(asset);
     }
 
@@ -304,7 +325,7 @@ pub fn project(root: &Path) -> AppResult<Asset> {
                 asset.kind = actual.into();
                 if actual == "video" {
                     if let Err(e) = store::video(&path) {
-                        asset.reason = Some(e.to_string());
+                        fallback(&mut asset, e.info().message);
                         return Ok(asset);
                     }
                 }
@@ -313,16 +334,16 @@ pub fn project(root: &Path) -> AppResult<Asset> {
                 }
                 asset.media = Some(path);
             }
-            _ => asset.reason = Some("项目主体不是匹配的 JPG/PNG/WebP/MP4/WebM 媒体".into()),
+            _ => fallback(&mut asset, format!("{} 格式无法在启动器中播放", extension(&path).to_uppercase())),
         }
     } else {
-        asset.reason = Some("未发现可识别的媒体主体；封面不作为背景主体".into());
         if kind == "unknown" {
             return Err(AppError::msg(
                 "未发现可识别的媒体主体",
                 "project.json 不可用且目录内没有支持的媒体文件",
             ));
         }
+        fallback(&mut asset, "未发现可识别的媒体主体".into());
     }
     Ok(asset)
 }
@@ -424,7 +445,7 @@ pub fn scan_roots(
         stage(&format!("扫描壁纸 {}", assets.len() + 1));
         match project(&path) {
             Ok(asset) => {
-                if !asset.is_user_we_video() {
+                if !asset.is_user_we() {
                     continue;
                 }
                 if let Some(warning) = &asset.scan_warning {
@@ -442,4 +463,31 @@ pub fn scan_roots(
         notes.push("未找到本地壁纸。可手动添加 Steam 库、项目根目录或单个项目目录。".into());
     }
     Ok((assets, notes))
+}
+
+/// project.json 中声明的主体文件（读取失败时为空）。
+pub fn declared_file(root: &Path) -> Option<String> {
+    let path = store::inside(root, &root.join("project.json")).ok()?;
+    if std::fs::metadata(&path).ok()?.len() > 2 * 1024 * 1024 {
+        return None;
+    }
+    let bytes = std::fs::read(&path).ok()?;
+    let value: serde_json::Value =
+        serde_json::from_slice(bytes.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(&bytes)).ok()?;
+    value["file"].as_str().map(str::to_owned)
+}
+
+/// project.json 中网页壁纸的用户属性（`general.properties`），按 Wallpaper Engine 的格式原样传给页面。
+pub fn user_properties(root: &Path) -> serde_json::Value {
+    (|| {
+        let path = store::inside(root, &root.join("project.json")).ok()?;
+        if std::fs::metadata(&path).ok()?.len() > 2 * 1024 * 1024 {
+            return None;
+        }
+        let bytes = std::fs::read(&path).ok()?;
+        let value: serde_json::Value =
+            serde_json::from_slice(bytes.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(&bytes)).ok()?;
+        value.pointer("/general/properties").filter(|v| v.is_object()).cloned()
+    })()
+    .unwrap_or_else(|| serde_json::json!({}))
 }

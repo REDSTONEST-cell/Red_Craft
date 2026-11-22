@@ -12,6 +12,7 @@
   import { KIND_LABEL, LOADER_LABEL, relative } from "../lib/format";
   import Avatar from "../components/Avatar.svelte";
   import Icon from "../components/Icon.svelte";
+  import InstanceIcon from "../components/InstanceIcon.svelte";
   import ProgressBar from "../components/ProgressBar.svelte";
 
   const inst = $derived(selectedInstance());
@@ -62,7 +63,14 @@
     <section class="lead">
       {#if inst}
         <div class="kicker">头条 · 当前版本</div>
-        <h2 class="headline">{inst.id}</h2>
+        {#if app.settings?.titleIcon}
+          <div class="title-row">
+            <InstanceIcon {inst} size={56} />
+            <h2 class="headline">{inst.id}</h2>
+          </div>
+        {:else}
+          <h2 class="headline">{inst.id}</h2>
+        {/if}
         <p class="deck">
           Minecraft {inst.mcVersion}
           · {KIND_LABEL[inst.kind] ?? inst.kind}
@@ -173,6 +181,16 @@
     line-height: 1.05;
     margin: 6px 0 12px;
     word-break: break-word;
+  }
+  .title-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin: 6px 0 12px;
+  }
+  .title-row .headline {
+    margin: 0;
+    min-width: 0;
   }
   .deck {
     font-family: var(--serif);
