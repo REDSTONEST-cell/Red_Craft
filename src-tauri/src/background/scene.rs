@@ -275,7 +275,7 @@ pub fn decode_tex(bytes: &[u8]) -> AppResult<RgbaImage> {
         let pixels = (width * height) as usize;
         let rgba = match format {
             0 => data.get(..pixels * 4).map(<[u8]>::to_vec),
-            8 => data.get(..pixels * 2).map(|d| d.chunks_exact(2).flat_map(|p| [p[0], p[0], p[0], p[1]]).collect()),
+            8 => data.get(..pixels * 2).map(|d| (0..pixels).flat_map(|i| [d[2 * i], d[2 * i], d[2 * i], d[2 * i + 1]]).collect()),
             9 => data.get(..pixels).map(|d| d.iter().flat_map(|&p| [p, p, p, 255]).collect()),
             7 => Some(decode_bc(&data, width, height, Bc::Bc1)?),
             6 => Some(decode_bc(&data, width, height, Bc::Bc2)?),
