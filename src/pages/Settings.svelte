@@ -1,6 +1,6 @@
 <script lang="ts">
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
-  import { api, type CustomText, type DownloadSource, type JavaInstall, type MemoryStatus, type Settings } from "../lib/api";
+  import { api, type DownloadSource, type JavaInstall, type MemoryStatus, type Settings } from "../lib/api";
   import { app, memoryToast, refreshInstances, saveSettings, showError, toast } from "../lib/state.svelte";
   import Segmented from "../components/Segmented.svelte";
   import Toggle from "../components/Toggle.svelte";
@@ -14,15 +14,6 @@
   let javas = $state<JavaInstall[] | null>(null);
   let scanning = $state(false);
   let advanced = $state(false);
-
-  // 自定义文字（issue #19）：每项留空时使用默认文字
-  const EMPTY_TEXT: CustomText = { brand: "", kicker: "", headline: "", deck: "" };
-  const TEXT_FIELDS: [keyof CustomText, string, string][] = [
-    ["brand", "标题栏名称", "RCL"],
-    ["kicker", "主页小标题", "头条 · 当前版本"],
-    ["headline", "主页大标题", "当前版本名称"],
-    ["deck", "主页说明", "游戏版本与加载器信息"],
-  ];
 
   function save(patch: Partial<Settings>) {
     Object.assign(s, patch);
@@ -594,26 +585,15 @@
       <div class="desc"><strong>标题图标</strong><span class="help">在主页版本名称左边显示版本图标（可在「版本设置」中自定义）</span></div>
       <Toggle checked={s.titleIcon} onchange={(v) => save({ titleIcon: v })} />
     </div>
-    <div class="row col">
-      <div class="custom-head">
-        <div class="desc"><strong>自定义文字</strong><span class="help">修改标题栏与主页上显示的文字；留空则使用默认文字，失焦后保存</span></div>
-        <button class="btn sm" disabled={!Object.values(s.customText ?? {}).some(Boolean)} onclick={() => save({ customText: { ...EMPTY_TEXT } })}>恢复默认</button>
-      </div>
-      <div class="custom-text">
-        {#each TEXT_FIELDS as [key, label, placeholder]}
-          <label>
-            <span>{label}</span>
-            <input
-              class="input"
-              maxlength="60"
-              {placeholder}
-              value={s.customText?.[key] ?? ""}
-              onchange={(e) => save({ customText: { ...EMPTY_TEXT, ...s.customText, [key]: e.currentTarget.value.trim() } })}
-            />
-          </label>
-        {/each}
-      </div>
-      {#if s.layout === "ultraMinimal"}<span class="help">超级简洁模式下主页不显示版本信息，只有标题栏文字生效。</span>{/if}
+    <div class="row">
+      <div class="desc"><strong>标题栏文字</strong><span class="help">左上角显示的名称，留空恢复为「RCL」</span></div>
+      <input
+        class="input title-text"
+        maxlength="32"
+        placeholder="RCL"
+        bind:value={s.titleText}
+        onchange={() => save({ titleText: s.titleText.trim() })}
+      />
     </div>
     <BackgroundPicker />
   </section>
@@ -664,22 +644,8 @@
     align-items: stretch;
     gap: 8px;
   }
-  .custom-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 24px;
-  }
-  .custom-text {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px 16px;
-  }
-  .custom-text label {
-    display: grid;
-    gap: 4px;
-    font-size: 12px;
-    color: var(--muted);
+  .title-text {
+    width: 220px;
   }
   .desc {
     display: flex;

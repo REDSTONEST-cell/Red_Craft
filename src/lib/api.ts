@@ -52,19 +52,8 @@ export interface Settings {
   skippedUpdate: string;
   /** 主页版本名称左边显示版本图标 */
   titleIcon: boolean;
-  /** 自定义界面文字；每一项为空时使用内置文字 */
-  customText: CustomText;
-}
-
-export interface CustomText {
-  /** 标题栏名称（默认 RCL） */
-  brand: string;
-  /** 主页小标题（默认「头条 · 当前版本」） */
-  kicker: string;
-  /** 主页大标题（默认为版本名称） */
-  headline: string;
-  /** 主页大标题下方的说明（默认为游戏版本与加载器信息） */
-  deck: string;
+  /** 标题栏左上角的文字；为空时显示 RCL */
+  titleText: string;
 }
 
 export interface MemoryStatus {

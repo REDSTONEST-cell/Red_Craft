@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { listen } from "@tauri-apps/api/event";
   import { convertFileSrc } from "@tauri-apps/api/core";
-  import { backgroundApi, shouldPlay, yieldsToGame, controlVideo, releaseVideo, observeVisibility, type ResolvedBackground } from "../lib/background";
+  import { backgroundApi, shouldPlay, yieldsToGame, controlVideo, releaseVideo, observeVisibility, webUrl, type ResolvedBackground } from "../lib/background";
   import { background, loadBackground } from "../lib/background-state.svelte";
   import { app, showError } from "../lib/state.svelte";
 
@@ -18,7 +18,9 @@
   let focused = $state(document.hasFocus());
   const gameRunning = $derived(Object.values(app.games).some(g => g.running));
   const playing = $derived(shouldPlay(visible && !yieldsToGame(gameRunning, focused), appearance.motion, reduced));
-  const hasMedia = $derived(!!media && ((media.kind === "image" && dynamic) || (media.kind === "video" && dynamic) || !!media.cover));
+  // 网页壁纸只在需要播放时运行（窗口隐藏、游戏运行或静态模式下卸载 iframe，改为显示封面）。
+  const webLive = $derived(!!media && media.kind === "web" && !!media.entry && playing);
+  const hasMedia = $derived(!!media && (((media.kind === "image" || media.kind === "video") && dynamic) || webLive || !!media.cover));
 
   onMount(() => {
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -56,7 +58,7 @@
     background.error = "";
     background.ready = !id;
     if (id) void backgroundApi.resolve(id).then(value => {
-      if (token === generation) { media = value; background.ready = value.kind === "video" && !dynamic; }
+      if (token === generation) { media = value; background.ready = (value.kind === "video" || value.kind === "web") && !dynamic; }
     }).catch(e => {
       if (token === generation) fail(e);
     });
@@ -82,6 +84,13 @@
       node.removeEventListener("loadeddata", loaded);
       releaseVideo(node);
     } };
+  }
+
+  function observeFrame(node: HTMLIFrameElement) {
+    const token = generation;
+    const loaded = () => { if (token === generation) background.ready = true; };
+    node.addEventListener("load", loaded);
+    return { destroy() { node.removeEventListener("load", loaded); node.src = "about:blank"; } };
   }
 
   function observeImage(node: HTMLImageElement) {
@@ -117,6 +126,11 @@
     {#key media.id}
       {#if media.kind === "image" && (dynamic ? media.media : media.cover)}
         <img class="media" use:observeImage src={mediaUrl(dynamic ? media.media : media.cover)} alt="" />
+      {:else if webLive}
+        <!-- 不同源 + 沙盒：页面无法访问启动器，也拿不到 IPC；不允许弹窗、表单与顶层跳转。 -->
+        <iframe class="media web" use:observeFrame src={webUrl(media.id, media.entry!)} title="" tabindex="-1"
+          sandbox="allow-scripts allow-same-origin" allow="camera 'none'; microphone 'none'; geolocation 'none'"
+          referrerpolicy="no-referrer"></iframe>
       {:else if media.kind === "video" && media.media && dynamic}
         <video class="media" bind:this={player} use:manage src={mediaUrl(media.media)} autoplay muted loop playsinline preload="metadata" tabindex="-1"></video>
       {:else if media.cover}
@@ -130,5 +144,6 @@
 <style>
   .background-media { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
   .media { position: absolute; inset: calc(-1 * var(--blur)); width: calc(100% + 2 * var(--blur)); height: calc(100% + 2 * var(--blur)); object-fit: var(--fit); opacity: var(--media-opacity); filter: brightness(var(--brightness)) blur(var(--blur)); }
+  .web { border: 0; object-fit: initial; background: transparent; }
   .background-mask { position: fixed; inset: 0; z-index: 1; pointer-events: none; background: rgba(0, 0, 0, var(--mask-opacity)); }
 </style>

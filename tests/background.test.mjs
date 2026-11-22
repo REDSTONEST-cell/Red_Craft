@@ -33,19 +33,26 @@ test('appearance defaults allocate fresh values with no automatic wallpaper sele
   assert.equal(defaults().panelOpacity, 0.94);
 });
 
-test('WE picker only lists videos outside bundled defaultprojects while local images stay available', async () => {
-  const { isVisibleBackgroundAsset } = await backgroundModule();
+test('WE picker lists every wallpaper type outside bundled defaultprojects', async () => {
+  const { isVisibleBackgroundAsset, kindLabel, webUrl } = await backgroundModule();
   const base = { title: 'fixture', source: 'wallpaperEngine', media: 'clip.mp4', cover: null, reason: null };
   const entries = [
     { ...base, id: 'workshop', kind: 'video', root: 'C:\\Steam\\steamapps\\workshop\\content\\431960\\123' },
     { ...base, id: 'own', kind: 'video', root: 'C:/Steam/steamapps/common/wallpaper_engine/projects/myprojects/own' },
     { ...base, id: 'bundled', kind: 'video', root: 'C:/Steam/steamapps/common/wallpaper_engine/projects/DEFAULTPROJECTS/demo' },
-    { ...base, id: 'scene', kind: 'scene' },
+    { ...base, id: 'bundled-scene', kind: 'scene', media: null, root: '/steam/projects/defaultprojects/x' },
+    { ...base, id: 'scene', kind: 'scene', media: null },
     { ...base, id: 'web', kind: 'web' },
     { ...base, id: 'we-image', kind: 'image' },
+    { ...base, id: 'app', kind: 'application', media: null },
     { ...base, id: 'local-image', source: 'local', kind: 'image' },
   ];
-  assert.deepEqual(entries.filter(isVisibleBackgroundAsset).map(a => a.id), ['workshop', 'own', 'local-image']);
+  assert.deepEqual(entries.filter(isVisibleBackgroundAsset).map(a => a.id),
+    ['workshop', 'own', 'scene', 'web', 'we-image', 'app', 'local-image']);
+  assert.equal(kindLabel('scene'), '场景');
+  assert.equal(kindLabel('mystery'), 'mystery');
+  // 测试中 convertFileSrc 原样返回，因此地址就是「ID/入口」。
+  assert.equal(webUrl('we-1', 'a%20b/index.html'), 'we-1/a%20b/index.html');
 });
 
 test('background apply failure keeps persisted selection and does not claim success', async () => {

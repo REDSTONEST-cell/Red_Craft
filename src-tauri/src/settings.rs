@@ -164,35 +164,16 @@ pub struct Settings {
     pub skipped_update: String,
     /// 主页版本名称左边显示版本图标（默认关闭）
     pub title_icon: bool,
-    /// 自定义界面文字；每一项留空时使用内置文字
-    pub custom_text: CustomText,
+    /// 标题栏左上角显示的文字；为空时显示「RCL」
+    pub title_text: String,
 }
 
-/// 用户自定义的界面文字。每一项为空字符串时使用内置文字。
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct CustomText {
-    /// 标题栏左上角的名称（默认「RCL」）
-    pub brand: String,
-    /// 主页版本名称上方的小标题（默认「头条 · 当前版本」）
-    pub kicker: String,
-    /// 主页大标题（默认显示当前版本名称）
-    pub headline: String,
-    /// 主页大标题下方的说明（默认显示游戏版本与加载器信息）
-    pub deck: String,
-}
+/// 标题栏文字最多保留的字符数
+pub const TITLE_TEXT_MAX: usize = 32;
 
-impl CustomText {
-    /// 每项最多保留的字符数
-    pub const MAX_CHARS: usize = 60;
-
-    /// 去掉首尾空白、合并换行，并限制长度。
-    pub fn normalize(&mut self) {
-        for field in [&mut self.brand, &mut self.kicker, &mut self.headline, &mut self.deck] {
-            let text: String = field.split_whitespace().collect::<Vec<_>>().join(" ");
-            *field = text.chars().take(Self::MAX_CHARS).collect();
-        }
-    }
+/// 去掉首尾空白、把换行等合并为空格，并限制长度。
+pub fn normalize_title_text(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(TITLE_TEXT_MAX).collect()
 }
 
 impl Settings {
@@ -252,7 +233,7 @@ impl Default for Settings {
             optimize_memory: false,
             skipped_update: String::new(),
             title_icon: false,
-            custom_text: CustomText::default(),
+            title_text: String::new(),
         }
     }
 }
@@ -426,16 +407,12 @@ mod tests {
     }
 
     #[test]
-    fn custom_text_defaults_empty_and_normalizes() {
+    fn title_text_defaults_empty_and_normalizes() {
         let s: Settings = serde_json::from_str(r#"{"concurrency": 8}"#).unwrap();
-        assert_eq!(s.custom_text, CustomText::default());
-        let mut t: CustomText = serde_json::from_str(r#"{"brand":"  我的\n启动器  ","deck":"x"}"#).unwrap();
-        t.headline = "长".repeat(100);
-        t.normalize();
-        assert_eq!(t.brand, "我的 启动器");
-        assert_eq!(t.kicker, "");
-        assert_eq!(t.deck, "x");
-        assert_eq!(t.headline.chars().count(), CustomText::MAX_CHARS);
+        assert_eq!(s.title_text, "");
+        assert_eq!(normalize_title_text("  我的\n启动器  "), "我的 启动器");
+        assert_eq!(normalize_title_text("   "), "");
+        assert_eq!(normalize_title_text(&"长".repeat(100)).chars().count(), TITLE_TEXT_MAX);
     }
 
     #[test]

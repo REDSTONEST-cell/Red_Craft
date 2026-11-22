@@ -16,12 +16,17 @@
   });
 
   const running = $derived(app.tasks.filter((t) => t.state === "running").length);
+  // 自定义标题栏文字（设置 → 外观），同时用作系统任务栏里的窗口标题
+  const title = $derived(app.settings?.titleText || "RCL");
+  $effect(() => {
+    win.setTitle(title).catch(() => {});
+  });
 </script>
 
 <header class="titlebar" data-tauri-drag-region>
   <div class="brand" data-tauri-drag-region>
     <span class="pixel"></span>
-    <span class="name" data-tauri-drag-region>{app.settings?.customText?.brand || "RCL"}</span>
+    <span class="name" data-tauri-drag-region>{title}</span>
     {#if running > 0}
       <span class="tag accent">{running} 个任务进行中</span>
     {/if}

@@ -64,7 +64,7 @@ pub fn save_settings(state: State<'_, AppState>, settings: Settings) -> AppResul
     settings.concurrency = settings.concurrency.clamp(1, 256);
     settings.game_dir = settings.game_dir.filter(|p| !p.as_os_str().is_empty());
     settings.java_path = settings.java_path.filter(|p| !p.as_os_str().is_empty());
-    settings.custom_text.normalize();
+    settings.title_text = crate::settings::normalize_title_text(&settings.title_text);
     state.save_settings(settings)
 }
 
