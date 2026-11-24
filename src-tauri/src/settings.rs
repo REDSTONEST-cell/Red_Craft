@@ -180,6 +180,9 @@ pub enum TextColor {
     Dark,
 }
 
+/// 玻璃颜色「跟随背景」
+pub const GLASS_FOLLOW_BACKGROUND: &str = "auto";
+
 /// 标题栏文字最多保留的字符数
 pub const TITLE_TEXT_MAX: usize = 32;
 
@@ -231,7 +234,8 @@ impl Default for Settings {
             layout: Layout::default(),
             glass_opacity: 0.2,
             glass_blur: 10.0,
-            glass_color: None,
+            // 默认跟随背景：按背景明暗在白色 / 黑色玻璃之间切换
+            glass_color: Some(GLASS_FOLLOW_BACKGROUND.into()),
             selected_instance: None,
             selected_account: None,
             ms_client_id: String::new(),
@@ -417,6 +421,17 @@ mod tests {
         assert_eq!(s.layout, Layout::Minimal);
         assert_eq!(s.speed_limit_kb, 0);
         assert!(!s.title_icon);
+    }
+
+    #[test]
+    fn glass_color_defaults_to_following_the_background() {
+        let s: Settings = serde_json::from_str("{}").unwrap();
+        assert_eq!(s.glass_color.as_deref(), Some(GLASS_FOLLOW_BACKGROUND));
+        // 已经选过「跟随主题」（保存为 null）或其它颜色的用户保持原选择
+        let s: Settings = serde_json::from_str(r#"{"glassColor":null}"#).unwrap();
+        assert_eq!(s.glass_color, None);
+        let s: Settings = serde_json::from_str(r##"{"glassColor":"#0d1524"}"##).unwrap();
+        assert_eq!(s.glass_color.as_deref(), Some("#0d1524"));
     }
 
     #[test]
