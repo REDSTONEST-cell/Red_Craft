@@ -168,6 +168,8 @@ pub struct Settings {
     pub title_text: String,
     /// 直接显示在背景上的文字（标题栏、主页标题等）用白字还是黑字
     pub text_color: TextColor,
+    /// 在主页「启动游戏」上方显示版本选择（默认关闭）
+    pub quick_version_switch: bool,
 }
 
 /// 背景上的文字颜色：自动（按背景明暗选择）、白色或黑色。
@@ -251,6 +253,7 @@ impl Default for Settings {
             title_icon: false,
             title_text: String::new(),
             text_color: TextColor::Auto,
+            quick_version_switch: false,
         }
     }
 }
@@ -438,6 +441,7 @@ mod tests {
     fn text_color_defaults_to_auto_and_reads_saved_choice() {
         let s: Settings = serde_json::from_str("{}").unwrap();
         assert_eq!(s.text_color, TextColor::Auto);
+        assert!(!s.quick_version_switch);
         let s: Settings = serde_json::from_str(r#"{"textColor":"dark"}"#).unwrap();
         assert_eq!(s.text_color, TextColor::Dark);
     }

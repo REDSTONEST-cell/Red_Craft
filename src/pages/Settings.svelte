@@ -588,6 +588,10 @@
       <Toggle checked={s.titleIcon} onchange={(v) => save({ titleIcon: v })} />
     </div>
     <div class="row">
+      <div class="desc"><strong>快捷切换版本</strong><span class="help">在主页「启动游戏」按钮上方显示版本选择</span></div>
+      <Toggle checked={s.quickVersionSwitch} onchange={(v) => save({ quickVersionSwitch: v })} />
+    </div>
+    <div class="row">
       <div class="desc"><strong>标题栏文字</strong><span class="help">左上角显示的名称，留空恢复为「RCL」</span></div>
       <input
         class="input title-text"

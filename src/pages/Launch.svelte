@@ -14,6 +14,7 @@
   import Icon from "../components/Icon.svelte";
   import InstanceIcon from "../components/InstanceIcon.svelte";
   import ProgressBar from "../components/ProgressBar.svelte";
+  import Dropdown from "../components/Dropdown.svelte";
 
   const inst = $derived(selectedInstance());
   const account = $derived(selectedAccount());
@@ -57,7 +58,27 @@
   });
 </script>
 
-<div class="front">
+<!-- 设置里开启「快捷切换版本」后，在启动按钮正上方显示版本选择 -->
+{#snippet versionSwitch()}
+  {#if app.settings?.quickVersionSwitch && app.instances.length > 0}
+    <div class="switch">
+      <Dropdown
+        value={inst?.id ?? null}
+        options={app.instances.map((i) => ({
+          value: i.id,
+          label: i.id,
+          hint: `Minecraft ${i.mcVersion}${i.loader ? ` · ${LOADER_LABEL[i.loader.kind]} ${i.loader.version}` : ""}`,
+        }))}
+        placeholder="选择版本"
+        title="切换版本"
+        disabled={launching}
+        onchange={(v) => v && v !== inst?.id && selectInstance(v)}
+      />
+    </div>
+  {/if}
+{/snippet}
+
+<div class="front" class:has-switch={app.settings?.quickVersionSwitch && app.instances.length > 0}>
   {#if app.settings?.layout !== "ultraMinimal"}
   <div class="columns">
     <section class="lead">
@@ -147,16 +168,19 @@
       {/if}
     </div>
 
-    {#if game?.running}
-      <button class="btn lg-btn" onclick={() => inst && api.killGame(inst.id).catch((e) => showError(e))}>
-        <Icon name="stop" size={18} /> 结束游戏
-      </button>
-    {:else}
-      <button class="btn primary lg-btn" disabled={!inst || launching} onclick={launch}>
-        <Icon name="play" size={20} />
-        {launching ? "正在启动" : "启动游戏"}
-      </button>
-    {/if}
+    <div class="launch-col">
+      {@render versionSwitch()}
+      {#if game?.running}
+        <button class="btn lg-btn" onclick={() => inst && api.killGame(inst.id).catch((e) => showError(e))}>
+          <Icon name="stop" size={18} /> 结束游戏
+        </button>
+      {:else}
+        <button class="btn primary lg-btn" disabled={!inst || launching} onclick={launch}>
+          <Icon name="play" size={20} />
+          {launching ? "正在启动" : "启动游戏"}
+        </button>
+      {/if}
+    </div>
   </footer>
 </div>
 
@@ -233,6 +257,25 @@
   }
   .chip:active {
     transform: scale(0.96);
+  }
+  /* 版本选择与启动按钮同宽，位于按钮正上方（底栏之外） */
+  .launch-col {
+    position: relative;
+    display: flex;
+    flex: none;
+  }
+  .switch {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: calc(100% + 26px);
+  }
+  .switch :global(.dropdown) {
+    width: 100%;
+  }
+  /* 给版本选择留出位置，避免与上方内容重叠 */
+  .front.has-switch .columns {
+    padding-bottom: 56px;
   }
   .launchbar {
     display: flex;
