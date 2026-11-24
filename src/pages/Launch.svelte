@@ -22,10 +22,10 @@
   const task = $derived(launchTask ? app.tasks.find((t) => t.id === launchTask) : undefined);
   const launching = $derived(!!task && task.state === "running");
 
-  // 在启动器内管理当前实例的资源，不必打开文件夹
+  // 在启动器内管理当前实例的资源，不必打开文件夹：打开「版本」页中当前版本的资源管理
   function openManager(kind: FileKind) {
     app.manage = kind;
-    app.page = "mods";
+    app.page = "instances";
   }
 
   async function launch() {
