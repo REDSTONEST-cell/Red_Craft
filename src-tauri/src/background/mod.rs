@@ -87,22 +87,20 @@ fn display(config: &std::path::Path, asset: Asset, scene_preview: bool) -> AppRe
             let entry = web::entry(&asset.root, asset.media.as_deref().unwrap())?;
             Ok(Resolved { id: asset.id, kind: "web".into(), media: None, cover: asset.cover, entry: Some(entry), host: None })
         }
-        // 用户选择了「使用预览图」，或渲染失败：显示预览图（动态模式下 GIF 预览会播放）。
+        // 用户选择了「使用预览图」：显示预览图（动态模式下 GIF 预览会播放）。
         "scene" if scene_preview && asset.cover.is_some() => fallback(&asset, None),
-        "scene" => match scene::rendered(config, &asset.id, &asset.root, steam::declared_file(&asset.root).as_deref(), &steam::user_properties(&asset.root)) {
-            Ok(png) => Ok(Resolved {
-                id: asset.id,
-                kind: "image".into(),
-                media: Some(png.clone()),
-                cover: Some(png),
-                entry: None,
-                host: None,
-            }),
-            Err(e) => {
-                log::warn!("场景壁纸 {} 渲染失败，改用预览图：{e}", asset.title);
-                fallback(&asset, Some(e))
-            }
-        },
+        // 场景：动态模式下由 WebWallGL 实时渲染（前端渲染页）；这里准备静态画面，
+        // 用于静态模式、实时渲染加载期间与失败时的回退。静态渲染失败就用预览图。
+        "scene" => {
+            let still = match scene::rendered(config, &asset.id, &asset.root, steam::declared_file(&asset.root).as_deref(), &steam::user_properties(&asset.root)) {
+                Ok(png) => Some(png),
+                Err(e) => {
+                    log::warn!("场景壁纸 {} 静态渲染失败，改用预览图：{e}", asset.title);
+                    asset.cover.clone()
+                }
+            };
+            Ok(Resolved { id: asset.id, kind: "scene".into(), media: still.clone(), cover: still, entry: None, host: None })
+        }
         _ => fallback(&asset, None),
     }
 }

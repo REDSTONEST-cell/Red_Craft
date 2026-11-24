@@ -422,7 +422,9 @@ pub fn scan_roots(
             if let Ok(entries) = std::fs::read_dir(&container) {
                 for entry in entries.flatten() {
                     cancel.check()?;
-                    if looks_like_project(&entry.path()) {
+                    // 容器里的子目录必须带 project.json 才算壁纸项目：
+                    // Steam 根目录下的 graphics / public / resource 等文件夹里也有图片，不能当成壁纸。
+                    if entry.path().join("project.json").is_file() {
                         candidates.push(entry.path());
                     }
                 }

@@ -41,6 +41,11 @@
 - 自定义背景：图片、视频、Wallpaper Engine 视频壁纸
 - 启动前内存优化（Windows）；启动器内检查更新，下载后校验 SHA256
 
+## 第三方组件
+
+- [WebWallGL](https://github.com/oneincase/webwallgl)（MIT）：实时渲染 Wallpaper Engine 场景壁纸
+- 场景纹理格式参考 [RePKG](https://github.com/notscuffed/repkg)（MIT），静态画面合成规则参考 [linux-wallpaperengine](https://github.com/Almamu/linux-wallpaperengine)
+
 ## 开发
 
 需要 Rust（1.85+）、Node.js 20+ 与 pnpm 10，以及 [Tauri 的系统依赖](https://tauri.app/start/prerequisites/)。

@@ -2,10 +2,11 @@
   import { onMount } from "svelte";
   import BackgroundThumbnail from "./BackgroundThumbnail.svelte";
   import ImageCropper from "./ImageCropper.svelte";
+  import Dropdown from "./Dropdown.svelte";
   import { open } from "@tauri-apps/plugin-dialog";
   import { api } from "../lib/api";
   import { waitTask, showError, toast, app } from "../lib/state.svelte";
-  import { backgroundApi, defaults, isVisibleBackgroundAsset, kindLabel, WE_KINDS, type BackgroundLibrary, type BackgroundAsset } from "../lib/background";
+  import { backgroundApi, defaults, isVisibleBackgroundAsset, kindLabel, WE_KINDS, FPS_OPTIONS, type BackgroundLibrary, type BackgroundAsset } from "../lib/background";
   import { background, applyBackground, loadBackground } from "../lib/background-state.svelte";
 
   let library = $state<BackgroundLibrary>({ appearance: defaults(), assets: [], roots: [], scanNotes: [] });
@@ -187,8 +188,14 @@
     <button class="btn sm" disabled={(activePage + 1) * 24 >= assets.length} onclick={() => page = activePage + 1}>下一页</button>
   </div>{/if}
   <fieldset class="controls" disabled={saving}>
-    <label>缩放<select bind:value={draft.fit} onchange={tune}><option value="cover">居中裁切填满</option><option value="contain">完整显示</option></select></label>
-    <label>动态模式<select bind:value={draft.motion} onchange={tune}><option value="auto">自动播放（静音）</option><option value="always">始终播放（忽略系统动画设置）</option><option value="static">静态</option></select></label>
+    <div class="field"><span>缩放</span><Dropdown bind:value={draft.fit} onchange={tune} disabled={saving}
+      options={[{ value: "cover", label: "居中裁切填满" }, { value: "contain", label: "完整显示" }]} /></div>
+    <div class="field"><span>动态模式</span><Dropdown bind:value={draft.motion} onchange={tune} disabled={saving}
+      options={[{ value: "auto", label: "自动播放（静音）" }, { value: "always", label: "始终播放（忽略系统动画设置）" }, { value: "static", label: "静态" }]} /></div>
+    <div class="field"><span>场景最大帧率</span><Dropdown value={String(draft.fps ?? 30)} disabled={saving}
+      onchange={(v) => { draft = { ...draft, fps: Number(v) }; tune(); }}
+      options={FPS_OPTIONS.map(n => ({ value: String(n), label: `${n} 帧`, hint: n <= 30 ? "省电，显卡占用低" : n >= 90 ? "高刷新率显示器" : undefined }))} />
+      <span class="hint">Wallpaper Engine 场景壁纸实时渲染时的帧率上限；越高越流畅，显卡占用也越高。</span></div>
     {#if reducedMotion && draft.motion === "auto"}<p class="motion-hint">系统已关闭动画效果（Windows「在 Windows 中显示动画」），自动播放会暂停；选择「始终播放」可以继续播放视频背景。</p>{/if}
     <label>亮度 {draft.brightness.toFixed(2)}<input type="range" min="0.2" max="1.2" step="0.05" bind:value={draft.brightness} oninput={tune} /></label>
     <label>背景不透明度 {Math.round(draft.backgroundOpacity * 100)}%<input type="range" min="0" max="1" step="0.01" bind:value={draft.backgroundOpacity} oninput={tune} /></label>
@@ -205,7 +212,7 @@
     {#each library.roots as root}<div class="manual-root"><span>{root}</span><button class="btn sm ghost" disabled={busy} onclick={() => scan(library.roots.filter(p => p !== root), true)}>移除目录记录</button></div>{/each}
   </details>{/if}
   {#if library.scanNotes.length}<details><summary>扫描说明（{library.scanNotes.length}）</summary><ul>{#each library.scanNotes as note}<li>{note}</li>{/each}</ul></details>{/if}
-  <p class="help">Wallpaper Engine 支持全部壁纸类型（官方自带项目除外）：视频直接播放；网页壁纸在隔离的沙盒中运行并静音；场景壁纸渲染为静态画面（不含粒子与特效，画面不对时可改用预览图）；应用程序壁纸不会被运行，显示预览图。视频解码取决于系统 WebView2，建议 H.264 MP4。</p>
+  <p class="help">Wallpaper Engine 支持全部壁纸类型（官方自带项目除外）：视频直接播放；网页壁纸在隔离的沙盒中运行并静音；场景壁纸由 WebWallGL 实时渲染（静态模式或渲染失败时显示静态画面，也可改用预览图）；应用程序壁纸不会被运行，显示预览图。视频解码取决于系统 WebView2，建议 H.264 MP4。</p>
 </div>
 
 {#if cropping}<ImageCropper asset={cropping} initial={library.crops?.[cropping.id]} onclose={() => cropping = null} onsaved={cropped} />{/if}
@@ -224,7 +231,8 @@
   .help { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
   .motion-hint { grid-column: 1 / -1; margin: -4px 0 0; font-size: 12px; color: var(--muted); }
   .controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 24px; border: 0; margin: 0; padding: 0; min-width: 0; }
-  label { display: grid; gap: 5px; font-size: 12px; }
+  label, .field { display: grid; gap: 5px; font-size: 12px; align-content: start; }
+  .hint { color: var(--muted); }
   input { width: 100%; accent-color: var(--accent); }
   .actions, details, p { margin-top: 16px; }
   details { font-size: 12px; overflow-wrap: anywhere; }

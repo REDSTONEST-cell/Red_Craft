@@ -58,6 +58,7 @@ fn we_scan_lists_image_projects_too() {
     image::RgbImage::new(4, 3)
         .save(project.join("wallpaper.PNG"))
         .unwrap();
+    std::fs::write(project.join("project.json"), r#"{"type":"image","file":"wallpaper.PNG"}"#).unwrap();
     let (assets, _) =
         steam::scan_roots(vec![dir.path().into()], &CancelToken::new(), |_| {}).unwrap();
     assert_eq!(assets.len(), 1);
@@ -86,6 +87,7 @@ fn scans_every_wallpaper_type_but_never_bundled_defaultprojects() {
     let scene = dir.path().join("steamapps/workshop/content/431960/456");
     std::fs::create_dir_all(&scene).unwrap();
     std::fs::write(scene.join("scene.pkg"), b"unused").unwrap();
+    std::fs::write(scene.join("project.json"), r#"{"type":"scene","file":"scene.json"}"#).unwrap();
     let web = dir.path().join("steamapps/workshop/content/431960/789");
     std::fs::create_dir_all(&web).unwrap();
     std::fs::write(web.join("project.json"), r#"{"type":"web","file":"index.html"}"#).unwrap();
@@ -121,10 +123,10 @@ fn scene_pkg_is_classified_without_json_and_never_served_as_media() {
     assert!(asset.media.is_none());
     assert!(asset.reason.is_none());
     assert_eq!(asset.cover.as_ref().unwrap().file_name().unwrap(), "preview.jpg");
-    // 损坏的包无法渲染时回退到预览图，而不是把包本身交给前端。
+    // 场景交给实时渲染；损坏的包无法生成静态画面时，静态回退用预览图，而不是把包本身交给前端。
     let config = tempfile::tempdir().unwrap();
     let resolved = display(config.path(), asset.clone(), false).unwrap();
-    assert_eq!(resolved.kind, "image");
+    assert_eq!(resolved.kind, "scene");
     assert_eq!(resolved.media, asset.cover);
 }
 
@@ -611,7 +613,7 @@ fn scene_layers_are_composited_at_their_scene_positions() {
     let asset = steam::project(dir.path()).unwrap();
     let config = tempfile::tempdir().unwrap();
     let resolved = display(config.path(), asset.clone(), false).unwrap();
-    assert_eq!(resolved.kind, "image");
+    assert_eq!(resolved.kind, "scene");
     let png = resolved.media.unwrap();
     assert!(png.starts_with(std::fs::canonicalize(config.path()).unwrap()));
     assert_eq!(image::image_dimensions(&png).unwrap(), (4, 2));
@@ -829,4 +831,45 @@ fn web_range_requests_are_parsed() {
     assert_eq!(web::range(Some("bytes=10-"), 10), None);
     assert_eq!(web::range(Some("bytes=0-1,4-5"), 10), None);
     assert_eq!(web::range(None, 10), None);
+}
+
+#[test]
+fn steam_folders_without_project_json_are_not_wallpapers() {
+    // Steam 根目录下的 graphics / public / resource 里有图片，但不是壁纸项目。
+    let dir = tempfile::tempdir().unwrap();
+    for folder in ["graphics", "public", "resource"] {
+        std::fs::create_dir_all(dir.path().join(folder)).unwrap();
+        image::RgbImage::new(4, 3).save(dir.path().join(folder).join("icon.png")).unwrap();
+    }
+    let (assets, _) = steam::scan_roots(vec![dir.path().into()], &CancelToken::new(), |_| {}).unwrap();
+    assert!(assets.is_empty());
+    // 用户手动添加的单个项目目录（没有 project.json）仍按扩展名识别。
+    let single = dir.path().join("public");
+    std::fs::write(single.join("clip.mp4"), b"\x00\x00\x00\x18ftypisom0000").unwrap();
+    let (assets, _) = steam::scan_roots(vec![single], &CancelToken::new(), |_| {}).unwrap();
+    assert_eq!(assets.len(), 1);
+}
+
+#[test]
+fn scene_engine_routes_and_fps_limit() {
+    let (id, rel) = web::parse("/__engine/scene.html").unwrap();
+    assert_eq!(id, web::ENGINE_DIR);
+    assert_eq!(rel, std::path::PathBuf::from("scene.html"));
+    let mut a: Appearance = serde_json::from_str("{}").unwrap();
+    a.normalize();
+    assert_eq!(a.fps, 30);
+    a.fps = 1000;
+    a.normalize();
+    assert_eq!(a.fps, 240);
+    a.fps = 0;
+    a.normalize();
+    assert_eq!(a.fps, 30);
+}
+
+#[test]
+fn engine_is_served_with_its_license_notice() {
+    let js = web::engine_bytes_for_test();
+    assert!(js.starts_with(b"/*! WebWallGL"));
+    assert!(js.windows(11).any(|w| w == b"MIT License"));
+    assert!(js.windows(10).any(|w| w == b"WebWallGL="));
 }

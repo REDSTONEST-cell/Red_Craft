@@ -27,7 +27,71 @@ const SEGMENT: &AsciiSet = &CONTROLS
     .add(b'/')
     .add(b'\\');
 
-const MAX_FILE: u64 = 512 * 1024 * 1024;
+const MAX_FILE: u64 = 1024 * 1024 * 1024;
+
+/// 渲染页与引擎所在的保留路径（素材 ID 都以 `we-` 开头，不会冲突）。
+pub const ENGINE_DIR: &str = "__engine";
+
+/// WebWallGL（MIT，oneincase/webwallgl）：在浏览器里用 WebGL2 实时渲染 Wallpaper Engine 场景，
+/// 还原图层、特效、粒子、模型与 SceneScript。来自 npm 依赖 `webwallgl`（见 package.json）。
+const ENGINE: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../node_modules/webwallgl/webwallgl.global.min.js"));
+/// WebWallGL 的 MIT 许可声明，随引擎一起提供。
+const ENGINE_LICENSE: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../node_modules/webwallgl/LICENSE"));
+
+#[cfg(test)]
+pub fn engine_bytes_for_test() -> Vec<u8> {
+    engine_with_license()
+}
+
+fn engine_with_license() -> Vec<u8> {
+    let notice = format!("/*! WebWallGL (https://github.com/oneincase/webwallgl)\n{} */\n", ENGINE_LICENSE.replace("*/", "* /"));
+    let mut out = notice.into_bytes();
+    out.extend_from_slice(ENGINE);
+    out
+}
+
+/// 场景实时渲染页。参照 dsh-plugin-wallpaper-engine 的渲染页：只做宿主适配，渲染交给 WebWallGL。
+/// 页面与启动器不同源（拿不到 IPC），SceneScript 的 eval 只在这里执行；
+/// 父页面通过 postMessage 控制暂停 / 继续 / 缩放方式 / 帧率上限，页面回报 ready / error。
+const SCENE_PAGE: &str = r#"<!doctype html>
+<html><head><meta charset="utf-8">
+<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}#wp{position:fixed;inset:0;overflow:hidden}</style>
+<script src="/__engine/webwallgl.js"></script>
+</head><body><div id="wp"></div>
+<script>
+(function () {
+  var send = function (msg) { msg.rclScene = true; try { parent.postMessage(msg, "*"); } catch (e) {} };
+  var fail = function (err) { send({ type: "error", message: String((err && err.message) || err) }); };
+  if (!window.WebWallGL) { fail("WebWallGL 引擎未加载"); return; }
+  var q = new URLSearchParams(location.search);
+  var fits = { cover: 1, contain: 1, stretch: 1 };
+  var clampFps = function (v) { return Math.max(5, Math.min(240, Number(v) || 30)); };
+  var inst = WebWallGL.createScene(document.getElementById("wp"), {
+    fit: fits[q.get("fit")] ? q.get("fit") : "cover",
+    fps: clampFps(q.get("fps")),
+    volume: 0,
+    mountTimeoutMs: 60000,
+    onDiagnostic: function (msg, level) { if (level === "error") console.error("[webwallgl]", msg); }
+  });
+  var settled = false;
+  inst.on("error", function (err) { if (settled) fail(err); });
+  var base = location.protocol + "//" + location.host + "/" + encodeURIComponent(q.get("id") || "");
+  inst.load(WebWallGL.httpSource(base)).then(function () {
+    settled = true;
+    send({ type: "ready" });
+  }, function (err) { settled = true; fail(err); });
+  window.addEventListener("message", function (e) {
+    if (e.source !== parent) return;
+    var m = e.data || {};
+    if (m.type === "pause") inst.pause();
+    else if (m.type === "resume") inst.resume();
+    else if (m.type === "fit" && fits[m.fit]) inst.setFit(m.fit);
+    else if (m.type === "fps") inst.setFps(clampFps(m.fps));
+  });
+  window.addEventListener("pagehide", function () { try { inst.destroy(); } catch (e) {} });
+})();
+</script>
+</body></html>"#;
 
 /// 页面可以使用项目内的资源与公开网络资源（不少网页壁纸从 CDN 加载脚本或字体），
 /// 但不能连接启动器的 IPC，也不能再嵌套框架或提交表单。
@@ -218,13 +282,24 @@ fn status(code: u16) -> Response<Vec<u8>> {
 /// `rcwall` 协议的处理函数。
 pub fn serve(app: &AppHandle, request: &Request<Vec<u8>>) -> Response<Vec<u8>> {
     let Some((id, rel)) = parse(request.uri().path()) else { return status(400) };
+    // 场景实时渲染页与 WebWallGL 引擎（随程序打包）
+    if id == ENGINE_DIR {
+        let (body, kind): (Vec<u8>, &str) = match rel.to_str() {
+            Some("scene.html") => (SCENE_PAGE.as_bytes().to_vec(), "text/html; charset=utf-8"),
+            Some("webwallgl.js") => (engine_with_license(), "text/javascript; charset=utf-8"),
+            _ => return status(404),
+        };
+        return Response::builder()
+            .header("Content-Type", kind)
+            .header("Content-Security-Policy", CSP)
+            .header("Cache-Control", "max-age=86400")
+            .body(body)
+            .unwrap();
+    }
     let Some(state) = app.try_state::<AppState>() else { return status(503) };
+    // 用户自己的任何壁纸项目（场景渲染页按名读取 scene.pkg / project.json / 松散工程文件）
     let asset = match state.backgrounds.lock() {
-        Ok(library) => library
-            .assets
-            .iter()
-            .find(|a| a.id == id && a.kind == "web" && a.is_user_we() && a.media.is_some())
-            .cloned(),
+        Ok(library) => library.assets.iter().find(|a| a.id == id && a.is_user_we()).cloned(),
         Err(_) => return status(503),
     };
     let Some(asset) = asset else { return status(404) };
@@ -232,7 +307,7 @@ pub fn serve(app: &AppHandle, request: &Request<Vec<u8>>) -> Response<Vec<u8>> {
     if std::fs::metadata(&file).map(|m| m.len() > MAX_FILE).unwrap_or(true) {
         return status(413);
     }
-    let is_entry = asset.media.as_ref() == Some(&file);
+    let is_entry = asset.kind == "web" && asset.media.as_ref() == Some(&file);
     if is_entry {
         let Ok(bytes) = std::fs::read(&file) else { return status(404) };
         let bytes = inject(&bytes, &steam::user_properties(&asset.root));

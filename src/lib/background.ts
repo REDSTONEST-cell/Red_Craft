@@ -10,6 +10,8 @@ export interface Appearance {
   panelOpacity: number;
   /** auto：自动播放，系统要求减少动态效果时暂停；always：始终播放；static：静态 */
   motion: "auto" | "always" | "static";
+  /** 场景实时渲染的最大帧率 */
+  fps: number;
 }
 export interface BackgroundAsset {
   id: string; title: string; source: "local" | "wallpaperEngine";
@@ -58,9 +60,14 @@ export interface WallpaperScanResult {
   from_cache: boolean;
 }
 export const defaults = (): Appearance => ({ selection: null, fit: "cover", brightness: 0.85, backgroundOpacity: 0.75,
-  blurPx: 0, overlayOpacity: 0.25, panelOpacity: 0.94, motion: "auto" });
+  blurPx: 0, overlayOpacity: 0.25, panelOpacity: 0.94, motion: "auto", fps: 30 });
+/** 场景最大帧率可选项 */
+export const FPS_OPTIONS = [15, 24, 30, 45, 60, 90, 120, 144];
 export const mediaUrl = (path: string | null) => path ? convertFileSrc(path) : "";
 /** 网页壁纸地址：由后端的 rcwall 协议按「素材 ID / 相对路径」提供项目内文件。 */
+/** 场景实时渲染页（WebWallGL），由后端的 rcwall 协议提供；与启动器不同源。 */
+export const sceneUrl = (id: string, fit: string, fps: number) =>
+  `${convertFileSrc("", "rcwall")}__engine/scene.html?${new URLSearchParams({ id, fit, fps: String(fps) })}`;
 export const webUrl = (id: string, entry: string, host?: string | null) =>
   host ? `https://${host}/${entry}` : `${convertFileSrc("", "rcwall")}${encodeURIComponent(id)}/${entry}`;
 export const backgroundApi = {

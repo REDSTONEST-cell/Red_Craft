@@ -2,7 +2,8 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 /// 3：扫描结果包含所有壁纸类型（视频、图片、网页、场景、应用程序）。
-pub const SCAN_REVISION: u32 = 3;
+/// 4：容器里只收带 project.json 的目录（不再误收 Steam 自带文件夹）。
+pub const SCAN_REVISION: u32 = 4;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct CropRect {
@@ -29,6 +30,8 @@ impl CropRect {
     }
 }
 
+pub const DEFAULT_FPS: u32 = 30;
+
 pub fn is_bundled_project(path: &std::path::Path) -> bool {
     path.components().any(|p| {
         p.as_os_str()
@@ -48,6 +51,8 @@ pub struct Appearance {
     pub overlay_opacity: f64,
     pub panel_opacity: f64,
     pub motion: String,
+    /// 场景实时渲染的最大帧率
+    pub fps: u32,
 }
 
 impl Default for Appearance {
@@ -61,6 +66,7 @@ impl Default for Appearance {
             overlay_opacity: 0.25,
             panel_opacity: 0.94,
             motion: "auto".into(),
+            fps: DEFAULT_FPS,
         }
     }
 }
@@ -85,6 +91,7 @@ impl Appearance {
         self.blur_px = finite(self.blur_px, 0.0, 0.0, 24.0);
         self.overlay_opacity = finite(self.overlay_opacity, 0.25, 0.0, 0.8);
         self.panel_opacity = finite(self.panel_opacity, 0.94, 0.85, 1.0);
+        self.fps = if self.fps == 0 { DEFAULT_FPS } else { self.fps.clamp(5, 240) };
     }
 }
 
