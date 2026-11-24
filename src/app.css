@@ -819,7 +819,8 @@ textarea.input {
   border: 1px solid var(--glass-edge);
   box-shadow: var(--shadow);
 }
-:root[data-corner="glass"][data-glass-tint] :is(.content:not(.launch-home), .modal) {
+/* 自定义玻璃颜色：内容区、对话框、弹出提示与任务面板都用玻璃色作底，文字随玻璃明暗取白或黑（App.svelte 设置 --glass-tint-ink）。 */
+:root[data-corner="glass"][data-glass-tint] :is(.content:not(.launch-home), .modal, .toast, .task-panel) {
   --card: var(--glass-tint);
   --control-ink: var(--glass-tint-ink);
   --control-ink-2: var(--glass-tint-ink);
