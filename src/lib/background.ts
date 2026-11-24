@@ -44,6 +44,20 @@ export interface ResolvedBackground {
   entry?: string | null;
   /** Windows：WebView2 虚拟主机名；为空时使用 rcwall 协议 */
   host?: string | null;
+  /** 背景静态画面的平均亮度 0..1（没有静态画面时为空） */
+  luminance?: number | null;
+}
+
+/**
+ * 背景上的文字该用白字还是黑字：把背景画面的亮度按「亮度 × 不透明度 + 主题底色」
+ * 混合，再压上黑色遮罩，得到实际显示出来的明暗。足够亮时用黑字，否则用白字。
+ */
+export function textOnBackground(luminance: number | null | undefined, a: Appearance, darkTheme: boolean): "light" | "dark" {
+  if (luminance == null || !Number.isFinite(luminance)) return "light";
+  const base = darkTheme ? 0.09 : 0.93;
+  const image = Math.min(1, Math.max(0, luminance) * a.brightness);
+  const shown = (image * a.backgroundOpacity + base * (1 - a.backgroundOpacity)) * (1 - a.overlayOpacity);
+  return shown > 0.58 ? "dark" : "light";
 }
 // 对外扫描 DTO 使用需求约定的 snake_case；存储格式保留兼容。
 export interface WallpaperEntry {

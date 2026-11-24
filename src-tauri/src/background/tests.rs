@@ -873,3 +873,14 @@ fn engine_is_served_with_its_license_notice() {
     assert!(js.windows(11).any(|w| w == b"MIT License"));
     assert!(js.windows(10).any(|w| w == b"WebWallGL="));
 }
+
+#[test]
+fn background_luminance_is_measured_from_the_still_image() {
+    let dir = tempfile::tempdir().unwrap();
+    let white = dir.path().join("white.png");
+    let black = dir.path().join("black.png");
+    image::RgbImage::from_pixel(8, 8, image::Rgb([255, 255, 255])).save(&white).unwrap();
+    image::RgbImage::from_pixel(8, 8, image::Rgb([0, 0, 0])).save(&black).unwrap();
+    assert!(store::luminance(&white).unwrap() > 0.99);
+    assert!(store::luminance(&black).unwrap() < 0.01);
+}

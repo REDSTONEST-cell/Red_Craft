@@ -595,6 +595,18 @@
         onchange={() => save({ titleText: s.titleText.trim() })}
       />
     </div>
+    <div class="row">
+      <div class="desc"><strong>背景上的文字颜色</strong><span class="help">标题栏「{s.titleText || "RCL"}」与主页标题等直接显示在背景上的文字。自动：按背景画面的明暗选择白字或黑字</span></div>
+      <Segmented
+        value={s.textColor ?? "auto"}
+        options={[
+          { value: "auto", label: "自动" },
+          { value: "light", label: "白色" },
+          { value: "dark", label: "黑色" },
+        ]}
+        onchange={(v) => save({ textColor: v })}
+      />
+    </div>
     <BackgroundPicker />
   </section>
 

@@ -181,3 +181,18 @@ test('a native hide event wins over an older pending visibility query', async ()
   observer.dispose();
   assert.equal(unsubscribed, 1);
 });
+
+test('text over the background follows how bright the background actually looks', async () => {
+  const { textOnBackground, defaults } = await backgroundModule();
+  const full = { ...defaults(), brightness: 1, backgroundOpacity: 1, overlayOpacity: 0 };
+  assert.equal(textOnBackground(0.95, full, false), 'dark');
+  assert.equal(textOnBackground(0.1, full, false), 'light');
+  // 遮罩压暗、亮度调低后，亮画面也要换回白字。
+  assert.equal(textOnBackground(0.95, { ...full, overlayOpacity: 0.6 }, false), 'light');
+  assert.equal(textOnBackground(0.95, { ...full, brightness: 0.4 }, false), 'light');
+  // 背景很淡时以主题底色为准：浅色主题黑字、深色主题白字。
+  assert.equal(textOnBackground(0.1, { ...full, backgroundOpacity: 0.05 }, false), 'dark');
+  assert.equal(textOnBackground(0.9, { ...full, backgroundOpacity: 0.05 }, true), 'light');
+  // 不知道亮度（例如没有封面的本地视频）时保持原来的白字。
+  assert.equal(textOnBackground(null, full, false), 'light');
+});

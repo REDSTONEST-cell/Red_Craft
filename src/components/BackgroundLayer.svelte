@@ -67,6 +67,7 @@
     media = null;
     videoFailed = false;
     sceneSrc = "";
+    background.luminance = null;
     sceneReady = false;
     sceneFailed = false;
     background.error = "";
@@ -76,6 +77,7 @@
         // 渲染页地址只在切换壁纸时生成；之后的缩放方式与帧率通过消息调整，不重新加载场景。
         sceneSrc = value.kind === "scene" ? sceneUrl(value.id, appearance.fit, appearance.fps ?? 30) : "";
         media = value;
+        background.luminance = value.luminance ?? null;
         background.ready = (value.kind === "video" || value.kind === "web") && !dynamic;
       }
     }).catch(e => {

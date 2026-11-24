@@ -72,20 +72,21 @@ fn display(config: &std::path::Path, asset: Asset, scene_preview: bool) -> AppRe
                 cover: Some(cover.clone()),
                 entry: None,
                 host: None,
+                luminance: None,
             }),
             None => Err(why.unwrap_or_else(|| AppError::msg("这个壁纸没有可显示的画面", "请选择其它壁纸"))),
         }
     };
     if asset.source != "wallpaperEngine" {
-        return Ok(Resolved { id: asset.id, kind: asset.kind, media: asset.media, cover: asset.cover, entry: None, host: None });
+        return Ok(Resolved { id: asset.id, kind: asset.kind, media: asset.media, cover: asset.cover, entry: None, host: None, luminance: None });
     }
     match asset.kind.as_str() {
         "video" | "image" if asset.media.is_some() => {
-            Ok(Resolved { id: asset.id, kind: asset.kind, media: asset.media, cover: asset.cover, entry: None, host: None })
+            Ok(Resolved { id: asset.id, kind: asset.kind, media: asset.media, cover: asset.cover, entry: None, host: None, luminance: None })
         }
         "web" if asset.media.is_some() => {
             let entry = web::entry(&asset.root, asset.media.as_deref().unwrap())?;
-            Ok(Resolved { id: asset.id, kind: "web".into(), media: None, cover: asset.cover, entry: Some(entry), host: None })
+            Ok(Resolved { id: asset.id, kind: "web".into(), media: None, cover: asset.cover, entry: Some(entry), host: None, luminance: None })
         }
         // 用户选择了「使用预览图」：显示预览图（动态模式下 GIF 预览会播放）。
         "scene" if scene_preview && asset.cover.is_some() => fallback(&asset, None),
@@ -99,7 +100,7 @@ fn display(config: &std::path::Path, asset: Asset, scene_preview: bool) -> AppRe
                     asset.cover.clone()
                 }
             };
-            Ok(Resolved { id: asset.id, kind: "scene".into(), media: still.clone(), cover: still, entry: None, host: None })
+            Ok(Resolved { id: asset.id, kind: "scene".into(), media: still.clone(), cover: still, entry: None, host: None, luminance: None })
         }
         _ => fallback(&asset, None),
     }
@@ -205,6 +206,7 @@ pub async fn background_resolve(app: AppHandle, id: String, original: Option<boo
             .cover
             .as_ref()
             .and_then(|path| store::still_cover(&state.paths.config_dir, &resolved.id, path).ok());
+        resolved.luminance = resolved.cover.as_deref().and_then(|p| store::luminance(p).ok());
         for path in resolved.media.iter().chain(resolved.cover.iter()) {
             scope
                 .allow_file(path)

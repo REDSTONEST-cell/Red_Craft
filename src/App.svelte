@@ -17,6 +17,8 @@
   import { getCurrentWebview } from "@tauri-apps/api/webview";
   import type { ModpackInfo, PackSource } from "./lib/api";
   import { app, init, showError } from "./lib/state.svelte";
+  import { background } from "./lib/background-state.svelte";
+  import { textOnBackground } from "./lib/background";
   import { api } from "./lib/api";
   import { page } from "./lib/motion";
   import { tick } from "svelte";
@@ -94,6 +96,17 @@
     const on = (e: MediaQueryListEvent) => (systemDark = e.matches);
     mq.addEventListener("change", on);
     return () => mq.removeEventListener("change", on);
+  });
+
+  // 直接显示在背景上的文字（标题栏、主页标题等）用白字还是黑字；自动时按背景实际显示的明暗选择。
+  $effect(() => {
+    const mode = app.settings?.textColor ?? "auto";
+    const theme = app.settings?.theme ?? "system";
+    const dark = theme === "dark" || (theme === "system" && systemDark);
+    const text = mode === "light" || mode === "dark"
+      ? mode
+      : textOnBackground(background.luminance, background.preview ?? background.saved, dark);
+    document.documentElement.dataset.bgText = text;
   });
 
   // 主题与主题色

@@ -205,4 +205,6 @@ pub struct Resolved {
     pub entry: Option<String>,
     /// Windows：WebView2 虚拟主机名（`https://<host>/<entry>`）；为空时前端使用 `rcwall` 协议
     pub host: Option<String>,
+    /// 背景静态画面的平均亮度（0..1），用于自动选择背景上的文字颜色
+    pub luminance: Option<f64>,
 }

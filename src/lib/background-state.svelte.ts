@@ -1,6 +1,8 @@
 import { backgroundApi, defaults, type Appearance, type BackgroundLibrary } from "./background";
 
-export const background = $state({ saved: defaults(), preview: null as Appearance | null, error: "", ready: false, retry: 0 });
+export const background = $state({ saved: defaults(), preview: null as Appearance | null, error: "", ready: false, retry: 0,
+  /** 当前显示的背景画面的平均亮度（用于自动选择背景上的文字颜色） */
+  luminance: null as number | null });
 let savedRevision = 0;
 export async function loadBackground(): Promise<BackgroundLibrary> {
   const revision = ++savedRevision;

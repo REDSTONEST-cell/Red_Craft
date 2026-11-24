@@ -39,6 +39,17 @@ fn read_image(path: &Path) -> AppResult<image::DynamicImage> {
     })
 }
 
+/// 画面的平均亮度（0..1，按 Rec.601 加权的伽马值），用于自动选择背景上的文字颜色。
+pub fn luminance(path: &Path) -> AppResult<f64> {
+    let small = read_image(path)?.thumbnail(64, 64).to_rgb8();
+    let count = (small.width() * small.height()).max(1) as f64;
+    let sum: f64 = small
+        .pixels()
+        .map(|p| (0.299 * p[0] as f64 + 0.587 * p[1] as f64 + 0.114 * p[2] as f64) / 255.0)
+        .sum();
+    Ok(sum / count)
+}
+
 pub fn still_cover(config: &Path, id: &str, path: &Path) -> AppResult<PathBuf> {
     static_image(config, id, path, 1920, 1080)
 }

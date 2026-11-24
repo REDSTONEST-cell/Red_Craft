@@ -166,6 +166,18 @@ pub struct Settings {
     pub title_icon: bool,
     /// 标题栏左上角显示的文字；为空时显示「RCL」
     pub title_text: String,
+    /// 直接显示在背景上的文字（标题栏、主页标题等）用白字还是黑字
+    pub text_color: TextColor,
+}
+
+/// 背景上的文字颜色：自动（按背景明暗选择）、白色或黑色。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum TextColor {
+    #[default]
+    Auto,
+    Light,
+    Dark,
 }
 
 /// 标题栏文字最多保留的字符数
@@ -234,6 +246,7 @@ impl Default for Settings {
             skipped_update: String::new(),
             title_icon: false,
             title_text: String::new(),
+            text_color: TextColor::Auto,
         }
     }
 }
@@ -404,6 +417,14 @@ mod tests {
         assert_eq!(s.layout, Layout::Minimal);
         assert_eq!(s.speed_limit_kb, 0);
         assert!(!s.title_icon);
+    }
+
+    #[test]
+    fn text_color_defaults_to_auto_and_reads_saved_choice() {
+        let s: Settings = serde_json::from_str("{}").unwrap();
+        assert_eq!(s.text_color, TextColor::Auto);
+        let s: Settings = serde_json::from_str(r#"{"textColor":"dark"}"#).unwrap();
+        assert_eq!(s.text_color, TextColor::Dark);
     }
 
     #[test]
