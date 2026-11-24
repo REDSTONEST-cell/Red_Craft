@@ -138,7 +138,7 @@ pub struct Settings {
     pub glass_opacity: f64,
     /// 毛玻璃的模糊度（像素，0–40）
     pub glass_blur: f64,
-    /// 为空时使用当前主题的玻璃底色。
+    /// 为空时使用当前主题的玻璃底色；"auto" 表示按背景明暗在白色 / 黑色玻璃之间切换。
     pub glass_color: Option<String>,
     pub selected_instance: Option<String>,
     pub selected_account: Option<String>,
@@ -166,7 +166,24 @@ pub struct Settings {
     pub title_icon: bool,
     /// 标题栏左上角显示的文字；为空时显示「RCL」
     pub title_text: String,
+    /// 直接显示在背景上的文字（标题栏、主页标题等）用白字还是黑字
+    pub text_color: TextColor,
+    /// 在主页「启动游戏」上方显示版本选择（默认关闭）
+    pub quick_version_switch: bool,
 }
+
+/// 背景上的文字颜色：自动（按背景明暗选择）、白色或黑色。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum TextColor {
+    #[default]
+    Auto,
+    Light,
+    Dark,
+}
+
+/// 玻璃颜色「跟随背景」
+pub const GLASS_FOLLOW_BACKGROUND: &str = "auto";
 
 /// 标题栏文字最多保留的字符数
 pub const TITLE_TEXT_MAX: usize = 32;
@@ -219,7 +236,8 @@ impl Default for Settings {
             layout: Layout::default(),
             glass_opacity: 0.2,
             glass_blur: 10.0,
-            glass_color: None,
+            // 默认跟随背景：按背景明暗在白色 / 黑色玻璃之间切换
+            glass_color: Some(GLASS_FOLLOW_BACKGROUND.into()),
             selected_instance: None,
             selected_account: None,
             ms_client_id: String::new(),
@@ -234,6 +252,8 @@ impl Default for Settings {
             skipped_update: String::new(),
             title_icon: false,
             title_text: String::new(),
+            text_color: TextColor::Auto,
+            quick_version_switch: false,
         }
     }
 }
@@ -404,6 +424,26 @@ mod tests {
         assert_eq!(s.layout, Layout::Minimal);
         assert_eq!(s.speed_limit_kb, 0);
         assert!(!s.title_icon);
+    }
+
+    #[test]
+    fn glass_color_defaults_to_following_the_background() {
+        let s: Settings = serde_json::from_str("{}").unwrap();
+        assert_eq!(s.glass_color.as_deref(), Some(GLASS_FOLLOW_BACKGROUND));
+        // 已经选过「跟随主题」（保存为 null）或其它颜色的用户保持原选择
+        let s: Settings = serde_json::from_str(r#"{"glassColor":null}"#).unwrap();
+        assert_eq!(s.glass_color, None);
+        let s: Settings = serde_json::from_str(r##"{"glassColor":"#0d1524"}"##).unwrap();
+        assert_eq!(s.glass_color.as_deref(), Some("#0d1524"));
+    }
+
+    #[test]
+    fn text_color_defaults_to_auto_and_reads_saved_choice() {
+        let s: Settings = serde_json::from_str("{}").unwrap();
+        assert_eq!(s.text_color, TextColor::Auto);
+        assert!(!s.quick_version_switch);
+        let s: Settings = serde_json::from_str(r#"{"textColor":"dark"}"#).unwrap();
+        assert_eq!(s.text_color, TextColor::Dark);
     }
 
     #[test]

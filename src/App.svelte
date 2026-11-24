@@ -17,6 +17,8 @@
   import { getCurrentWebview } from "@tauri-apps/api/webview";
   import type { ModpackInfo, PackSource } from "./lib/api";
   import { app, init, showError } from "./lib/state.svelte";
+  import { background } from "./lib/background-state.svelte";
+  import { textOnBackground, glassOnBackground } from "./lib/background";
   import { api } from "./lib/api";
   import { page } from "./lib/motion";
   import { tick } from "svelte";
@@ -96,6 +98,17 @@
     return () => mq.removeEventListener("change", on);
   });
 
+  // 直接显示在背景上的文字（标题栏、主页标题等）用白字还是黑字；自动时按背景实际显示的明暗选择。
+  $effect(() => {
+    const mode = app.settings?.textColor ?? "auto";
+    const theme = app.settings?.theme ?? "system";
+    const dark = theme === "dark" || (theme === "system" && systemDark);
+    const text = mode === "light" || mode === "dark"
+      ? mode
+      : textOnBackground(background.luminance, background.preview ?? background.saved, dark);
+    document.documentElement.dataset.bgText = text;
+  });
+
   // 主题与主题色
   $effect(() => {
     const s = app.settings;
@@ -111,7 +124,10 @@
     root.style.setProperty("--glass-strong-pct", `${Math.round(Math.min(0.97, glass + 0.18) * 100)}%`);
     const blur = Math.min(40, Math.max(0, s?.glassBlur ?? 10));
     root.style.setProperty("--glass-blur-px", `${blur}px`);
-    const tint = s?.glassColor;
+    // 「跟随背景」：按背景实际显示的明暗在白色 / 黑色玻璃之间切换
+    const tint = s?.glassColor === "auto"
+      ? glassOnBackground(background.luminance, background.preview ?? background.saved, dark)
+      : s?.glassColor;
     if (tint && /^#[0-9a-f]{6}$/i.test(tint)) {
       root.setAttribute("data-glass-tint", "");
       root.style.setProperty("--glass-tint", tint);

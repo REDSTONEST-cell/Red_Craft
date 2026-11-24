@@ -1,6 +1,10 @@
 pub mod model;
+mod scene;
+#[cfg(windows)]
+mod host;
 mod steam;
 mod store;
+mod web;
 
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
@@ -12,17 +16,19 @@ pub fn load(config: &std::path::Path) -> Library {
     store::load(config)
 }
 
+pub use web::serve as serve_web;
+
 fn checked(config: &std::path::Path, asset: &Asset) -> AppResult<Asset> {
     if asset.source == "wallpaperEngine" {
         let fresh = steam::project(&asset.root)?;
         if fresh.id != asset.id {
             return Err(AppError::msg("壁纸路径已改变", "请刷新壁纸库"));
         }
-        if !fresh.is_user_we_video() {
-            return Err(AppError::msg(
-                "仅支持非官方自带的视频壁纸",
-                "请刷新壁纸库并选择视频",
-            ));
+        if !fresh.is_user_we() {
+            return Err(AppError::msg("官方自带壁纸不能作为背景", "请选择创意工坊或自己制作的壁纸"));
+        }
+        if let Some(reason) = &fresh.reason {
+            return Err(AppError::msg(reason.clone(), "请刷新壁纸库或选择其它壁纸"));
         }
         if fresh.kind == "image" {
             if let Some(path) = &fresh.media {
@@ -54,6 +60,52 @@ fn checked(config: &std::path::Path, asset: &Asset) -> AppResult<Asset> {
     Ok(asset)
 }
 
+/// 决定壁纸在启动器里怎样显示：视频播放、图片显示、网页在沙盒中运行；
+/// 场景渲染成静态画面；应用程序或无法播放的主体使用预览图。
+fn display(config: &std::path::Path, asset: Asset, scene_preview: bool) -> AppResult<Resolved> {
+    let fallback = |asset: &Asset, why: Option<AppError>| -> AppResult<Resolved> {
+        match &asset.cover {
+            Some(cover) => Ok(Resolved {
+                id: asset.id.clone(),
+                kind: "image".into(),
+                media: Some(cover.clone()),
+                cover: Some(cover.clone()),
+                entry: None,
+                host: None,
+                luminance: None,
+            }),
+            None => Err(why.unwrap_or_else(|| AppError::msg("这个壁纸没有可显示的画面", "请选择其它壁纸"))),
+        }
+    };
+    if asset.source != "wallpaperEngine" {
+        return Ok(Resolved { id: asset.id, kind: asset.kind, media: asset.media, cover: asset.cover, entry: None, host: None, luminance: None });
+    }
+    match asset.kind.as_str() {
+        "video" | "image" if asset.media.is_some() => {
+            Ok(Resolved { id: asset.id, kind: asset.kind, media: asset.media, cover: asset.cover, entry: None, host: None, luminance: None })
+        }
+        "web" if asset.media.is_some() => {
+            let entry = web::entry(&asset.root, asset.media.as_deref().unwrap())?;
+            Ok(Resolved { id: asset.id, kind: "web".into(), media: None, cover: asset.cover, entry: Some(entry), host: None, luminance: None })
+        }
+        // 用户选择了「使用预览图」：显示预览图（动态模式下 GIF 预览会播放）。
+        "scene" if scene_preview && asset.cover.is_some() => fallback(&asset, None),
+        // 场景：动态模式下由 WebWallGL 实时渲染（前端渲染页）；这里准备静态画面，
+        // 用于静态模式、实时渲染加载期间与失败时的回退。静态渲染失败就用预览图。
+        "scene" => {
+            let still = match scene::rendered(config, &asset.id, &asset.root, steam::declared_file(&asset.root).as_deref(), &steam::user_properties(&asset.root)) {
+                Ok(png) => Some(png),
+                Err(e) => {
+                    log::warn!("场景壁纸 {} 静态渲染失败，改用预览图：{e}", asset.title);
+                    asset.cover.clone()
+                }
+            };
+            Ok(Resolved { id: asset.id, kind: "scene".into(), media: still.clone(), cover: still, entry: None, host: None, luminance: None })
+        }
+        _ => fallback(&asset, None),
+    }
+}
+
 fn library(state: &AppState) -> AppResult<std::sync::MutexGuard<'_, Library>> {
     state
         .backgrounds
@@ -68,7 +120,7 @@ pub async fn background_list(app: AppHandle) -> AppResult<Library> {
         let mut value = library(&state)?.clone();
         value
             .assets
-            .retain(|a| a.source == "local" || a.is_user_we_video());
+            .retain(|a| a.source == "local" || a.is_user_we());
         for asset in &mut value.assets {
             if asset.media.as_ref().is_some_and(|p| !p.is_file()) {
                 asset.reason = Some("素材丢失或不可读；请重新选择或刷新库".into());
@@ -90,11 +142,19 @@ pub async fn background_thumbnail(app: AppHandle, id: String) -> AppResult<Optio
             .find(|a| a.id == id)
             .cloned()
             .ok_or_else(|| AppError::msg("背景素材不存在", "请刷新素材库"))?;
-        let Some(cover) = &asset.cover else {
-            return Ok(None);
+        let scene_cover;
+        let cover = match &asset.cover {
+            Some(cover) => cover,
+            // 没有预览图的场景：用渲染出的静态画面做缩略图。
+            None if asset.source == "wallpaperEngine" && asset.kind == "scene" => {
+                scene_cover = scene::rendered(&state.paths.config_dir, &asset.id, &asset.root, steam::declared_file(&asset.root).as_deref(), &steam::user_properties(&asset.root))?;
+                &scene_cover
+            }
+            None => return Ok(None),
         };
         let rendered = guard.crops.get(&id).map(|rect| store::crop(&state.paths.config_dir, &asset, *rect)).transpose()?;
         let cover = if let Some(cropped) = rendered { cropped.cover.unwrap() } else { match asset.source.as_str() {
+            "wallpaperEngine" if asset.cover.is_none() => cover.clone(),
             "wallpaperEngine" => store::inside(&asset.root, cover)?,
             "local" => {
                 let path = store::inside(&state.paths.config_dir.join("backgrounds/media"), cover)?;
@@ -129,22 +189,30 @@ pub async fn background_resolve(app: AppHandle, id: String, original: Option<boo
         if !original.unwrap_or(false) {
             if let Some(rect) = guard.crops.get(&id) { asset = store::crop(&state.paths.config_dir, &asset, *rect)?; }
         }
+        let scene_preview = guard.scene_preview.contains(&id);
+        drop(guard);
+        let mut resolved = display(&state.paths.config_dir, asset, scene_preview)?;
+        // Windows：网页壁纸交给 WebView2 的虚拟主机映射直接读取项目目录（与 Lively Wallpaper 的做法相同），
+        // 支持大文件与分段读取；其它系统使用 rcwall 协议。
+        #[cfg(windows)]
+        if resolved.kind == "web" {
+            let root = library(&state)?.assets.iter().find(|a| a.id == id).map(|a| a.root.clone());
+            if let Some(root) = root {
+                resolved.host = Some(host::map(&app, &resolved.id, &root)?);
+            }
+        }
         let scope = app.asset_protocol_scope();
-        let cover = asset
+        resolved.cover = resolved
             .cover
             .as_ref()
-            .and_then(|path| store::still_cover(&state.paths.config_dir, &asset.id, path).ok());
-        for path in asset.media.iter().chain(cover.iter()) {
+            .and_then(|path| store::still_cover(&state.paths.config_dir, &resolved.id, path).ok());
+        resolved.luminance = resolved.cover.as_deref().and_then(|p| store::luminance(p).ok());
+        for path in resolved.media.iter().chain(resolved.cover.iter()) {
             scope
                 .allow_file(path)
                 .map_err(|e| AppError::msg(format!("无法授权背景媒体：{e}"), "请检查文件权限"))?;
         }
-        Ok(Resolved {
-            id: asset.id,
-            kind: asset.kind,
-            media: asset.media,
-            cover,
-        })
+        Ok(resolved)
     })
     .await?
 }
@@ -260,6 +328,7 @@ pub async fn background_remove(app: AppHandle, id: String) -> AppResult<()> {
         let mut next = guard.clone();
         next.assets.retain(|a| a.id != id);
         next.crops.remove(&id);
+        next.scene_preview.remove(&id);
         if next.appearance.selection.as_deref() == Some(&id) {
             next.appearance.selection = None;
         }
@@ -272,6 +341,7 @@ pub async fn background_remove(app: AppHandle, id: String) -> AppResult<()> {
             log::warn!("清理背景封面缓存失败：{e}");
         }
         if let Err(e) = store::cleanup_crop(&state.paths.config_dir, &id, None) { log::warn!("清理裁剪缓存失败：{e}"); }
+        scene::cleanup(&state.paths.config_dir, &id, None);
         removed
     })
     .await?
@@ -298,6 +368,28 @@ pub async fn background_crop(app: AppHandle, id: String, rect: Option<model::Cro
         if let Err(e) = store::remove_covers(&state.paths.config_dir, &id) { log::warn!("清理封面缓存失败：{e}"); }
         Ok(())
     }).await?
+}
+
+/// 场景壁纸使用预览图还是渲染出的静态画面。
+#[tauri::command]
+pub async fn background_scene_mode(app: AppHandle, id: String, preview: bool) -> AppResult<()> {
+    crate::commands::blocking(move || {
+        let state = app.state::<AppState>();
+        let mut guard = library(&state)?;
+        if !guard.assets.iter().any(|a| a.id == id && a.kind == "scene") {
+            return Err(AppError::msg("这不是场景壁纸", "请刷新素材库"));
+        }
+        let mut next = guard.clone();
+        if preview {
+            next.scene_preview.insert(id);
+        } else {
+            next.scene_preview.remove(&id);
+        }
+        store::save(&state.paths.config_dir, &next)?;
+        *guard = next;
+        Ok(())
+    })
+    .await?
 }
 
 #[tauri::command]

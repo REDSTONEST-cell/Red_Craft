@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-pub const SCAN_REVISION: u32 = 2;
+/// 3：扫描结果包含所有壁纸类型（视频、图片、网页、场景、应用程序）。
+/// 4：容器里只收带 project.json 的目录（不再误收 Steam 自带文件夹）。
+pub const SCAN_REVISION: u32 = 4;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct CropRect {
@@ -28,6 +30,8 @@ impl CropRect {
     }
 }
 
+pub const DEFAULT_FPS: u32 = 30;
+
 pub fn is_bundled_project(path: &std::path::Path) -> bool {
     path.components().any(|p| {
         p.as_os_str()
@@ -47,6 +51,8 @@ pub struct Appearance {
     pub overlay_opacity: f64,
     pub panel_opacity: f64,
     pub motion: String,
+    /// 场景实时渲染的最大帧率
+    pub fps: u32,
 }
 
 impl Default for Appearance {
@@ -60,6 +66,7 @@ impl Default for Appearance {
             overlay_opacity: 0.25,
             panel_opacity: 0.94,
             motion: "auto".into(),
+            fps: DEFAULT_FPS,
         }
     }
 }
@@ -84,6 +91,7 @@ impl Appearance {
         self.blur_px = finite(self.blur_px, 0.0, 0.0, 24.0);
         self.overlay_opacity = finite(self.overlay_opacity, 0.25, 0.0, 0.8);
         self.panel_opacity = finite(self.panel_opacity, 0.94, 0.85, 1.0);
+        self.fps = if self.fps == 0 { DEFAULT_FPS } else { self.fps.clamp(5, 240) };
     }
 }
 
@@ -103,11 +111,9 @@ pub struct Asset {
 }
 
 impl Asset {
-    pub fn is_user_we_video(&self) -> bool {
-        self.source == "wallpaperEngine"
-            && self.kind == "video"
-            && self.media.is_some()
-            && !is_bundled_project(&self.root)
+    /// 用户自己的 Wallpaper Engine 壁纸（创意工坊或 myprojects），任何类型；官方自带项目除外。
+    pub fn is_user_we(&self) -> bool {
+        self.source == "wallpaperEngine" && !is_bundled_project(&self.root)
     }
 }
 
@@ -115,6 +121,8 @@ impl Asset {
 #[serde(default, rename_all = "camelCase")]
 pub struct Library {
     pub crops: std::collections::HashMap<String, CropRect>,
+    /// 改用预览图显示的场景壁纸
+    pub scene_preview: std::collections::BTreeSet<String>,
     pub appearance: Appearance,
     pub assets: Vec<Asset>,
     pub roots: Vec<PathBuf>,
@@ -164,7 +172,7 @@ impl Library {
             entries: self
                 .assets
                 .iter()
-                .filter(|a| a.is_user_we_video())
+                .filter(|a| a.is_user_we())
                 .map(WallpaperEntry::from)
                 .collect(),
             warnings: self.scan_notes.clone(),
@@ -189,7 +197,14 @@ impl Library {
 #[serde(rename_all = "camelCase")]
 pub struct Resolved {
     pub id: String,
+    /// 显示方式：`image`、`video` 或 `web`（与壁纸类型不同：场景与应用程序壁纸以图片显示）
     pub kind: String,
     pub media: Option<PathBuf>,
     pub cover: Option<PathBuf>,
+    /// 网页壁纸入口相对项目根目录的地址（已按路径段编码）
+    pub entry: Option<String>,
+    /// Windows：WebView2 虚拟主机名（`https://<host>/<entry>`）；为空时前端使用 `rcwall` 协议
+    pub host: Option<String>,
+    /// 背景静态画面的平均亮度（0..1），用于自动选择背景上的文字颜色
+    pub luminance: Option<f64>,
 }

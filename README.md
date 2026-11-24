@@ -2,7 +2,7 @@
 
 轻量、快速的 Minecraft Java 版启动器，基于 Tauri 2 + Rust + Svelte 5。
 
-当前正式版：**1.1.13** · [下载](https://github.com/REDSTONEST-cell/Red_Craft/releases)
+当前正式版：**1.1.14** · [下载](https://github.com/REDSTONEST-cell/Red_Craft/releases)
 
 ## 下载
 
@@ -38,8 +38,13 @@
 
 **界面**
 - 利落 / 圆润 / 毛玻璃三种形状，深色 / 浅色，自定义主题色
-- 自定义背景：图片、视频、Wallpaper Engine 视频壁纸
+- 自定义背景：图片、视频、Wallpaper Engine 壁纸（视频、场景实时渲染、网页、图片）
 - 启动前内存优化（Windows）；启动器内检查更新，下载后校验 SHA256
+
+## 第三方组件
+
+- [WebWallGL](https://github.com/oneincase/webwallgl)（MIT）：实时渲染 Wallpaper Engine 场景壁纸
+- 场景纹理格式参考 [RePKG](https://github.com/notscuffed/repkg)（MIT），静态画面合成规则参考 [linux-wallpaperengine](https://github.com/Almamu/linux-wallpaperengine)
 
 ## 开发
 

@@ -538,11 +538,13 @@
               onclick={() => save({ glassColor: color })}></button>
           {/each}
           <label class="custom-tint">
-            <input type="color" aria-label="自定义玻璃颜色" value={s.glassColor ?? "#ffffff"}
+            <input type="color" aria-label="自定义玻璃颜色" value={s.glassColor && s.glassColor !== "auto" ? s.glassColor : "#ffffff"}
               oninput={(e) => (app.settings!.glassColor = s.glassColor = e.currentTarget.value)}
               onchange={(e) => save({ glassColor: e.currentTarget.value })} />
             自定义
           </label>
+          <button class="btn small" aria-pressed={s.glassColor === "auto"} title="背景偏亮时用白色玻璃，偏暗时用黑色玻璃"
+            onclick={() => save({ glassColor: "auto" })}>跟随背景</button>
           <button class="btn small" aria-pressed={!s.glassColor} onclick={() => save({ glassColor: null })}>跟随主题</button>
         </div>
       </div>
@@ -586,6 +588,10 @@
       <Toggle checked={s.titleIcon} onchange={(v) => save({ titleIcon: v })} />
     </div>
     <div class="row">
+      <div class="desc"><strong>快捷切换版本</strong><span class="help">在主页「启动游戏」按钮上方显示版本选择</span></div>
+      <Toggle checked={s.quickVersionSwitch} onchange={(v) => save({ quickVersionSwitch: v })} />
+    </div>
+    <div class="row">
       <div class="desc"><strong>标题栏文字</strong><span class="help">左上角显示的名称，留空恢复为「RCL」</span></div>
       <input
         class="input title-text"
@@ -593,6 +599,18 @@
         placeholder="RCL"
         bind:value={s.titleText}
         onchange={() => save({ titleText: s.titleText.trim() })}
+      />
+    </div>
+    <div class="row">
+      <div class="desc"><strong>背景上的文字颜色</strong><span class="help">标题栏「{s.titleText || "RCL"}」与主页标题等直接显示在背景上的文字。自动：按背景画面的明暗选择白字或黑字</span></div>
+      <Segmented
+        value={s.textColor ?? "auto"}
+        options={[
+          { value: "auto", label: "自动" },
+          { value: "light", label: "白色" },
+          { value: "dark", label: "黑色" },
+        ]}
+        onchange={(v) => save({ textColor: v })}
       />
     </div>
     <BackgroundPicker />

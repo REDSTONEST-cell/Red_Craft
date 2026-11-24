@@ -33,19 +33,26 @@ test('appearance defaults allocate fresh values with no automatic wallpaper sele
   assert.equal(defaults().panelOpacity, 0.94);
 });
 
-test('WE picker only lists videos outside bundled defaultprojects while local images stay available', async () => {
-  const { isVisibleBackgroundAsset } = await backgroundModule();
+test('WE picker lists every wallpaper type outside bundled defaultprojects', async () => {
+  const { isVisibleBackgroundAsset, kindLabel, webUrl } = await backgroundModule();
   const base = { title: 'fixture', source: 'wallpaperEngine', media: 'clip.mp4', cover: null, reason: null };
   const entries = [
     { ...base, id: 'workshop', kind: 'video', root: 'C:\\Steam\\steamapps\\workshop\\content\\431960\\123' },
     { ...base, id: 'own', kind: 'video', root: 'C:/Steam/steamapps/common/wallpaper_engine/projects/myprojects/own' },
     { ...base, id: 'bundled', kind: 'video', root: 'C:/Steam/steamapps/common/wallpaper_engine/projects/DEFAULTPROJECTS/demo' },
-    { ...base, id: 'scene', kind: 'scene' },
+    { ...base, id: 'bundled-scene', kind: 'scene', media: null, root: '/steam/projects/defaultprojects/x' },
+    { ...base, id: 'scene', kind: 'scene', media: null },
     { ...base, id: 'web', kind: 'web' },
     { ...base, id: 'we-image', kind: 'image' },
+    { ...base, id: 'app', kind: 'application', media: null },
     { ...base, id: 'local-image', source: 'local', kind: 'image' },
   ];
-  assert.deepEqual(entries.filter(isVisibleBackgroundAsset).map(a => a.id), ['workshop', 'own', 'local-image']);
+  assert.deepEqual(entries.filter(isVisibleBackgroundAsset).map(a => a.id),
+    ['workshop', 'own', 'scene', 'web', 'we-image', 'app', 'local-image']);
+  assert.equal(kindLabel('scene'), '场景');
+  assert.equal(kindLabel('mystery'), 'mystery');
+  // 测试中 convertFileSrc 原样返回，因此地址就是「ID/入口」。
+  assert.equal(webUrl('we-1', 'a%20b/index.html'), 'we-1/a%20b/index.html');
 });
 
 test('background apply failure keeps persisted selection and does not claim success', async () => {
@@ -173,4 +180,29 @@ test('a native hide event wins over an older pending visibility query', async ()
   assert.deepEqual(values, [false, true]);
   observer.dispose();
   assert.equal(unsubscribed, 1);
+});
+
+test('text over the background follows how bright the background actually looks', async () => {
+  const { textOnBackground, defaults } = await backgroundModule();
+  const full = { ...defaults(), brightness: 1, backgroundOpacity: 1, overlayOpacity: 0 };
+  assert.equal(textOnBackground(0.95, full, false), 'dark');
+  assert.equal(textOnBackground(0.1, full, false), 'light');
+  // 遮罩压暗、亮度调低后，亮画面也要换回白字。
+  assert.equal(textOnBackground(0.95, { ...full, overlayOpacity: 0.6 }, false), 'light');
+  assert.equal(textOnBackground(0.95, { ...full, brightness: 0.4 }, false), 'light');
+  // 背景很淡时以主题底色为准：浅色主题黑字、深色主题白字。
+  assert.equal(textOnBackground(0.1, { ...full, backgroundOpacity: 0.05 }, false), 'dark');
+  assert.equal(textOnBackground(0.9, { ...full, backgroundOpacity: 0.05 }, true), 'light');
+  // 不知道亮度（例如没有封面的本地视频）时保持原来的白字。
+  assert.equal(textOnBackground(null, full, false), 'light');
+});
+
+test('glass colour follows the background: white glass on bright, black glass on dark', async () => {
+  const { glassOnBackground, defaults, GLASS_LIGHT, GLASS_DARK } = await backgroundModule();
+  const full = { ...defaults(), brightness: 1, backgroundOpacity: 1, overlayOpacity: 0 };
+  assert.equal(glassOnBackground(0.95, full, false), GLASS_LIGHT);
+  assert.equal(glassOnBackground(0.1, full, false), GLASS_DARK);
+  // 没有背景时按主题深浅
+  assert.equal(glassOnBackground(null, full, false), GLASS_LIGHT);
+  assert.equal(glassOnBackground(null, full, true), GLASS_DARK);
 });

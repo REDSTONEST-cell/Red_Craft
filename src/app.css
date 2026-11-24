@@ -100,14 +100,36 @@ body {
   background: transparent;
 }
 
-/* 视频帧明暗变化大，用白色前景 + 深色描边保证可读性。 */
+/* 直接显示在背景上的文字颜色（设置 → 外观「背景上的文字颜色」）：
+   白字配深色描边，或黑字配浅色描边；自动时按背景实际显示的明暗选择（App.svelte 设置 data-bg-text）。 */
+:root.has-background {
+  --over-ink: #ffffff;
+  --over-ink-2: #f4f6fa;
+  --over-muted: #e0e6ef;
+  --over-edge: #000;
+  --over-glow: rgb(0 0 0 / 85%);
+}
+:root.has-background[data-bg-text="dark"] {
+  --over-ink: #121110;
+  --over-ink-2: #24211d;
+  --over-muted: #3d3a34;
+  --over-edge: #fff;
+  --over-glow: rgb(255 255 255 / 88%);
+}
+
+/* 视频帧明暗变化大，用前景色 + 反差描边保证可读性。 */
 :root.has-background .shell {
-  --ink: #ffffff;
-  --ink-2: #f4f6fa;
-  --muted: #e0e6ef;
+  --ink: var(--over-ink);
+  --ink-2: var(--over-ink-2);
+  --muted: var(--over-muted);
   color: var(--ink);
-  text-shadow: -1px 0 1px #000, 1px 0 1px #000, 0 -1px 1px #000,
-    0 1px 1px #000, 0 2px 4px rgba(0, 0, 0, 0.9);
+  text-shadow: -1px 0 1px var(--over-edge), 1px 0 1px var(--over-edge), 0 -1px 1px var(--over-edge),
+    0 1px 1px var(--over-edge), 0 2px 4px var(--over-glow);
+}
+/* 标题栏的名称与窗口按钮直接压在背景上（毛玻璃形状下也是），跟随背景上的文字颜色。 */
+:root.has-background[data-bg-text] .shell > .titlebar :is(.name, .ctl:not(:hover)) {
+  color: var(--over-ink);
+  text-shadow: 0 0 1px var(--over-edge), 0 0 2px var(--over-glow), 0 0 6px var(--over-glow);
 }
 
 /* 背景模式下保留结构性分隔线（页头下划线、报头双线、页脚上边线等），
@@ -139,7 +161,7 @@ body {
   color: color-mix(in srgb, var(--accent) 65%, white);
 }
 :root.has-background .sidebar svg {
-  filter: drop-shadow(0 1px 1px #000);
+  filter: drop-shadow(0 1px 1px var(--over-edge, #000));
 }
 
 ::selection {
@@ -797,7 +819,8 @@ textarea.input {
   border: 1px solid var(--glass-edge);
   box-shadow: var(--shadow);
 }
-:root[data-corner="glass"][data-glass-tint] :is(.content:not(.launch-home), .modal) {
+/* 自定义玻璃颜色：内容区、对话框、弹出提示与任务面板都用玻璃色作底，文字随玻璃明暗取白或黑（App.svelte 设置 --glass-tint-ink）。 */
+:root[data-corner="glass"][data-glass-tint] :is(.content:not(.launch-home), .modal, .toast, .task-panel) {
   --card: var(--glass-tint);
   --control-ink: var(--glass-tint-ink);
   --control-ink-2: var(--glass-tint-ink);
@@ -871,18 +894,18 @@ textarea.input {
   background: transparent;
 }
 :root[data-corner="glass"].has-background .launch-home .lead {
-  --ink: #fff;
-  --ink-2: #fff;
-  --muted: #fff;
-  --rule: rgb(255 255 255 / 16%);
+  --ink: var(--over-ink);
+  --ink-2: var(--over-ink);
+  --muted: var(--over-ink);
+  --rule: color-mix(in srgb, var(--over-ink) 16%, transparent);
   color: var(--ink);
   text-shadow: none;
 }
 :root[data-corner="glass"].has-background .launch-home .lead :is(.headline, .deck, .byline, .kicker) {
   color: var(--ink);
-  -webkit-text-stroke: 1.5px rgb(12 14 18 / 82%);
+  -webkit-text-stroke: 1.5px color-mix(in srgb, var(--over-edge) 82%, transparent);
   paint-order: stroke fill;
-  text-shadow: 0 1px 3px rgb(0 0 0 / 80%);
+  text-shadow: 0 1px 3px var(--over-glow);
 }
 :root[data-corner="glass"] .launch-home :is(.quick .btn:not(.primary), .chip) {
   color: var(--glass-tint-ink, var(--control-ink));

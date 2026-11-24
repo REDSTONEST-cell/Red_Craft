@@ -54,6 +54,10 @@ export interface Settings {
   titleIcon: boolean;
   /** 标题栏左上角的文字；为空时显示 RCL */
   titleText: string;
+  /** 直接显示在背景上的文字颜色：auto 按背景明暗自动选择 */
+  textColor: "auto" | "light" | "dark";
+  /** 在「启动游戏」上方显示版本选择（默认关闭） */
+  quickVersionSwitch: boolean;
 }
 
 export interface MemoryStatus {

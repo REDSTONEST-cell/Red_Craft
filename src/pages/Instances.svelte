@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { api, type InstanceConfig, type InstanceInfo, type JavaInstall } from "../lib/api";
+  import { api, type FileKind, type InstanceConfig, type InstanceInfo, type JavaInstall } from "../lib/api";
+  import ResourceManager from "../components/ResourceManager.svelte";
+  import { fade } from "svelte/transition";
   import Dropdown from "../components/Dropdown.svelte";
   import Toggle from "../components/Toggle.svelte";
   import { app, refreshInstances, selectInstance, selectedInstance, showError, toast } from "../lib/state.svelte";
@@ -141,9 +143,44 @@
     app.page = "launch";
   }
 
-  // 实例设置
+  // 版本详情：资源管理（Mod、材质包、光影包、存档）与版本设置。点版本的设置按钮进入。
   let editing = $state<InstanceInfo | null>(null);
-  let editOpen = $state(false);
+  let detailTab = $state<"resources" | "settings">("resources");
+  function storedKind(): FileKind {
+    try {
+      const k = localStorage.getItem("rc.manageKind");
+      if (k === "mod" || k === "resourcepack" || k === "shader" || k === "save") return k;
+    } catch {
+      /* 忽略 */
+    }
+    return "mod";
+  }
+  let manageKind = $state<FileKind>(storedKind());
+  $effect(() => {
+    try {
+      localStorage.setItem("rc.manageKind", manageKind);
+    } catch {
+      /* 忽略 */
+    }
+  });
+  const manageKinds: { value: FileKind; label: string }[] = [
+    { value: "mod", label: "Mod" },
+    { value: "resourcepack", label: "材质包" },
+    { value: "shader", label: "光影包" },
+    { value: "save", label: "存档" },
+  ];
+  // 从主页面「资源管理」「存档」按钮跳转过来：打开当前版本的资源管理
+  $effect(() => {
+    const kind = app.manage;
+    if (!kind) return;
+    const inst = selectedInstance();
+    app.manage = null;
+    if (inst) void openDetail(inst, "resources", kind);
+  });
+  function closeDetail() {
+    editing = null;
+    config = null;
+  }
   let config = $state<InstanceConfig | null>(null);
   let isolation = $state<"default" | "on" | "off">("default");
   let memory = $state("");
@@ -155,15 +192,21 @@
   let javas = $state<JavaInstall[]>([]);
   const BROWSE = "\u0000browse";
 
-  async function openSettings(i: InstanceInfo) {
+  async function openDetail(i: InstanceInfo, tab: "resources" | "settings" = "resources", kind?: FileKind) {
     editing = i;
+    detailTab = tab;
+    if (kind) manageKind = kind;
+    await loadConfig(i);
+  }
+
+  // 读取（或还原）版本设置
+  async function loadConfig(i: InstanceInfo) {
     newName = i.id;
     try {
       config = await api.getInstanceConfig(i.id);
       isolation = config.isolation === null ? "default" : config.isolation ? "on" : "off";
       memory = config.maxMemoryMb ? String(config.maxMemoryMb) : "";
       checkFiles = config.checkFiles !== false;
-      editOpen = true;
     } catch (e) {
       showError(e);
       return;
@@ -267,7 +310,7 @@
     };
     try {
       await api.saveInstanceConfig(editing.id, next);
-      editOpen = false;
+      config = next;
       toast("ok", "版本设置已保存");
       refreshInstances();
     } catch (e) {
@@ -276,6 +319,51 @@
   }
 </script>
 
+{#if editing}
+<div class="detail" in:fade={{ duration: 150 }}>
+  <div class="page-head">
+    <div>
+      <div class="kicker">VERSION</div>
+      <h1 class="detail-title"><InstanceIcon inst={editing} size={44} /><span>{editing.id}</span>
+        {#if current?.id === editing.id}<span class="tag accent">当前</span>{/if}</h1>
+      <div class="sub">
+        {#if editing.error}{editing.error}{:else}Minecraft {editing.mcVersion} · {KIND_LABEL[editing.kind] ?? editing.kind}
+          {#if editing.loader}· {LOADER_LABEL[editing.loader.kind]} {editing.loader.version}{/if}
+          · {editing.isolated ? "版本隔离" : "共用目录"}{/if}
+      </div>
+    </div>
+    <div class="tools">
+      <button class="btn" onclick={closeDetail}><span class="back"><Icon name="chevron" size={12} /></span> 返回版本列表</button>
+      <button class="btn icon" title="打开文件夹" aria-label="打开文件夹" onclick={() => editing && api.openInstanceDir(editing.id).catch((e) => showError(e))}><Icon name="folder" size={14} /></button>
+      {#if current?.id !== editing.id}
+        <button class="btn primary" disabled={!!editing.error} onclick={() => editing && choose(editing)}>选择</button>
+      {/if}
+    </div>
+  </div>
+  <div class="detail-bar">
+    <Segmented bind:value={detailTab} options={[{ value: "resources", label: "资源管理" }, { value: "settings", label: "版本设置" }]} />
+    {#if detailTab === "resources"}
+      <span class="spacer"></span>
+      <Segmented bind:value={manageKind} options={manageKinds} />
+    {/if}
+  </div>
+  <div class="detail-body">
+    {#if detailTab === "resources"}
+      <div class="fill" in:fade={{ duration: 150 }}>
+        {#key editing.id}<ResourceManager instance={editing.id} kind={manageKind} />{/key}
+      </div>
+    {:else}
+      <div class="fill scroll" in:fade={{ duration: 150 }}>
+        {@render settingsForm()}
+        <div class="form-actions">
+          <button class="btn" onclick={() => editing && loadConfig(editing)}>还原</button>
+          <button class="btn primary" disabled={!config} onclick={saveConfig}>保存</button>
+        </div>
+      </div>
+    {/if}
+  </div>
+</div>
+{:else}
 <div class="page-head">
   <div>
     <div class="kicker">VERSIONS</div>
@@ -391,7 +479,7 @@
           >
             <Icon name="upload" size={14} />
           </button>
-          <button class="btn sm icon" title="版本设置" onclick={() => openSettings(inst)}>
+          <button class="btn sm icon" title="版本设置" onclick={() => openDetail(inst)}>
             <Icon name="gear" size={14} />
           </button>
           <button
@@ -408,6 +496,8 @@
       </article>
     {/each}
   </div>
+{/if}
+
 {/if}
 
 <Modal bind:open={batchDeleteOpen} title={`删除 ${pickedList.length} 个版本？`} kicker="DELETE" width={460}>
@@ -441,7 +531,7 @@
   {/snippet}
 </Modal>
 
-<Modal bind:open={editOpen} title={`版本设置 · ${editing?.id ?? ""}`} kicker="SETTINGS" width={520}>
+{#snippet settingsForm()}
   {#if config}
     <div class="form">
       <div class="field">
@@ -503,16 +593,61 @@
       </div>
     </div>
   {/if}
-  {#snippet actions()}
-    <button class="btn" onclick={() => (editOpen = false)}>取消</button>
-    <button class="btn primary" onclick={saveConfig}>保存</button>
-  {/snippet}
-</Modal>
+{/snippet}
 
 <ImportLauncher bind:open={migrateOpen} />
 <ExportModpack bind:open={exportOpen} instance={exporting} />
 
 <style>
+  /* 版本详情占满内容区：资源列表是虚拟滚动，需要确定的高度 */
+  .detail {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+  .detail-title {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-width: 0;
+  }
+  .detail-title > span:first-of-type {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .detail-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .spacer {
+    flex: 1;
+  }
+  .detail-body {
+    flex: 1;
+    min-height: 0;
+    position: relative;
+  }
+  .fill {
+    position: absolute;
+    inset: 0;
+  }
+  .fill.scroll {
+    overflow-y: auto;
+    padding-right: 6px;
+  }
+  .form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin: 18px 0 6px;
+  }
+  .back {
+    display: inline-flex;
+    transform: rotate(180deg);
+  }
   .rename {
     display: flex;
     gap: 8px;

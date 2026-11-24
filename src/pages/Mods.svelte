@@ -54,6 +54,8 @@
   function initialTab(): Tab {
     const saved = stored("rc.contentTab", "mod") as Tab;
     if (!games) return saved === "game" ? "mod" : saved;
+    // 电脑版的资源管理已移到「版本」页
+    if (saved === "installed") return "mod";
     // 还没有安装任何版本时先看游戏列表
     return app.openGames || (app.instancesLoaded && app.instances.length === 0) ? "game" : saved;
   }
@@ -112,7 +114,8 @@
   // 从主页面「资源管理」「存档」等按钮跳转过来
   $effect(() => {
     const k = app.manage;
-    if (!k) return;
+    // 电脑版由「版本」页处理（资源管理在版本详情里）
+    if (!k || games) return;
     tab = "installed";
     manageKind = k;
     instanceId = selectedInstance()?.id ?? instanceId;
@@ -338,7 +341,8 @@
     { value: "resourcepack", label: "材质包" },
     { value: "shader", label: "光影包" },
     { value: "modpack", label: "整合包" },
-    { value: "installed", label: "资源管理" },
+    // 电脑版的资源管理在「版本」页的版本详情里；手机版仍在这里
+    ...(games ? [] : [{ value: "installed" as Tab, label: "资源管理" }]),
   ]);
   const manageKinds: { value: FileKind; label: string }[] = [
     { value: "mod", label: "Mod" },

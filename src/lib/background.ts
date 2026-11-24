@@ -10,22 +10,63 @@ export interface Appearance {
   panelOpacity: number;
   /** auto：自动播放，系统要求减少动态效果时暂停；always：始终播放；static：静态 */
   motion: "auto" | "always" | "static";
+  /** 场景实时渲染的最大帧率 */
+  fps: number;
 }
 export interface BackgroundAsset {
   id: string; title: string; source: "local" | "wallpaperEngine";
   kind: string; media: string | null; cover: string | null; reason: string | null;
   root?: string;
+  /** 不影响使用的说明，例如「应用程序壁纸不会在启动器中运行，已使用预览图」 */
+  scanWarning?: string | null;
 }
+/** Wallpaper Engine 的壁纸类型 */
+export const WE_KINDS = ["video", "scene", "web", "image", "application"] as const;
+export const KIND_LABEL: Record<string, string> = {
+  video: "视频", scene: "场景", web: "网页", image: "图片", application: "应用程序",
+};
+export const kindLabel = (kind: string) => KIND_LABEL[kind] ?? kind;
 export interface CropRect { x: number; y: number; width: number; height: number }
+/** 本地素材与用户自己的 Wallpaper Engine 壁纸（任何类型）；屏蔽官方自带的 defaultprojects。 */
 export function isVisibleBackgroundAsset(asset: BackgroundAsset): boolean {
-  return asset.source === "local" || (asset.kind === "video" && !!asset.media
-    && !/(^|[\\/])defaultprojects([\\/]|$)/i.test(asset.root ?? ""));
+  return asset.source === "local" || !/(^|[\\/])defaultprojects([\\/]|$)/i.test(asset.root ?? "");
 }
 export interface BackgroundLibrary {
   crops?: Record<string, CropRect>;
+  /** 改用预览图显示的场景壁纸 */
+  scenePreview?: string[];
   appearance: Appearance; assets: BackgroundAsset[]; roots: string[]; scanNotes: string[];
 }
-export interface ResolvedBackground { id: string; kind: string; media: string | null; cover: string | null }
+/** kind 是显示方式：image / video / web（场景与应用程序壁纸以图片显示）。 */
+export interface ResolvedBackground {
+  id: string; kind: string; media: string | null; cover: string | null;
+  /** 网页壁纸入口（相对壁纸目录，已编码） */
+  entry?: string | null;
+  /** Windows：WebView2 虚拟主机名；为空时使用 rcwall 协议 */
+  host?: string | null;
+  /** 背景静态画面的平均亮度 0..1（没有静态画面时为空） */
+  luminance?: number | null;
+}
+
+/**
+ * 背景上的文字该用白字还是黑字：把背景画面的亮度按「亮度 × 不透明度 + 主题底色」
+ * 混合，再压上黑色遮罩，得到实际显示出来的明暗。足够亮时用黑字，否则用白字。
+ */
+export function textOnBackground(luminance: number | null | undefined, a: Appearance, darkTheme: boolean): "light" | "dark" {
+  if (luminance == null || !Number.isFinite(luminance)) return "light";
+  const base = darkTheme ? 0.09 : 0.93;
+  const image = Math.min(1, Math.max(0, luminance) * a.brightness);
+  const shown = (image * a.backgroundOpacity + base * (1 - a.backgroundOpacity)) * (1 - a.overlayOpacity);
+  return shown > 0.58 ? "dark" : "light";
+}
+
+/** 玻璃颜色「跟随背景」：背景偏亮用白色玻璃，偏暗用黑色玻璃；没有背景时按主题深浅。 */
+export const GLASS_LIGHT = "#ffffff";
+export const GLASS_DARK = "#141414";
+export function glassOnBackground(luminance: number | null | undefined, a: Appearance, darkTheme: boolean): string {
+  if (luminance == null || !Number.isFinite(luminance)) return darkTheme ? GLASS_DARK : GLASS_LIGHT;
+  return textOnBackground(luminance, a, darkTheme) === "dark" ? GLASS_LIGHT : GLASS_DARK;
+}
 // 对外扫描 DTO 使用需求约定的 snake_case；存储格式保留兼容。
 export interface WallpaperEntry {
   id: string;
@@ -41,8 +82,16 @@ export interface WallpaperScanResult {
   from_cache: boolean;
 }
 export const defaults = (): Appearance => ({ selection: null, fit: "cover", brightness: 0.85, backgroundOpacity: 0.75,
-  blurPx: 0, overlayOpacity: 0.25, panelOpacity: 0.94, motion: "auto" });
+  blurPx: 0, overlayOpacity: 0.25, panelOpacity: 0.94, motion: "auto", fps: 30 });
+/** 场景最大帧率可选项 */
+export const FPS_OPTIONS = [15, 24, 30, 45, 60, 90, 120, 144];
 export const mediaUrl = (path: string | null) => path ? convertFileSrc(path) : "";
+/** 网页壁纸地址：由后端的 rcwall 协议按「素材 ID / 相对路径」提供项目内文件。 */
+/** 场景实时渲染页（WebWallGL），由后端的 rcwall 协议提供；与启动器不同源。 */
+export const sceneUrl = (id: string, fit: string, fps: number) =>
+  `${convertFileSrc("", "rcwall")}__engine/scene.html?${new URLSearchParams({ id, fit, fps: String(fps) })}`;
+export const webUrl = (id: string, entry: string, host?: string | null) =>
+  host ? `https://${host}/${entry}` : `${convertFileSrc("", "rcwall")}${encodeURIComponent(id)}/${entry}`;
 export const backgroundApi = {
   list: () => invoke<BackgroundLibrary>("background_list"),
   resolve: (id: string) => invoke<ResolvedBackground>("background_resolve", { id }),
@@ -53,6 +102,7 @@ export const backgroundApi = {
   scan: (roots: string[], forceRefresh = false) => invoke<WallpaperScanResult>("background_scan", { roots, forceRefresh }),
   thumbnail: (id: string) => invoke<string | null>("background_thumbnail", { id }),
   remove: (id: string) => invoke<void>("background_remove", { id }),
+  sceneMode: (id: string, preview: boolean) => invoke<void>("background_scene_mode", { id, preview }),
   visible: () => invoke<boolean>("background_window_state"),
 };
 
