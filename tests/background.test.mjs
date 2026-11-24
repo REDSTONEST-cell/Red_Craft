@@ -196,3 +196,13 @@ test('text over the background follows how bright the background actually looks'
   // 不知道亮度（例如没有封面的本地视频）时保持原来的白字。
   assert.equal(textOnBackground(null, full, false), 'light');
 });
+
+test('glass colour follows the background: white glass on bright, black glass on dark', async () => {
+  const { glassOnBackground, defaults, GLASS_LIGHT, GLASS_DARK } = await backgroundModule();
+  const full = { ...defaults(), brightness: 1, backgroundOpacity: 1, overlayOpacity: 0 };
+  assert.equal(glassOnBackground(0.95, full, false), GLASS_LIGHT);
+  assert.equal(glassOnBackground(0.1, full, false), GLASS_DARK);
+  // 没有背景时按主题深浅
+  assert.equal(glassOnBackground(null, full, false), GLASS_LIGHT);
+  assert.equal(glassOnBackground(null, full, true), GLASS_DARK);
+});

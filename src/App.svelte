@@ -18,7 +18,7 @@
   import type { ModpackInfo, PackSource } from "./lib/api";
   import { app, init, showError } from "./lib/state.svelte";
   import { background } from "./lib/background-state.svelte";
-  import { textOnBackground } from "./lib/background";
+  import { textOnBackground, glassOnBackground } from "./lib/background";
   import { api } from "./lib/api";
   import { page } from "./lib/motion";
   import { tick } from "svelte";
@@ -124,7 +124,10 @@
     root.style.setProperty("--glass-strong-pct", `${Math.round(Math.min(0.97, glass + 0.18) * 100)}%`);
     const blur = Math.min(40, Math.max(0, s?.glassBlur ?? 10));
     root.style.setProperty("--glass-blur-px", `${blur}px`);
-    const tint = s?.glassColor;
+    // 「跟随背景」：按背景实际显示的明暗在白色 / 黑色玻璃之间切换
+    const tint = s?.glassColor === "auto"
+      ? glassOnBackground(background.luminance, background.preview ?? background.saved, dark)
+      : s?.glassColor;
     if (tint && /^#[0-9a-f]{6}$/i.test(tint)) {
       root.setAttribute("data-glass-tint", "");
       root.style.setProperty("--glass-tint", tint);

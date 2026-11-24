@@ -59,6 +59,14 @@ export function textOnBackground(luminance: number | null | undefined, a: Appear
   const shown = (image * a.backgroundOpacity + base * (1 - a.backgroundOpacity)) * (1 - a.overlayOpacity);
   return shown > 0.58 ? "dark" : "light";
 }
+
+/** 玻璃颜色「跟随背景」：背景偏亮用白色玻璃，偏暗用黑色玻璃；没有背景时按主题深浅。 */
+export const GLASS_LIGHT = "#ffffff";
+export const GLASS_DARK = "#141414";
+export function glassOnBackground(luminance: number | null | undefined, a: Appearance, darkTheme: boolean): string {
+  if (luminance == null || !Number.isFinite(luminance)) return darkTheme ? GLASS_DARK : GLASS_LIGHT;
+  return textOnBackground(luminance, a, darkTheme) === "dark" ? GLASS_LIGHT : GLASS_DARK;
+}
 // 对外扫描 DTO 使用需求约定的 snake_case；存储格式保留兼容。
 export interface WallpaperEntry {
   id: string;

@@ -138,7 +138,7 @@ pub struct Settings {
     pub glass_opacity: f64,
     /// 毛玻璃的模糊度（像素，0–40）
     pub glass_blur: f64,
-    /// 为空时使用当前主题的玻璃底色。
+    /// 为空时使用当前主题的玻璃底色；"auto" 表示按背景明暗在白色 / 黑色玻璃之间切换。
     pub glass_color: Option<String>,
     pub selected_instance: Option<String>,
     pub selected_account: Option<String>,

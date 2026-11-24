@@ -538,11 +538,13 @@
               onclick={() => save({ glassColor: color })}></button>
           {/each}
           <label class="custom-tint">
-            <input type="color" aria-label="自定义玻璃颜色" value={s.glassColor ?? "#ffffff"}
+            <input type="color" aria-label="自定义玻璃颜色" value={s.glassColor && s.glassColor !== "auto" ? s.glassColor : "#ffffff"}
               oninput={(e) => (app.settings!.glassColor = s.glassColor = e.currentTarget.value)}
               onchange={(e) => save({ glassColor: e.currentTarget.value })} />
             自定义
           </label>
+          <button class="btn small" aria-pressed={s.glassColor === "auto"} title="背景偏亮时用白色玻璃，偏暗时用黑色玻璃"
+            onclick={() => save({ glassColor: "auto" })}>跟随背景</button>
           <button class="btn small" aria-pressed={!s.glassColor} onclick={() => save({ glassColor: null })}>跟随主题</button>
         </div>
       </div>
