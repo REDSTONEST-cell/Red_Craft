@@ -374,6 +374,242 @@ pub async fn multiplayer_install(app: AppHandle) -> AppResult<()> {
     }
 }
 
+// ───────────── 日志与诊断 ─────────────
+
+/// 陶瓦的数据目录：每次启动在这里建一个「日期-时间-进程号」文件夹，日志为其中的 application.log
+fn terracotta_root() -> PathBuf {
+    #[cfg(target_os = "macos")]
+    if let Some(home) = std::env::var_os("HOME") {
+        return PathBuf::from(home).join("terracotta");
+    }
+    std::env::temp_dir().join("terracotta")
+}
+
+/// 最近一次运行的陶瓦日志文件
+fn latest_log_file() -> Option<PathBuf> {
+    std::fs::read_dir(terracotta_root())
+        .ok()?
+        .flatten()
+        .map(|e| e.path().join("application.log"))
+        .filter(|p| p.is_file())
+        .max_by_key(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok())
+}
+
+/// 陶瓦日志：陶瓦在运行时从它的接口读取当前进程的日志，否则读最近一次的日志文件
+async fn log_text() -> Option<String> {
+    if let Some(port) = port() {
+        if let Ok((200, body)) = request(port, "/log", &[("fetch", "true")]).await {
+            if !body.is_empty() {
+                return Some(body);
+            }
+        }
+    }
+    let file = latest_log_file()?;
+    let bytes = std::fs::read(file).ok()?;
+    Some(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+#[derive(Debug, Default, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Diagnosis {
+    /// 本机无法在房主的游戏端口上建立转发（Windows 上多为该端口被系统保留）
+    pub port_blocked: bool,
+    /// 房主的游戏端口
+    pub port: Option<u16>,
+}
+
+/// 从陶瓦日志找出加入失败的具体原因
+pub fn diagnose(log: &str) -> Diagnosis {
+    // 只看最后一次加入房间的部分
+    let tail = log.rfind("Connecting to room").map_or(log, |i| &log[i..]);
+    let marker = "Cannot create a port-forward ";
+    let Some(line) = tail.lines().rev().find(|l| l.contains(marker) && l.contains("for MC Connection")) else {
+        return Diagnosis::default();
+    };
+    // 形如：Cannot create a port-forward 61823 -> 61823 for MC Connection.
+    let port = line
+        .split("->")
+        .nth(1)
+        .and_then(|rest| rest.split_whitespace().next())
+        .and_then(|p| p.parse().ok());
+    Diagnosis { port_blocked: true, port }
+}
+
+/// 分析最近一次联机失败的原因
+#[tauri::command]
+pub async fn multiplayer_diagnose() -> AppResult<Diagnosis> {
+    Ok(log_text().await.map(|log| diagnose(&log)).unwrap_or_default())
+}
+
+// ───────────── 连接方式 ─────────────
+
+#[derive(Debug, Default, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Link {
+    /// "IPv4" / "IPv6"；无法判断时为空
+    pub ip_version: Option<&'static str>,
+    /// 对方是局域网地址（同一个路由器下）
+    pub lan: bool,
+    /// 隧道协议：tcp / udp / quic / wg 等
+    pub protocol: String,
+    /// 与房主之间的延迟（毫秒）
+    pub latency_ms: Option<f64>,
+    /// 经过其他成员中转，而不是与房主直连
+    pub relayed: bool,
+}
+
+/// 从日志取出当前这次加入所用的组件信息：EasyTier 所在目录、RPC 端口、房主的虚拟 IP
+fn link_context(log: &str) -> Option<(PathBuf, u16, Option<std::net::Ipv4Addr>)> {
+    let dir = log
+        .lines()
+        .rev()
+        .find_map(|l| l.split("Releasing easytier to ").nth(1))
+        .map(|p| PathBuf::from(p.trim()))?;
+    // 只看最后一次加入房间的部分
+    let tail = log.rfind("Connecting to room").map_or(log, |i| &log[i..]);
+    let rpc = tail
+        .lines()
+        .rev()
+        .find_map(|l| l.rsplit_once("rpc=").and_then(|(_, p)| p.trim().parse().ok()))?;
+    let host = tail.lines().rev().find_map(|l| {
+        let rest = l.split("Scaffolding Server is at ").nth(1)?;
+        rest.trim().split(':').next()?.parse().ok()
+    });
+    Some((dir, rpc, host))
+}
+
+/// 解析 EasyTier 地址（如 udp://[240e::1]:1234、tcp://1.2.3.4:5）里的 IP
+fn url_ip(url: &str) -> Option<std::net::IpAddr> {
+    let rest = url.split_once("://").map_or(url, |(_, r)| r);
+    let host = if let Some(v6) = rest.strip_prefix('[') {
+        v6.split(']').next()?
+    } else {
+        rest.split(['/', ':']).next()?
+    };
+    let ip: std::net::IpAddr = host.parse().ok()?;
+    Some(match ip {
+        std::net::IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(ip, std::net::IpAddr::V4),
+        v4 => v4,
+    })
+}
+
+fn is_lan(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => v4.is_private() || v4.is_link_local() || v4.is_loopback(),
+        std::net::IpAddr::V6(v6) => {
+            let first = v6.segments()[0];
+            // fc00::/7 唯一本地地址、fe80::/10 链路本地地址
+            (first & 0xfe00) == 0xfc00 || (first & 0xffc0) == 0xfe80 || v6.is_loopback()
+        }
+    }
+}
+
+/// 从 `easytier-cli -v -o json peer list` 的输出里找出与房主之间的连接
+pub fn link_from_peers(peers: &Value, host: Option<std::net::Ipv4Addr>) -> Option<Link> {
+    let pairs = peers.as_array()?;
+    let is_public = |p: &Value| {
+        p.pointer("/route/hostname")
+            .and_then(Value::as_str)
+            .is_some_and(|h| h.starts_with("PublicServer_"))
+    };
+    let pair = host
+        .and_then(|ip| {
+            let want = u32::from(ip);
+            pairs.iter().find(|p| p.pointer("/route/ipv4_addr/address/addr").and_then(Value::as_u64) == Some(want.into()))
+        })
+        .or_else(|| pairs.iter().find(|p| !is_public(p) && p.get("peer").is_some_and(|v| !v.is_null())))?;
+
+    let conns: Vec<&Value> = pair
+        .pointer("/peer/conns")
+        .and_then(Value::as_array)
+        .map(|c| c.iter().filter(|c| c.get("is_closed").and_then(Value::as_bool) != Some(true)).collect())
+        .unwrap_or_default();
+    if conns.is_empty() {
+        // 没有直接连接，经由其他节点转发
+        let latency = pair.pointer("/route/path_latency").and_then(Value::as_f64).filter(|l| *l > 0.0);
+        return Some(Link { relayed: true, latency_ms: latency, ..Link::default() });
+    }
+    // EasyTier 当前使用的连接（default_conn_id 拆成 4 段 u32 存储）
+    let default_id = pair.pointer("/peer/default_conn_id").and_then(|u| {
+        let part = |k: &str| u.get(k).and_then(Value::as_u64);
+        Some(format!("{:08x}{:08x}{:08x}{:08x}", part("part1")?, part("part2")?, part("part3")?, part("part4")?))
+    });
+    let conn = default_id
+        .and_then(|id| {
+            conns.iter().find(|c| c.get("conn_id").and_then(Value::as_str).map(|s| s.replace('-', "").to_lowercase()) == Some(id.clone()))
+        })
+        .unwrap_or(&conns[0]);
+
+    let tunnel = conn.get("tunnel");
+    let url = |k: &str| tunnel.and_then(|t| t.pointer(&format!("/{k}/url"))).and_then(Value::as_str);
+    let ip = url("remote_addr").and_then(url_ip).or_else(|| url("local_addr").and_then(url_ip));
+    let protocol = tunnel
+        .and_then(|t| t.get("tunnel_type"))
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .or_else(|| url("remote_addr").and_then(|u| u.split_once("://")).map(|(s, _)| s.to_string()))
+        .unwrap_or_default();
+    let latency = conn
+        .pointer("/stats/latency_us")
+        .and_then(Value::as_f64)
+        .filter(|l| *l > 0.0)
+        .map(|us| us / 1000.0);
+    Some(Link {
+        ip_version: ip.map(|ip| if ip.is_ipv6() { "IPv6" } else { "IPv4" }),
+        lan: ip.is_some_and(is_lan),
+        protocol,
+        latency_ms: latency,
+        relayed: false,
+    })
+}
+
+/// 查询加入房间后与房主之间的连接方式（IPv4 / IPv6、协议、延迟）
+#[tauri::command]
+pub async fn multiplayer_link() -> AppResult<Option<Link>> {
+    let Some(log) = log_text().await else { return Ok(None) };
+    let Some((dir, rpc, host)) = link_context(&log) else { return Ok(None) };
+    let cli = std::fs::read_dir(&dir).ok().and_then(|entries| {
+        entries
+            .flatten()
+            .map(|e| e.path())
+            .find(|p| p.file_stem().is_some_and(|s| s == "easytier-cli"))
+    });
+    let Some(cli) = cli else { return Ok(None) };
+    let mut command = tokio::process::Command::new(cli);
+    command
+        .args(["-p", &format!("127.0.0.1:{rpc}"), "-v", "-o", "json", "peer", "list"])
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true);
+    #[cfg(windows)]
+    command.creation_flags(0x0800_0000);
+    let Ok(Ok(output)) = tokio::time::timeout(Duration::from_secs(4), command.output()).await else {
+        return Ok(None);
+    };
+    let Ok(peers) = serde_json::from_slice::<Value>(&output.stdout) else { return Ok(None) };
+    Ok(link_from_peers(&peers, host))
+}
+
+/// 导出陶瓦日志到启动器的 logs 文件夹（与启动器日志放在一起），并打开该文件夹
+#[tauri::command]
+pub async fn multiplayer_export_log(app: AppHandle) -> AppResult<String> {
+    let text = log_text()
+        .await
+        .ok_or_else(|| AppError::msg("还没有联机日志", "请先使用一次联机功能"))?;
+    let state = app.state::<AppState>();
+    let dir = state.paths.config_dir.join("logs");
+    std::fs::create_dir_all(&dir).at(&dir)?;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or_default();
+    let file = dir.join(format!("terracotta-{stamp}.log"));
+    std::fs::write(&file, text).at(&file)?;
+    crate::commands::open_path(&app, &dir)?;
+    Ok(file.display().to_string())
+}
+
 /// 退出启动器时让陶瓦正常退出（房间随之关闭）。
 pub fn shutdown() {
     let Some(port) = port() else { return };
@@ -450,6 +686,12 @@ mod tests {
             multiplayer_leave().await.unwrap();
             assert_eq!(multiplayer_state().await.unwrap()["state"], "waiting");
             assert_eq!(request(port, "/state/guesting", &[("room", "U/AAAA-AAAA-AAAA-AAAB")]).await.unwrap().0, 400);
+            // 能读到当前陶瓦进程的日志
+            let log = log_text().await.expect("读不到陶瓦日志");
+            assert!(log.contains("Welcome using Terracotta"), "{log}");
+            assert_eq!(multiplayer_diagnose().await.unwrap(), Diagnosis::default());
+            // 没有加入房间时没有连接信息
+            assert_eq!(multiplayer_link().await.unwrap(), None);
         });
         shutdown();
         let status = (0..50).find_map(|_| {
@@ -458,6 +700,89 @@ mod tests {
         });
         assert!(status.is_some(), "陶瓦没有退出");
         assert_eq!(super::port(), None);
+    }
+
+    #[test]
+    fn diagnosis_finds_the_blocked_port_in_the_last_attempt() {
+        // 摘自真实日志：Windows 上 UDP / IPv6 转发被拒绝（os error 10013）
+        let failed = "[Core]: Connecting to room, code=U/BCXP-MTR9-XHGJ-ET72\n\
+            [RoomExperiment]: MC server is at 61823\n\
+            [EasyTier CLI]:     2: 嘗試存取通訊端被拒絕，因為存取權限不足。 (os error 10013)\n\
+            [EasyTier CLI]: Cannot adding port-forward rules: [::]:61823 -> 10.144.144.1:61823 (udp)\n\
+            [RoomExperiment]: Cannot create a port-forward 61823 -> 61823 for MC Connection.\n\
+            [State]: Switch to AppState::Exception { kind: GuestEasytierCrash }\n";
+        assert_eq!(diagnose(failed), Diagnosis { port_blocked: true, port: Some(61823) });
+        // 之后又成功加入了一次：以最后一次为准
+        let later = format!("{failed}[Core]: Connecting to room, code=U/AAAA-AAAA-AAAA-AAAA\n[State]: Switch to AppState::GuestOk\n");
+        assert_eq!(diagnose(&later), Diagnosis::default());
+        assert_eq!(diagnose(""), Diagnosis::default());
+    }
+
+    #[test]
+    fn link_reports_ip_version_of_the_connection_to_the_host() {
+        // 摘自真实日志
+        let log = "[Easytier]: Releasing easytier to C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\terracotta\\2026-11-25-21-39-47-10972\\embedded-easytier\n\
+            [Core]: Connecting to room, code=U/BCXP-MTR9-XHGJ-ET72\n\
+            [Easytier]: Starting easytier: [\"--network-name\", \"scaffolding-mc-BCXP-MTR9\"], rpc=35823\n\
+            [RoomExperiment]: Scaffolding Server is at 10.144.144.1:13448\n";
+        let (dir, rpc, host) = link_context(log).unwrap();
+        assert!(dir.to_string_lossy().ends_with("10972\\embedded-easytier"));
+        assert_eq!(rpc, 35823);
+        assert_eq!(host, Some(std::net::Ipv4Addr::new(10, 144, 144, 1)));
+        assert_eq!(link_context("[UI]: Welcome"), None);
+
+        // `easytier-cli -v -o json peer list` 的输出结构（EasyTier 2.5.0 的 PeerRoutePair）
+        let peers = json!([
+            {
+                "route": { "peer_id": 294518607, "hostname": "PublicServer_node1", "ipv4_addr": null, "path_latency": 30 },
+                "peer": { "peer_id": 294518607, "conns": [
+                    { "conn_id": "11111111-2222-3333-4444-555555555555", "is_closed": false,
+                      "tunnel": { "tunnel_type": "BodyUrls-tcp://183.66.27.22:39409",
+                                  "local_addr": { "url": "tcp://192.168.0.103:35839" },
+                                  "remote_addr": { "url": "https://etnode.zkitefly.eu.org/node1" } } }
+                ] }
+            },
+            {
+                "route": { "peer_id": 597283946, "hostname": "host-pc", "path_latency": 12,
+                           "ipv4_addr": { "address": { "addr": 0x0a90_9001u32 }, "network_length": 24 } },
+                "peer": { "peer_id": 597283946,
+                  "default_conn_id": { "part1": 0x6ba7_b810u32, "part2": 0x9dad_11d1u32, "part3": 0x80b4_00c0u32, "part4": 0x4fd4_30c8u32 },
+                  "conns": [
+                    { "conn_id": "aaaaaaaa-0000-0000-0000-000000000000", "is_closed": false,
+                      "stats": { "latency_us": 80000 },
+                      "tunnel": { "tunnel_type": "udp",
+                                  "local_addr": { "url": "udp://192.168.0.103:51254" },
+                                  "remote_addr": { "url": "udp://36.1.2.3:40000" } } },
+                    { "conn_id": "6ba7b810-9dad-11d1-80b4-00c04fd430c8", "is_closed": false,
+                      "stats": { "latency_us": 23500 },
+                      "tunnel": { "tunnel_type": "tcp",
+                                  "local_addr": { "url": "tcp://[240e:3b9:34b3:30c0:e581:2bfb:9dd9:ef4]:35851" },
+                                  "remote_addr": { "url": "tcp://[2409:8a20:1462:2a37:45bb:1a9d:f22f:533]:58202" } } }
+                  ] }
+            }
+        ]);
+        let host = Some(std::net::Ipv4Addr::new(10, 144, 144, 1));
+        assert_eq!(
+            link_from_peers(&peers, host),
+            Some(Link { ip_version: Some("IPv6"), lan: false, protocol: "tcp".into(), latency_ms: Some(23.5), relayed: false })
+        );
+        // 不知道房主的虚拟 IP 时，跳过公共节点
+        assert_eq!(link_from_peers(&peers, None).unwrap().ip_version, Some("IPv6"));
+
+        // 局域网 IPv4、IPv4 映射地址
+        assert!(is_lan(url_ip("udp://192.168.1.5:1").unwrap()));
+        assert_eq!(url_ip("tcp://[::ffff:1.2.3.4]:5"), Some("1.2.3.4".parse().unwrap()));
+        assert_eq!(url_ip("udp://8.8.8.8:53"), Some("8.8.8.8".parse().unwrap()));
+        assert!(is_lan(url_ip("udp://[fe80::1]:5").unwrap()));
+
+        // 没有直接连接：经由其他节点转发
+        let relayed = json!([{ "route": { "hostname": "host-pc", "path_latency": 40,
+            "ipv4_addr": { "address": { "addr": 0x0a90_9001u32 } } }, "peer": null }]);
+        assert_eq!(
+            link_from_peers(&relayed, host),
+            Some(Link { relayed: true, latency_ms: Some(40.0), ..Link::default() })
+        );
+        assert_eq!(link_from_peers(&json!([]), host), None);
     }
 
     #[test]

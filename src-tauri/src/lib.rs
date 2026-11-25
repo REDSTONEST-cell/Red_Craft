@@ -181,6 +181,9 @@ pub fn run() {
             multiplayer::multiplayer_join,
             multiplayer::multiplayer_leave,
             multiplayer::multiplayer_install,
+            multiplayer::multiplayer_diagnose,
+            multiplayer::multiplayer_link,
+            multiplayer::multiplayer_export_log,
         ])
         .build(tauri::generate_context!())
         .expect("启动 RCL 失败")

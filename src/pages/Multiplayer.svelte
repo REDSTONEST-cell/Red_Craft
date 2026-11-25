@@ -4,7 +4,7 @@
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { api } from "../lib/api";
   import { app, selectedAccount, selectedInstance, showError, toast, waitTask } from "../lib/state.svelte";
-  import { multiplayerApi, normalizeRoom, DIFFICULTY, EXCEPTION, type MultiplayerInfo, type MultiplayerState, type RoomMember } from "../lib/multiplayer";
+  import { multiplayerApi, normalizeRoom, exceptionTips, describeLink, DIFFICULTY, EXCEPTION, type Diagnosis, type Link, type MultiplayerInfo, type MultiplayerState, type RoomMember } from "../lib/multiplayer";
   import Icon from "../components/Icon.svelte";
 
   let info = $state<MultiplayerInfo | null>(null);
@@ -56,6 +56,55 @@
   const host = () => run(() => multiplayerApi.host(player), "创建房间失败");
   const join = () => room && run(() => multiplayerApi.join(room, player), "加入房间失败");
   const leave = () => run(() => multiplayerApi.leave(), "操作失败");
+
+  // 出错时读取陶瓦日志，找出具体原因（例如端口被系统保留）
+  let diagnosis = $state<Diagnosis | null>(null);
+  let diagnosedIndex = -1;
+  $effect(() => {
+    const now = current;
+    if (now.state !== "exception") {
+      diagnosis = null;
+      diagnosedIndex = -1;
+      return;
+    }
+    if (now.index === diagnosedIndex) return;
+    diagnosedIndex = now.index;
+    multiplayerApi.diagnose().then((d) => (diagnosis = d)).catch(() => (diagnosis = null));
+  });
+
+  // 加入成功后显示与房主之间走的是 IPv4 还是 IPv6（连接可能随打洞结果变化，定时刷新）
+  let link = $state<Link | null>(null);
+  const joined = $derived(current.state === "guest-ok");
+  $effect(() => {
+    if (!joined) {
+      link = null;
+      return;
+    }
+    let alive = true;
+    const refresh = () => {
+      if (document.hidden) return;
+      multiplayerApi.link().then((l) => alive && (link = l)).catch(() => {});
+    };
+    refresh();
+    const timer = setInterval(refresh, 5000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  });
+
+  let exporting = $state(false);
+  async function exportLog() {
+    exporting = true;
+    try {
+      const file = await multiplayerApi.exportLog();
+      toast("ok", "已导出联机日志", file);
+    } catch (e) {
+      showError(e, "导出联机日志失败");
+    } finally {
+      exporting = false;
+    }
+  }
 
   async function copy(text: string, what: string) {
     try {
@@ -124,7 +173,7 @@
       <h2>创建房间</h2>
       <ol>
         <li>启动游戏，进入要一起玩的存档</li>
-        <li>按 Esc，选择「对局域网开放」，再点「创建局域网世界」</li>
+        <li>按 Esc，选择「对局域网开放」，建议把「端口号」设为 25565，再点「创建局域网世界」</li>
         <li>回到这里点「创建房间」，把生成的房间号发给朋友</li>
       </ol>
       <button class="btn primary" disabled={busy} onclick={host}><Icon name="plus" size={14} /> 创建房间</button>
@@ -179,6 +228,9 @@
       {@const url = current.url}
       <div class="kicker">已加入房间</div>
       <h2>连接成功</h2>
+      <p class="route" class:direct={link && !link.relayed}>
+        <span class="dot" aria-hidden="true"></span>连接方式：{link ? describeLink(link) : "检测中…"}
+      </p>
       <p class="help">游戏「多人游戏」页面的局域网列表里会出现这个房间；也可以用「直接连接」输入下面的地址。</p>
       <div class="code">
         <span class="mono">{current.url}</span>
@@ -198,8 +250,14 @@
       </ul>
     {:else if current.state === "exception"}
       <div class="kicker">联机中断</div>
-      <h2>{EXCEPTION[current.type] ?? "联机出现了问题"}</h2>
-      <div class="actions"><button class="btn primary" disabled={busy} onclick={leave}>返回</button></div>
+      <h2>{current.type === 2 && diagnosis?.portBlocked ? "无法在本机建立游戏端口的转发" : EXCEPTION[current.type] ?? "联机出现了问题"}</h2>
+      <ul class="tips">
+        {#each exceptionTips(current.type, diagnosis) as tip}<li>{tip}</li>{/each}
+      </ul>
+      <div class="actions">
+        <button class="btn primary" disabled={busy} onclick={leave}>返回</button>
+        <button class="btn" disabled={exporting} onclick={exportLog}>{exporting ? "正在导出…" : "导出联机日志"}</button>
+      </div>
     {/if}
   </section>
 {/if}
@@ -210,6 +268,7 @@
   {info?.version ? `v${info.version}` : ""} 提供 · Copyright © burningtnt · AGPL-3.0-or-later · 基于
   <button type="button" class="link" onclick={() => openUrl("https://github.com/EasyTier/EasyTier")}>EasyTier</button>
   · 公共中继节点由 zkitefly 提供 · 可与 HMCL、PCL CE 的联机互通
+  · <button type="button" class="link" disabled={exporting} onclick={exportLog}>导出联机日志</button>
 </footer>
 
 <style>
@@ -258,6 +317,23 @@
   .status {
     max-width: 720px;
   }
+  .route {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 8px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .route .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #d99a2b;
+  }
+  .route.direct .dot {
+    background: var(--ok);
+  }
   .code {
     display: flex;
     align-items: center;
@@ -268,6 +344,13 @@
     font-size: 26px;
     font-weight: 700;
     letter-spacing: 0.06em;
+    user-select: text;
+  }
+  .tips {
+    margin: 0;
+    padding-left: 20px;
+    font-size: 13px;
+    line-height: 1.8;
     user-select: text;
   }
   .members {
