@@ -562,7 +562,7 @@ pub async fn read_game_file(state: State<'_, AppState>, path: PathBuf) -> AppRes
     .await?
 }
 
-fn open_path(app: &AppHandle, path: &std::path::Path) -> AppResult<()> {
+pub(crate) fn open_path(app: &AppHandle, path: &std::path::Path) -> AppResult<()> {
     app.opener()
         .open_path(path.display().to_string(), None::<&str>)
         .map_err(|e| AppError::msg(format!("无法打开 {}：{e}", path.display()), "请手动打开该目录。"))
