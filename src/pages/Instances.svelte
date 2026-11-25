@@ -438,7 +438,7 @@
             onchange={(e) => (picked[inst.id] = e.currentTarget.checked)}
           />
         {/if}
-        <InstanceIcon {inst} current={current?.id === inst.id} />
+        <InstanceIcon {inst} />
         <div class="main">
           <h3>
             {inst.id}

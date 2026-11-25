@@ -1,4 +1,5 @@
 <script lang="ts">
+  import InstanceIcon from "../../components/InstanceIcon.svelte";
   // 手机版「版本」页：已安装的游戏版本卡片，点按选择；资源管理、补全文件、删除放在卡片的操作区
   import { api, type FileKind, type InstanceInfo } from "../../lib/api";
   import { app, refreshInstances, selectInstance, selectedInstance, showError, toast } from "../../lib/state.svelte";
@@ -54,9 +55,7 @@
       {#each app.instances as i (i.id)}
         <article class="card" class:active={current?.id === i.id}>
           <button class="main" disabled={!!i.error} onclick={() => choose(i)}>
-            <span class="badge" data-loader={i.loader?.kind ?? (i.optifine ? "optifine" : "vanilla")}>
-              {i.loader ? LOADER_LABEL[i.loader.kind][0] : i.optifine ? "O" : "V"}
-            </span>
+            <InstanceIcon inst={i} size={38} />
             <span class="who">
               <strong>{i.id}</strong>
               {#if i.error}
@@ -166,23 +165,6 @@
   .who .err {
     color: var(--danger);
   }
-  .badge {
-    width: 38px;
-    height: 38px;
-    border-radius: 10px;
-    display: grid;
-    place-items: center;
-    font-weight: 800;
-    font-size: 15px;
-    flex: none;
-    background: var(--paper-2);
-    color: var(--ink);
-  }
-  .badge[data-loader="fabric"] { background: #dbd0b4; color: #3b3424; }
-  .badge[data-loader="forge"] { background: #3d4555; color: #fff; }
-  .badge[data-loader="neoforge"] { background: #d9822b; color: #fff; }
-  .badge[data-loader="quilt"] { background: #8a5cd6; color: #fff; }
-  .badge[data-loader="optifine"] { background: #b52e31; color: #fff; }
   .ops {
     display: grid;
     grid-template-columns: repeat(4, 1fr);

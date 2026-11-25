@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 
 pub use curseforge::CurseForge;
 pub use index::{base_name, install_files, installed_projects, ContentIndex, IndexEntry, INDEX_FILE};
-pub use modpack::{download_pack_files, extract_overrides, read_modpack, ModpackInfo, PackFormat, PackLoader};
+pub use modpack::{download_pack_files, extract_overrides, pack_icon, read_modpack, ModpackInfo, PackFormat, PackLoader};
 pub use modrinth::{loader_names, Modrinth};
 use modrinth::enc as modrinth_enc;
 pub use resolve::{resolve, DepSource, MissingDep, Plan, PlanItem};

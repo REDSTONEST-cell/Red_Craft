@@ -663,6 +663,12 @@ pub async fn install_modpack(
             Ok(())
         }
         .await;
+        if result.is_ok() {
+            // 整合包自带图标时设为版本图标；没有图标则显示加载器的默认图标
+            if let Err(e) = set_pack_icon(&state, &source, &pack_path, &name).await {
+                log::warn!("设置整合包图标失败：{e}");
+            }
+        }
         if downloaded {
             let _ = std::fs::remove_file(&pack_path);
         }
@@ -671,6 +677,34 @@ pub async fn install_modpack(
         }
         result
     }))
+}
+
+/// 把整合包的图标设为新版本的图标：在线整合包用项目图标，本地整合包用压缩包内的 icon.png。
+async fn set_pack_icon(state: &AppState, source: &PackSource, pack: &std::path::Path, id: &str) -> AppResult<()> {
+    let data = match source {
+        PackSource::Online { platform, project_id, .. } => {
+            let project = client(state, *platform)?.project(project_id).await?;
+            let Some(url) = project.icon_url else { return Ok(()) };
+            state.http_community()?.get_bytes(&url).await?
+        }
+        PackSource::File { .. } => {
+            let pack = pack.to_path_buf();
+            match blocking(move || content::pack_icon(&pack)).await? {
+                Some(data) => data,
+                None => return Ok(()),
+            }
+        }
+    };
+    let game = state.game_dir();
+    let id = id.to_string();
+    blocking(move || {
+        use launcher_core::error::IoContext;
+        let dir = game.version_dir(&id);
+        let tmp = tempfile::NamedTempFile::new_in(&dir).at(&dir)?;
+        std::fs::write(tmp.path(), &data).at(tmp.path())?;
+        crate::commands::write_instance_icon(&game, &id, Some(tmp.path()))
+    })
+    .await?
 }
 
 // ───────────── 导出整合包 ─────────────

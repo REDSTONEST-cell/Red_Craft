@@ -164,6 +164,7 @@ pub async fn list_instances(app: AppHandle, state: State<'_, AppState>) -> AppRe
             let isolated = instance_isolated(&state, &summary, &config);
             let icon = config
                 .icon_path(&game, &summary.id)
+                .or_else(|| other_launcher_icon(&game, &summary.id))
                 .filter(|p| app.asset_protocol_scope().allow_file(p).is_ok());
             InstanceInfo {
                 game_dir: game.instance_game_dir(&summary.id, isolated),
@@ -435,6 +436,14 @@ pub fn save_instance_config(state: State<'_, AppState>, id: String, mut config: 
     // 图标只通过 set_instance_icon 修改，这里保留磁盘上的值，避免旧的前端数据覆盖刚换好的图标
     config.icon = InstanceConfig::load(&game, &id).icon;
     Ok(config.save(&game, &id)?)
+}
+
+/// 其他启动器给版本设置的图标（例如它们安装的整合包）：HMCL 的 icon.png、PCL 的 PCL/Logo.png
+pub(crate) fn other_launcher_icon(game: &launcher_core::paths::GameDir, id: &str) -> Option<std::path::PathBuf> {
+    let dir = game.version_dir(id);
+    [dir.join("icon.png"), dir.join("PCL").join("Logo.png")]
+        .into_iter()
+        .find(|p| p.is_file())
 }
 
 /// 版本图标源文件的大小上限
@@ -803,6 +812,20 @@ mod icon_tests {
         assert!(InstanceConfig::load(&game, "inst").icon.is_none());
         assert!(!second.exists());
         assert!(source.exists());
+    }
+
+    #[test]
+    fn icons_set_by_other_launchers_are_used() {
+        let dir = tempfile::tempdir().unwrap();
+        let game = GameDir::new(dir.path().join("game"));
+        let version = game.version_dir("pack");
+        std::fs::create_dir_all(version.join("PCL")).unwrap();
+        assert_eq!(super::other_launcher_icon(&game, "pack"), None);
+        std::fs::write(version.join("PCL").join("Logo.png"), b"png").unwrap();
+        assert_eq!(super::other_launcher_icon(&game, "pack"), Some(version.join("PCL").join("Logo.png")));
+        // HMCL 的 icon.png 优先
+        std::fs::write(version.join("icon.png"), b"png").unwrap();
+        assert_eq!(super::other_launcher_icon(&game, "pack"), Some(version.join("icon.png")));
     }
 
     #[test]
