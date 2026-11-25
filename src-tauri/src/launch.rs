@@ -67,7 +67,13 @@ fn component_for(major: u32, fallback: &str) -> String {
 }
 
 #[tauri::command]
-pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: String) -> AppResult<u64> {
+pub async fn launch_instance(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    // 只用于这一次启动的「进入服务器」地址（例如联机房间的本机地址）
+    server: Option<String>,
+) -> AppResult<u64> {
     if cfg!(mobile) {
         #[cfg(target_os = "android")]
         return crate::android_game::launch_instance(app, state, id).await;
@@ -120,7 +126,10 @@ pub async fn launch_instance(app: AppHandle, state: State<'_, AppState>, id: Str
         _ => Some(settings.max_memory_mb),
     };
     let jvm_args = config.jvm_args.clone().unwrap_or(settings.jvm_args.clone());
-    let server = config.server.clone().filter(|s| !s.is_empty()).unwrap_or(settings.server.clone());
+    let server = server
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| config.server.clone().filter(|s| !s.is_empty()))
+        .unwrap_or(settings.server.clone());
 
     let tasks = state.tasks.clone();
     let app2 = app.clone();

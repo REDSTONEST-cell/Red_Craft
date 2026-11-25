@@ -83,6 +83,10 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # 陶瓦联机组件（官方发行包，校验 SHA256 后嵌入启动器）
+      - name: 下载陶瓦联机组件
+        shell: bash
+        run: bash scripts/fetch-terracotta.sh
       - run: pnpm tauri build --bundles ${{ matrix.bundles }}
         if: runner.os != 'Windows'
       - name: 构建便携版单文件 exe

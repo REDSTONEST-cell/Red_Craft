@@ -7,6 +7,8 @@
     { page: "instances", label: "版本", icon: "box" },
     // 「下载」页面包含游戏与资源（Mod、材质包、光影包、整合包）
     { page: "download", label: "下载", icon: "download" },
+    // 联机：陶瓦联机（Terracotta）。手机版使用 mobile/Rail.svelte，不显示这一项
+    { page: "multiplayer", label: "联机", icon: "link" },
     { page: "accounts", label: "账号", icon: "user" },
   ];
 

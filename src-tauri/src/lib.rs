@@ -14,6 +14,7 @@ mod launch;
 mod logger;
 mod memory;
 mod migrate;
+mod multiplayer;
 mod resources;
 mod secrets;
 mod settings;
@@ -174,7 +175,19 @@ pub fn run() {
             resources::files_delete,
             launch::launch_instance,
             launch::kill_game,
+            multiplayer::multiplayer_info,
+            multiplayer::multiplayer_state,
+            multiplayer::multiplayer_host,
+            multiplayer::multiplayer_join,
+            multiplayer::multiplayer_leave,
+            multiplayer::multiplayer_install,
         ])
-        .run(tauri::generate_context!())
-        .expect("启动 RCL 失败");
+        .build(tauri::generate_context!())
+        .expect("启动 RCL 失败")
+        .run(|_, event| {
+            // 退出时关闭联机组件（房间随之关闭）
+            if let tauri::RunEvent::Exit = event {
+                multiplayer::shutdown();
+            }
+        });
 }

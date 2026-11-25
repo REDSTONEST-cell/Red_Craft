@@ -33,6 +33,9 @@ tempfile = "3"
 percent-encoding = "2"
 uuid = { version = "1", features = ["v4", "v5"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif", "bmp", "ico"] }
+# 解压随启动器嵌入的陶瓦联机发行包（.tar.gz）
+flate2 = "1"
+tar = { version = "0.4", default-features = false }
 # Wallpaper Engine 场景纹理（.tex）的 LZ4 块解压
 lz4_flex = { version = "0.11", default-features = false, features = ["std", "safe-decode"] }
 

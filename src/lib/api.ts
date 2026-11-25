@@ -606,7 +606,8 @@ export const api = {
   probeJava: (path: string) => call<JavaInstall>("probe_java", { path }),
 
   cancelTask: (id: number) => call<boolean>("cancel_task", { id }),
-  launch: (id: string) => call<number>("launch_instance", { id }),
+  /** server：只用于这一次启动的「进入服务器」地址（例如联机房间的本机地址） */
+  launch: (id: string, server?: string) => call<number>("launch_instance", { id, server: server ?? null }),
   killGame: (id: string) => call<void>("kill_game", { id }),
 };
 
