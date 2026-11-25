@@ -168,9 +168,8 @@
   </div>
 {:else if current.state === "stopped" || current.state === "waiting"}
   <div class="choices">
-    <section class="card">
-      <div class="kicker">我当房主</div>
-      <h2>创建房间</h2>
+    <section class="card choice">
+      <h2 class="title"><span class="badge" aria-hidden="true"><Icon name="plus" size={16} /></span>创建房间</h2>
       <ol>
         <li>启动游戏，进入要一起玩的存档</li>
         <li>按 Esc，选择「对局域网开放」，建议把「端口号」设为 25565，再点「创建局域网世界」</li>
@@ -178,9 +177,8 @@
       </ol>
       <button class="btn primary" disabled={busy} onclick={host}><Icon name="plus" size={14} /> 创建房间</button>
     </section>
-    <section class="card">
-      <div class="kicker">我去朋友家</div>
-      <h2>加入房间</h2>
+    <section class="card choice">
+      <h2 class="title"><span class="badge" aria-hidden="true"><Icon name="link" size={16} /></span>加入房间</h2>
       <p class="help">输入房主发来的房间号，形如 U/XXXX-XXXX-XXXX-XXXX。</p>
       <div class="join">
         <input class="input mono" placeholder="U/XXXX-XXXX-XXXX-XXXX" bind:value={roomInput} maxlength="40"
@@ -286,6 +284,31 @@
   }
   .card h2 {
     font-size: 22px;
+  }
+  .choice {
+    padding: 20px 22px;
+    gap: 12px;
+  }
+  .choice .title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 1.3;
+    margin: 0 0 2px;
+  }
+  .badge {
+    display: inline-grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 9px;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
+  }
+  .choice > .btn.primary {
+    margin-top: auto;
   }
   .card h3 {
     font-size: 14px;
