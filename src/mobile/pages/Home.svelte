@@ -1,4 +1,5 @@
 <script lang="ts">
+  import InstanceIcon from "../../components/InstanceIcon.svelte";
   // 手机版主页：左侧是当前版本与快捷操作，右侧固定账号、版本选择与「启动游戏」（参考 FCL 等手机启动器的横屏布局）
   import { api, type FileKind } from "../../lib/api";
   import { app, refreshInstances, selectInstance, selectedAccount, selectedInstance, showError, waitTask } from "../../lib/state.svelte";
@@ -155,9 +156,7 @@
     <div class="list">
       {#each app.instances as i (i.id)}
         <button class="row" class:active={i.id === inst?.id} onclick={() => pick(i.id)}>
-          <span class="badge" data-loader={i.loader?.kind ?? (i.optifine ? "optifine" : "vanilla")}>
-            {i.loader ? LOADER_LABEL[i.loader.kind][0] : i.optifine ? "O" : "V"}
-          </span>
+          <InstanceIcon inst={i} size={38} />
           <span class="who">
             <strong>{i.id}</strong>
             <small>Minecraft {i.mcVersion}{i.loader ? ` · ${LOADER_LABEL[i.loader.kind]}` : ""}</small>
@@ -404,21 +403,4 @@
   .row.active > :global(svg) {
     color: var(--accent);
   }
-  .badge {
-    width: 32px;
-    height: 32px;
-    border-radius: 9px;
-    display: grid;
-    place-items: center;
-    font-weight: 800;
-    font-size: 13px;
-    flex: none;
-    background: var(--paper-2);
-    color: var(--ink);
-  }
-  .badge[data-loader="fabric"] { background: #dbd0b4; color: #3b3424; }
-  .badge[data-loader="forge"] { background: #3d4555; color: #fff; }
-  .badge[data-loader="neoforge"] { background: #d9822b; color: #fff; }
-  .badge[data-loader="quilt"] { background: #8a5cd6; color: #fff; }
-  .badge[data-loader="optifine"] { background: #b52e31; color: #fff; }
 </style>

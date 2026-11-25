@@ -75,6 +75,19 @@ fn read_zip_entry(zip: &mut zip::ZipArchive<std::fs::File>, path: &Path, name: &
 }
 
 /// 读取整合包信息（阻塞调用）。
+/// 整合包压缩包根目录下的 icon.png（MultiMC 等格式会带）；没有时返回 None。
+pub fn pack_icon(path: &Path) -> Option<Vec<u8>> {
+    let file = std::fs::File::open(path).ok()?;
+    let mut zip = zip::ZipArchive::new(file).ok()?;
+    let mut entry = zip.by_name("icon.png").ok()?;
+    if entry.size() > 16 * 1024 * 1024 {
+        return None;
+    }
+    let mut data = Vec::new();
+    entry.read_to_end(&mut data).ok()?;
+    Some(data)
+}
+
 pub fn read_modpack(path: &Path) -> Result<ModpackInfo> {
     let file = std::fs::File::open(path).at(path)?;
     let mut zip = zip::ZipArchive::new(file).map_err(|e| CoreError::Archive {
@@ -335,6 +348,27 @@ pub fn extract_overrides(pack: &Path, info: &ModpackInfo, game_dir: &Path) -> Re
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn pack_icon_reads_root_icon_png_only() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let make = |name: &str, entries: &[(&str, &[u8])]| {
+            let path = dir.path().join(name);
+            let mut zip = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
+            for (n, data) in entries {
+                zip.start_file(*n, zip::write::SimpleFileOptions::default()).unwrap();
+                zip.write_all(data).unwrap();
+            }
+            zip.finish().unwrap();
+            path
+        };
+        let with_icon = make("a.zip", &[("icon.png", b"PNG"), ("manifest.json", b"{}")]);
+        assert_eq!(super::pack_icon(&with_icon), Some(b"PNG".to_vec()));
+        let nested = make("b.zip", &[("overrides/icon.png", b"PNG")]);
+        assert_eq!(super::pack_icon(&nested), None);
+        assert_eq!(super::pack_icon(&dir.path().join("missing.zip")), None);
+    }
     use super::*;
 
     #[test]
