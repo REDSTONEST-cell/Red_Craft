@@ -18,10 +18,14 @@ case "$target" in
   *) echo "陶瓦联机没有 $target 的发行包，跳过（启动器的联机功能在该平台不可用）"; exit 0 ;;
 esac
 
-# macOS 没有 sha256sum，用 shasum 代替
+# 计算 SHA256：GNU sha256sum（Linux、Windows 的 Git Bash）；macOS 的 sha256sum 是 BSD 版、
+# 不支持 GNU 的参数，改用 shasum。只取哈希值比较，不依赖各平台 -c 参数的差异。
+digest() {
+  if sha256sum --version >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'
+  else shasum -a 256 "$1" | awk '{print $1}'; fi
+}
 check() {
-  if command -v sha256sum >/dev/null; then echo "$1  $2" | sha256sum -c --status
-  else echo "$1  $2" | shasum -a 256 -c --status; fi
+  [ "$(digest "$2")" = "$1" ]
 }
 
 dir="$(cd "$(dirname "$0")/.." && pwd)/src-tauri/terracotta"
