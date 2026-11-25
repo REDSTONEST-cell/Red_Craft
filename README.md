@@ -2,7 +2,7 @@
 
 轻量、快速的 Minecraft Java 版启动器，基于 Tauri 2 + Rust + Svelte 5。
 
-当前正式版：**1.1.14** · [下载](https://github.com/REDSTONEST-cell/Red_Craft/releases)
+当前正式版：**1.1.15** · [下载](https://github.com/REDSTONEST-cell/Red_Craft/releases)
 
 ## 下载
 
@@ -22,6 +22,10 @@
 - 启动前快速补全文件；崩溃时分析原因并给出中文解决办法
 - 每个版本第一次启动时自动设为简体中文
 - 从官方启动器、HMCL、PCL、Prism、MultiMC 导入已有的版本与账号
+
+**联机**
+- 房主创建房间生成房间号，朋友输入房间号即可加入；加入后可一键启动游戏并进入房间
+- 由内置的 Terracotta | 陶瓦联机（基于 EasyTier）提供，与 HMCL、PCL CE 的联机互通
 
 **账号**
 - 离线、微软正版、外置登录（LittleSkin 等 authlib-injector 服务器）
@@ -43,6 +47,7 @@
 
 ## 第三方组件
 
+- [Terracotta | 陶瓦联机](https://github.com/burningtnt/Terracotta)（© burningtnt，AGPL-3.0-or-later 及其例外条款）：联机功能。启动器内嵌未经修改的官方发行包（`scripts/fetch-terracotta.sh` 下载并校验），以独立进程运行、仅通过其本机 HTTP 接口交互；底层为 [EasyTier](https://github.com/EasyTier/EasyTier)（LGPL-3.0），公共中继节点由 zkitefly 提供
 - [WebWallGL](https://github.com/oneincase/webwallgl)（MIT）：实时渲染 Wallpaper Engine 场景壁纸
 - 场景纹理格式参考 [RePKG](https://github.com/notscuffed/repkg)（MIT），静态画面合成规则参考 [linux-wallpaperengine](https://github.com/Almamu/linux-wallpaperengine)
 

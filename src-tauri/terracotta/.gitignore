@@ -1,0 +1,3 @@
+# CI 下载的陶瓦联机发行包（scripts/fetch-terracotta.sh），不提交
+*
+!.gitignore

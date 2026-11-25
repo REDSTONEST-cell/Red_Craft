@@ -9,6 +9,7 @@
   import Launch from "./pages/Launch.svelte";
   import Instances from "./pages/Instances.svelte";
   import Mods from "./pages/Mods.svelte";
+  import Multiplayer from "./pages/Multiplayer.svelte";
   import Accounts from "./pages/Accounts.svelte";
   import Settings from "./pages/Settings.svelte";
   import ModpackInstall from "./components/ModpackInstall.svelte";
@@ -205,6 +206,8 @@
             {:else if app.page === "download" || app.page === "mods"}
               <!-- 下载游戏与下载资源合并在一个页面里，用顶部的选项切换 -->
               <Mods games />
+            {:else if app.page === "multiplayer"}
+              <Multiplayer />
             {:else if app.page === "accounts"}
               <Accounts />
             {:else if app.page === "settings"}

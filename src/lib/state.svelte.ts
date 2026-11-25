@@ -17,7 +17,7 @@ import {
   type TaskEvent,
 } from "./api";
 
-export type Page = "launch" | "instances" | "download" | "mods" | "accounts" | "settings";
+export type Page = "launch" | "instances" | "download" | "mods" | "multiplayer" | "accounts" | "settings";
 
 export interface Toast {
   id: number;
