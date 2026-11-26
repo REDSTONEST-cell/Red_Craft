@@ -81,8 +81,8 @@ export interface WallpaperScanResult {
   warnings: string[];
   from_cache: boolean;
 }
-export const defaults = (): Appearance => ({ selection: null, fit: "cover", brightness: 0.85, backgroundOpacity: 0.75,
-  blurPx: 0, overlayOpacity: 0.25, panelOpacity: 0.94, motion: "auto", fps: 30 });
+export const defaults = (): Appearance => ({ selection: null, fit: "cover", brightness: 0.85, backgroundOpacity: 1,
+  blurPx: 0, overlayOpacity: 0.2, panelOpacity: 0.94, motion: "auto", fps: 30 });
 /** 场景最大帧率可选项 */
 export const FPS_OPTIONS = [15, 24, 30, 45, 60, 90, 120, 144];
 export const mediaUrl = (path: string | null) => path ? convertFileSrc(path) : "";

@@ -57,8 +57,8 @@ pub enum Theme {
 #[serde(rename_all = "camelCase")]
 pub enum Corner {
     Sharp,
-    #[default]
     Rounded,
+    #[default]
     Glass,
 }
 
@@ -420,7 +420,9 @@ mod tests {
         assert_eq!(s.concurrency, 8);
         assert_eq!(s.accent, "#E8590C");
         assert_eq!(s.download_source, DownloadSource::Auto);
-        assert_eq!(s.corner, Corner::Rounded);
+        assert_eq!(s.corner, Corner::Glass);
+        assert_eq!(s.glass_opacity, 0.2);
+        assert_eq!(s.glass_blur, 10.0);
         assert_eq!(s.layout, Layout::Minimal);
         assert_eq!(s.speed_limit_kb, 0);
         assert!(!s.title_icon);

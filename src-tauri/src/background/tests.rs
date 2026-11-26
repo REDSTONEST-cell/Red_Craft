@@ -222,13 +222,12 @@ fn opacity_clamps_without_changing_legacy_brightness_or_text_panel() {
     assert_eq!(value.panel_opacity, 0.94);
     value.background_opacity = f64::NAN;
     value.normalize();
-    assert_eq!(value.background_opacity, 0.75);
-    assert_eq!(
-        serde_json::from_str::<Appearance>("{}")
-            .unwrap()
-            .background_opacity,
-        0.75
-    );
+    assert_eq!(value.background_opacity, 1.0);
+    // 默认：背景不透明度 100%、模糊 0px、遮罩 20%
+    let defaults = serde_json::from_str::<Appearance>("{}").unwrap();
+    assert_eq!(defaults.background_opacity, 1.0);
+    assert_eq!(defaults.blur_px, 0.0);
+    assert_eq!(defaults.overlay_opacity, 0.2);
 }
 
 #[test]

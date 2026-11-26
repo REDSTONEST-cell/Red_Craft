@@ -117,7 +117,7 @@
     const dark = theme === "dark" || (theme === "system" && systemDark);
     const root = document.documentElement;
     root.dataset.theme = dark ? "dark" : "light";
-    root.dataset.corner = s?.corner ?? "rounded";
+    root.dataset.corner = s?.corner ?? "glass";
     root.dataset.layout = s?.layout === "ultraMinimal" ? "ultraMinimal" : "minimal";
     // 玻璃底板直接使用设定值，小控件可另用较实的底色。
     const glass = Math.min(0.95, Math.max(0.2, s?.glassOpacity ?? 0.2));
