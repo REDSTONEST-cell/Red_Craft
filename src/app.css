@@ -822,6 +822,9 @@ textarea.input {
 /* 自定义玻璃颜色：内容区、对话框、弹出提示与任务面板都用玻璃色作底，文字随玻璃明暗取白或黑（App.svelte 设置 --glass-tint-ink）。 */
 :root[data-corner="glass"][data-glass-tint] :is(.content:not(.launch-home), .modal, .toast, .task-panel) {
   --card: var(--glass-tint);
+  /* 选项卡、开关轨道、进度条等用的纸色也跟随玻璃色，避免亮色主题配深色玻璃时出现「浅底白字」 */
+  --paper: color-mix(in srgb, var(--glass-tint-ink) 7%, var(--glass-tint));
+  --paper-2: color-mix(in srgb, var(--glass-tint-ink) 13%, var(--glass-tint));
   --control-ink: var(--glass-tint-ink);
   --control-ink-2: var(--glass-tint-ink);
   --control-muted: var(--glass-tint-ink);
