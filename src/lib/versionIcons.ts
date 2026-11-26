@@ -1,5 +1,4 @@
-// 默认版本图标，取自 Plain Craft Launcher（© 龙腾猫跃，https://github.com/Meloong-Git/PCL），
-// 按《PCL 存储库合理使用指南》的「轻度使用」署名使用；选择规则与 PCL 一致。
+// 默认版本图标（已获授权使用），按版本类型选择
 import grass from "../assets/version-icons/Grass.png";
 import commandBlock from "../assets/version-icons/CommandBlock.png";
 import cobblestone from "../assets/version-icons/CobbleStone.png";

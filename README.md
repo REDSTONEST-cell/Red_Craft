@@ -50,7 +50,6 @@
 
 - [Terracotta | 陶瓦联机](https://github.com/burningtnt/Terracotta)（© burningtnt，AGPL-3.0-or-later 及其例外条款）：联机功能。启动器内嵌未经修改的官方发行包（`scripts/fetch-terracotta.sh` 下载并校验），以独立进程运行、仅通过其本机 HTTP 接口交互（连接方式通过其释放的 easytier-cli 查询）；底层为 [EasyTier](https://github.com/EasyTier/EasyTier)（LGPL-3.0），公共中继节点由 zkitefly 提供
 - [WebWallGL](https://github.com/oneincase/webwallgl)（MIT）：实时渲染 Wallpaper Engine 场景壁纸
-- [Plain Craft Launcher](https://github.com/Meloong-Git/PCL)（© 龙腾猫跃）：默认版本图标（草方块、命令方块、圆石、草径、铁砧及各加载器图标），按《PCL 存储库合理使用指南》署名使用。RCL 与 PCL 无关
 - 场景纹理格式参考 [RePKG](https://github.com/notscuffed/repkg)（MIT），静态画面合成规则参考 [linux-wallpaperengine](https://github.com/Almamu/linux-wallpaperengine)
 
 ## 开发
