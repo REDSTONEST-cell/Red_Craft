@@ -15,11 +15,14 @@
   // 图片丢失或损坏时回退到默认图标；换了图标后重新尝试
   let failed = $state("");
   const src = $derived(custom && failed !== custom ? custom : fallback);
+  // 默认图标是像素画：放大显示时保持像素清晰，缩小时平滑缩放
+  const pixelated = $derived(src === fallback && size * (globalThis.devicePixelRatio || 1) >= 64);
 </script>
 
 <img
   class="icon"
   class:custom={src === custom}
+  class:pixelated
   {src}
   alt=""
   draggable="false"
@@ -37,6 +40,9 @@
     object-fit: contain;
     user-select: none;
     -webkit-user-drag: none;
+  }
+  .icon.pixelated {
+    image-rendering: pixelated;
   }
   .icon.custom {
     object-fit: cover;
