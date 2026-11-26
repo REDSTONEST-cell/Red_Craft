@@ -622,7 +622,6 @@
       <div class="desc">
         <strong>{app.info?.name} {app.info?.version}</strong>
         <span class="help">配置目录：<span class="mono">{app.info?.configDir}</span></span>
-        <span class="help">默认版本图标来自 Plain Craft Launcher（© 龙腾猫跃），RCL 与 PCL 无关。</span>
       </div>
       <button class="btn sm" disabled={updater.checking} onclick={() => checkUpdate(true)}>
         <span class:spin={updater.checking}><Icon name="refresh" size={12} /></span>
