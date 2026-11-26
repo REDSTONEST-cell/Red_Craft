@@ -61,9 +61,9 @@ impl Default for Appearance {
             selection: None,
             fit: "cover".into(),
             brightness: 0.85,
-            background_opacity: 0.75,
+            background_opacity: 1.0,
             blur_px: 0.0,
-            overlay_opacity: 0.25,
+            overlay_opacity: 0.2,
             panel_opacity: 0.94,
             motion: "auto".into(),
             fps: DEFAULT_FPS,
@@ -87,9 +87,9 @@ impl Appearance {
             self.motion = "auto".into();
         }
         self.brightness = finite(self.brightness, 0.85, 0.2, 1.2);
-        self.background_opacity = finite(self.background_opacity, 0.75, 0.0, 1.0);
+        self.background_opacity = finite(self.background_opacity, 1.0, 0.0, 1.0);
         self.blur_px = finite(self.blur_px, 0.0, 0.0, 24.0);
-        self.overlay_opacity = finite(self.overlay_opacity, 0.25, 0.0, 0.8);
+        self.overlay_opacity = finite(self.overlay_opacity, 0.2, 0.0, 0.8);
         self.panel_opacity = finite(self.panel_opacity, 0.94, 0.85, 1.0);
         self.fps = if self.fps == 0 { DEFAULT_FPS } else { self.fps.clamp(5, 240) };
     }

@@ -5,7 +5,7 @@
 
   let { name, size = 18 }: { name: string; size?: number } = $props();
 
-  const smoothMode = $derived((app.settings?.corner ?? "rounded") !== "sharp");
+  const smoothMode = $derived((app.settings?.corner ?? "glass") !== "sharp");
 
   const paths: Record<string, string> = {
     shirt: "M4 2h3v1h2V2h3l3 3-2 3-1-1v7H4V7L3 8 1 5zM5 4v9h6V4H9v1H7V4z",
