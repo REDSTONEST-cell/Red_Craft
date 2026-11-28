@@ -119,6 +119,7 @@ fn parse_mrpack(v: &Value) -> Result<ModpackInfo> {
         ("quilt-loader", LoaderKind::Quilt),
         ("forge", LoaderKind::Forge),
         ("neoforge", LoaderKind::NeoForge),
+        ("neo-forge", LoaderKind::NeoForge),
     ]
     .iter()
     .find_map(|(key, kind)| {

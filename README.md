@@ -2,7 +2,7 @@
 
 轻量、快速的 Minecraft Java 版启动器，基于 Tauri 2 + Rust + Svelte 5。
 
-当前正式版：**1.1.20** · [下载](https://github.com/REDSTONEST-cell/Red_Craft/releases)
+当前正式版：**1.1.21** · [下载](https://github.com/REDSTONEST-cell/Red_Craft/releases)
 
 ## 下载
 
@@ -95,5 +95,5 @@ src/                    Svelte 前端（src/mobile 为手机版界面）
 ## 致谢
 
 - 下载镜像：[BMCLAPI](https://bmclapidoc.bangbang93.com/)、[MCIM](https://mod.mcimirror.top)（含资源简介中文翻译）
-- 中文搜索与聚合搜索的思路参考了 PCL
+- 中文搜索、聚合搜索和整合包中固定 NeoForge 版本的安装流程参考了龙腾猫跃的 [Plain Craft Launcher](https://github.com/Meloong-Git/PCL/blob/2595a744eb6164b1e029e59990beffc1b5db4498/Plain%20Craft%20Launcher%202/Pages/PageDownload/ModDownloadLib.vb#L1070-L1119)
 - 自定义背景功能由 @Windshakes 贡献

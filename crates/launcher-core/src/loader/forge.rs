@@ -33,17 +33,50 @@ fn parse_versions(xml: &str) -> Vec<String> {
 /// `21.1.65` → `1.21.1`，`20.2.3-beta` → `1.20.2`，`21.0.x` → `1.21`；
 /// 2026 年起按年份命名：`26.1.0.5` → `26.1`，`26.1.2.3` → `26.1.2`。
 pub fn neoforge_mc_version(v: &str) -> Option<String> {
-    let base = v.split(['-', '+']).next()?;
+    let (release, build) = v.split_once('+').map_or((v, None), |(r, b)| (r, Some(b)));
+    let base = release.split('-').next()?;
+    // 愚人节快照使用 0.<Minecraft 快照>.<构建号>，例如 0.25w14craftmine.3-beta。
+    if let Some(snapshot) = base.strip_prefix("0.") {
+        let (mc, revision) = snapshot.split_once('.')?;
+        revision.parse::<u32>().ok()?;
+        return (!mc.is_empty()).then(|| mc.to_string());
+    }
     let parts: Vec<u32> = base.split('.').map(|p| p.parse().ok()).collect::<Option<_>>()?;
     let (a, b) = (*parts.first()?, *parts.get(1)?);
-    if a >= 25 {
+    let mut mc = if a >= 25 {
         let c = parts.get(2).copied().unwrap_or(0);
-        Some(if c == 0 { format!("{a}.{b}") } else { format!("{a}.{b}.{c}") })
+        if c == 0 { format!("{a}.{b}") } else { format!("{a}.{b}.{c}") }
     } else if b == 0 {
-        Some(format!("1.{a}"))
+        format!("1.{a}")
     } else {
-        Some(format!("1.{a}.{b}"))
+        format!("1.{a}.{b}")
+    };
+    if let Some(suffix) = build {
+        mc.push('-');
+        mc.push_str(suffix);
     }
+    Some(mc)
+}
+
+/// PCL 在 McDownloadForgelikeLoader 中直接使用整合包的 NeoForge 版本；
+/// 只有 Minecraft 1.20.1 的旧 forge 坐标需要补上游戏版本前缀。
+pub(super) fn pinned_neoforge_version(mc: &str, requested: &str) -> Result<String> {
+    let version = requested.trim();
+    // 版本号会用于 Maven 路径和临时文件名，必须是单个安全的坐标片段。
+    if !version.as_bytes().first().is_some_and(u8::is_ascii_digit)
+        || !version.bytes().all(|b| b.is_ascii_alphanumeric() || b".-+_".contains(&b))
+    {
+        return Err(CoreError::InvalidData(format!("整合包的 NeoForge 版本号无效：{requested}")));
+    }
+    if mc == "1.20.1" {
+        let short = version.strip_prefix("1.20.1-").unwrap_or(version);
+        if short.starts_with("47.") && short.split('.').all(|piece| piece.parse::<u32>().is_ok()) {
+            return Ok(format!("1.20.1-{short}"));
+        }
+    } else if !version.starts_with("1.20.1-") && neoforge_mc_version(version).as_deref() == Some(mc) {
+        return Ok(version.to_string());
+    }
+    Err(CoreError::InvalidData(format!("整合包指定的 NeoForge {version} 与 Minecraft {mc} 不匹配")))
 }
 
 fn unstable(v: &str) -> bool {
@@ -469,6 +502,63 @@ mod tests {
     fn maven_metadata() {
         let xml = "<metadata><versioning><versions><version>1.20.1-47.3.0</version>\n<version>1.7.10-10.13.4.1614-1.7.10</version></versions></versioning></metadata>";
         assert_eq!(parse_versions(xml), vec!["1.20.1-47.3.0", "1.7.10-10.13.4.1614-1.7.10"]);
+    }
+
+    #[test]
+    fn pinned_pack_resolves_to_installer_without_a_metadata_request() {
+        use std::io::Write;
+        use futures_util::FutureExt;
+        use crate::content::read_modpack;
+        use crate::download::DownloadSource;
+        use crate::loader::LoaderChoice;
+        use serde_json::json;
+
+        let http = HttpClient::new(DownloadSource::Auto).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        for (entry, manifest, artifact, version) in [
+            ("manifest.json",
+             json!({"minecraft":{"version":"1.21.1","modLoaders":[{"id":"neoforge-21.1.267","primary":true}]}}),
+             "neoforge", "21.1.267"),
+            ("modrinth.index.json",
+             json!({"dependencies":{"minecraft":"1.20.1","neoforge":"47.1.99"}}),
+             "forge", "1.20.1-47.1.99"),
+            ("manifest.json",
+             json!({"minecraft":{"version":"1.20.1","modLoaders":[{"id":"neoforge-1.20.1-47.1.99"}]}}),
+             "forge", "1.20.1-47.1.99"),
+            ("modrinth.index.json",
+             json!({"dependencies":{"minecraft":"1.20.6","neo-forge":"20.6.98-beta"}}),
+             "neoforge", "20.6.98-beta"),
+        ] {
+            let path = dir.path().join("pack.zip");
+            let mut zip = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
+            zip.start_file(entry, zip::write::SimpleFileOptions::default()).unwrap();
+            zip.write_all(&serde_json::to_vec(&manifest).unwrap()).unwrap();
+            zip.finish().unwrap();
+
+            let pack = read_modpack(&path).unwrap();
+            let pinned = pack.loader.unwrap();
+            // 固定版本必须立即返回。读网络的实现会在这里挂起，或返回连接错误。
+            let choice = LoaderChoice::from_pack(&http, &pack.mc_version, pinned.kind, &pinned.version)
+                .now_or_never().expect("固定的 NeoForge 版本无需等待版本列表").unwrap();
+            let suffix = format!("net/neoforged/{artifact}/{version}/{artifact}-{version}-installer.jar");
+            let url = installer_url(choice.kind, &choice.version);
+            assert_eq!(url, format!("{NEO_MAVEN}/{suffix}"));
+            assert!(http.candidates(&url).contains(&format!("https://bmclapi2.bangbang93.com/maven/{suffix}")));
+        }
+    }
+
+    #[test]
+    fn pinned_neoforge_checks_game_version_and_coordinate() {
+        for (mc, version) in [
+            ("1.21.1", "21.1.267"),
+            ("25w14craftmine", "0.25w14craftmine.3-beta"),
+            ("26.1-snapshot-1", "26.1.0.0-alpha.1+snapshot-1"),
+        ] {
+            assert_eq!(pinned_neoforge_version(mc, version).unwrap(), version);
+        }
+        for version in ["", "../21.1.267", "latest", "21.1.267?x", "20.6.98-beta", "1.20.1-47.1.99"] {
+            assert!(pinned_neoforge_version("1.21.1", version).is_err(), "{version}");
+        }
     }
 
     #[test]

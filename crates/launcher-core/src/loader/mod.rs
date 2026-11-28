@@ -43,6 +43,29 @@ pub struct LoaderChoice {
     pub version: String,
 }
 
+impl LoaderChoice {
+    /// 按整合包指定的版本安装。NeoForge 的 Maven 坐标由版本号决定；
+    /// Forge 的历史版本可能有额外分支后缀，仍需从版本列表还原完整坐标。
+    pub async fn from_pack(http: &HttpClient, mc: &str, kind: LoaderKind, version: &str) -> Result<Self> {
+        let version = match kind {
+            LoaderKind::NeoForge => forge::pinned_neoforge_version(mc, version)?,
+            LoaderKind::Fabric | LoaderKind::Quilt => version.to_string(),
+            LoaderKind::Forge => {
+                let full = format!("{mc}-{version}");
+                list_versions(http, kind, mc).await?
+                    .into_iter()
+                    .find(|v| v.version == version || v.display == version || v.version == full)
+                    .ok_or_else(|| CoreError::msg(
+                        format!("找不到整合包需要的 Forge {version}（Minecraft {mc}）"),
+                        "这个加载器版本可能已被下架，可以尝试安装该整合包的其它版本。",
+                    ))?
+                    .version
+            }
+        };
+        Ok(Self { kind, version })
+    }
+}
+
 /// 新建实例：安装原版（作为父版本），再安装加载器，最后补全全部文件。
 ///
 /// `java` 只在 Forge / NeoForge 需要运行安装器时使用。

@@ -9,6 +9,7 @@ use launcher_core::content::{
 };
 use launcher_core::download::CancelToken;
 use launcher_core::install::Reporter;
+use launcher_core::loader::LoaderChoice;
 use launcher_core::instance::{detect_loader, minecraft_version, LoaderKind};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
@@ -560,36 +561,6 @@ fn instance_name_for(state: &AppState, wanted: &str) -> String {
     name
 }
 
-/// 整合包写的加载器版本可能是简写（如 Forge 的 47.2.0），这里换成安装用的完整版本号。
-pub(crate) async fn loader_choice(
-    state: &AppState,
-    mc: &str,
-    loader: &content::PackLoader,
-) -> AppResult<launcher_core::loader::LoaderChoice> {
-    use launcher_core::loader::{list_versions, LoaderChoice};
-    if matches!(loader.kind, LoaderKind::Fabric | LoaderKind::Quilt) {
-        return Ok(LoaderChoice {
-            kind: loader.kind,
-            version: loader.version.clone(),
-        });
-    }
-    let list = list_versions(&state.http_meta()?, loader.kind, mc).await?;
-    let want = loader.version.as_str();
-    let found = list
-        .iter()
-        .find(|v| v.version == want || v.display == want || v.version == format!("{mc}-{want}"))
-        .ok_or_else(|| {
-            AppError::msg(
-                format!("找不到整合包需要的 {} {want}（Minecraft {mc}）", loader.kind.display_name()),
-                "这个加载器版本可能已被下架，可以尝试安装该整合包的其它版本。",
-            )
-        })?;
-    Ok(LoaderChoice {
-        kind: loader.kind,
-        version: found.version.clone(),
-    })
-}
-
 /// 安装整合包：创建新实例（强制版本隔离），装好对应的游戏版本与加载器，再下载文件并解压 overrides。
 #[tauri::command]
 pub async fn install_modpack(
@@ -644,7 +615,7 @@ pub async fn install_modpack(
             AppError::msg(format!("版本列表中没有整合包需要的 Minecraft {}", info.mc_version), "请稍后重试。")
         })?;
         let choice = match &info.loader {
-            Some(l) => Some(loader_choice(&state, &info.mc_version, l).await?),
+            Some(l) => Some(LoaderChoice::from_pack(&state.http_meta()?, &info.mc_version, l.kind, &l.version).await?),
             None => None,
         };
         crate::commands::create_instance(&state, &installer, &entry, choice.as_ref(), None, &name, Some(true), &reporter, &cancel)

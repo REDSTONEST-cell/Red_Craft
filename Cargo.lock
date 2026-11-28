@@ -2191,7 +2191,7 @@ dependencies = [
 
 [[package]]
 name = "launcher-core"
-version = "1.1.20"
+version = "1.1.21"
 dependencies = [
  "base64 0.22.1",
  "crc32fast",
@@ -3257,7 +3257,7 @@ checksum = "20675572f6f24e9e76ef639bc5552774ed45f1c30e2951e1e99c59888861c539"
 
 [[package]]
 name = "red-craft"
-version = "1.1.20"
+version = "1.1.21"
 dependencies = [
  "dirs 6.0.0",
  "flate2",

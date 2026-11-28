@@ -5,8 +5,8 @@ use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use launcher_core::auth::Account;
-use launcher_core::content::PackLoader;
 use launcher_core::instance::LoaderKind;
+use launcher_core::loader::LoaderChoice;
 use launcher_core::migrate::{self, FilesLayout, ImportLocation, ScanResult};
 use serde::Deserialize;
 use tauri::{AppHandle, Manager, State};
@@ -109,17 +109,7 @@ pub async fn import_instances(app: AppHandle, state: State<'_, AppState>, items:
             };
             let state = app2.state::<AppState>();
             let choice = match &item.loader {
-                Some(l) => Some(
-                    crate::content::loader_choice(
-                        &state,
-                        &entry.id,
-                        &PackLoader {
-                            kind: l.kind,
-                            version: l.version.clone(),
-                        },
-                    )
-                    .await?,
-                ),
+                Some(l) => Some(LoaderChoice::from_pack(&state.http_meta()?, &entry.id, l.kind, &l.version).await?),
                 None => None,
             };
             create_instance(&state, &installer, &entry, choice.as_ref(), None, &name, Some(true), &reporter, &cancel).await?;
