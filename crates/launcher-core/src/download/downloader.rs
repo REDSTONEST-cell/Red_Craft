@@ -27,6 +27,7 @@ pub struct DownloadTask {
     pub sha1: Option<String>,
     pub size: Option<u64>,
     split_allowed: bool,
+    fallback_urls: Vec<String>,
 }
 
 impl DownloadTask {
@@ -37,7 +38,38 @@ impl DownloadTask {
             sha1: None,
             size: None,
             split_allowed: true,
+            fallback_urls: Vec::new(),
         }
+    }
+
+    pub(crate) fn with_fallbacks(mut self, urls: &[String]) -> Self {
+        self.fallback_urls = urls.to_vec();
+        self
+    }
+
+    fn candidates(&self, http: &HttpClient) -> Vec<String> {
+        let mut urls = http.file_candidates(&self.url, self.sha1.as_deref());
+        if self.fallback_urls.is_empty() {
+            return urls;
+        }
+        for alternate in &self.fallback_urls {
+            for url in http.file_candidates(alternate, self.sha1.as_deref()) {
+                if !urls.contains(&url) {
+                    urls.push(url);
+                }
+            }
+        }
+        // 多个 CDN 可能共用同一镜像。保留清单内的先后顺序，再按用户的源偏好分组。
+        let mirrors_first = match http.source() {
+            super::source::DownloadSource::Auto => !http.checks_slowness(),
+            super::source::DownloadSource::Bmclapi => true,
+            super::source::DownloadSource::Official => false,
+        };
+        urls.sort_by_key(|url| {
+            let declared = url == &self.url || self.fallback_urls.contains(url);
+            declared == mirrors_first
+        });
+        urls
     }
 
     pub fn sha1(mut self, sha1: Option<impl Into<String>>) -> Self {
@@ -424,7 +456,7 @@ impl Downloader {
             tokio::fs::create_dir_all(parent).await.at(parent)?;
         }
 
-        let candidates = self.http.file_candidates(&task.url, task.sha1.as_deref());
+        let candidates = task.candidates(&self.http);
         self.download_from_candidates(task, &candidates, counters, cancel).await
     }
 
@@ -1345,6 +1377,55 @@ mod tests {
             }
         });
         (format!("http://{addr}"), hits)
+    }
+
+    #[tokio::test]
+    async fn mrpack_uses_alternate_url_after_checksum_failure() {
+        use std::io::Write;
+        use crate::content::{download_pack_files, read_modpack, CurseForge};
+        use crate::download::DownloadSource;
+        use crate::install::Reporter;
+
+        let (wrong, wrong_hits) = count_requests(b"junk").await;
+        let (good, good_hits) = count_requests(b"data").await;
+        let dir = tempfile::tempdir().unwrap();
+        let pack = dir.path().join("pack.zip");
+        let mut zip = zip::ZipWriter::new(std::fs::File::create(&pack).unwrap());
+        zip.start_file("modrinth.index.json", zip::write::SimpleFileOptions::default()).unwrap();
+        let index = serde_json::json!({
+            "dependencies": {"minecraft": "1.21.1", "neoforge": "21.1.267"},
+            "files": [{"path":"mods/test.jar", "fileSize":4, "hashes":{"sha1":sha1_bytes(b"data")},
+                       "downloads":[wrong.clone(), wrong, good]}]
+        });
+        zip.write_all(&serde_json::to_vec(&index).unwrap()).unwrap();
+        zip.finish().unwrap();
+        let info = read_modpack(&pack).unwrap();
+        let http = HttpClient::new(DownloadSource::Official).unwrap();
+        let curse = CurseForge::new(http.clone(), None);
+        let downloader = Downloader::new(http, 1);
+        let game = dir.path().join("game");
+        for _ in 0..2 {
+            download_pack_files(&info, &game, &downloader, &curse, &Reporter::silent(), &CancelToken::new())
+                .await.unwrap();
+        }
+        assert_eq!(std::fs::read(game.join("mods/test.jar")).unwrap(), b"data");
+        assert_eq!(wrong_hits.load(Ordering::Relaxed), 1);
+        assert_eq!(good_hits.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn pack_candidate_order_deduplicates_shared_cdn_mirrors() {
+        use crate::download::DownloadSource;
+        let media = "https://mediafilez.forgecdn.net/files/1/2/a.jar";
+        let edge = "https://edge.forgecdn.net/files/1/2/a.jar";
+        let modrinth = "https://cdn.modrinth.com/data/p/versions/v/a.jar";
+        let pack = DownloadTask::new(media, "a.jar").with_fallbacks(&[edge.into(), modrinth.into()]);
+        let cf_mirror = "https://mod.mcimirror.top/files/1/2/a.jar";
+        let mr_mirror = "https://mod.mcimirror.top/data/p/versions/v/a.jar";
+        let http = HttpClient::new(DownloadSource::Auto).unwrap();
+        assert_eq!(pack.candidates(&http), [media, edge, modrinth, cf_mirror, mr_mirror]);
+        http.mark_official_slow();
+        assert_eq!(pack.candidates(&http), [cf_mirror, mr_mirror, media, edge, modrinth]);
     }
 
     #[tokio::test]

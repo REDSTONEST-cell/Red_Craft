@@ -265,8 +265,13 @@ pub async fn download_pack_files(
     for f in &info.files {
         match f {
             PackFile::Direct { path, urls, sha1, size } => {
-                let Some(url) = urls.first() else { continue };
-                tasks.push(DownloadTask::new(url, game_dir.join(path)).sha1(sha1.clone()).size(Some(*size)));
+                let (url, alternates) = urls.split_first().ok_or_else(|| {
+                    CoreError::InvalidData(format!("整合包文件 {path} 没有下载地址"))
+                })?;
+                tasks.push(DownloadTask::new(url, game_dir.join(path))
+                    .with_fallbacks(alternates)
+                    .sha1(sha1.clone())
+                    .size(Some(*size)));
             }
             PackFile::Curse { project, file } => curse.push((*project, *file)),
         }
