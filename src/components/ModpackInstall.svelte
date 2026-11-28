@@ -92,4 +92,10 @@
   dd {
     margin: 0;
   }
+  /* 手机横屏高度有限：信息排成两栏，让「版本名称」不用滚动就能看到 */
+  :global(html.mobile) .meta {
+    grid-template-columns: auto 1fr auto 1fr;
+    gap: 4px 12px;
+    margin-bottom: 10px;
+  }
 </style>

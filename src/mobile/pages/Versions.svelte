@@ -1,7 +1,9 @@
 <script lang="ts">
   import InstanceIcon from "../../components/InstanceIcon.svelte";
   // 手机版「版本」页：已安装的游戏版本卡片，点按选择；资源管理、补全文件、删除放在卡片的操作区
-  import { api, type FileKind, type InstanceInfo } from "../../lib/api";
+  import { api, type FileKind, type InstanceInfo, type ModpackInfo, type PackSource } from "../../lib/api";
+  import { pickFiles } from "../../lib/androidFiles";
+  import ModpackInstall from "../../components/ModpackInstall.svelte";
   import { app, refreshInstances, selectInstance, selectedInstance, showError, toast } from "../../lib/state.svelte";
   import { KIND_LABEL, LOADER_LABEL, relative } from "../../lib/format";
   import Icon from "../../components/Icon.svelte";
@@ -23,6 +25,37 @@
     });
   }
 
+  // 导入本地整合包（.mrpack / .zip）：系统文件选择器把文件复制到应用缓存后交给启动器读取
+  let packOpen = $state(false);
+  let packSource = $state<PackSource | null>(null);
+  let packInfo = $state<ModpackInfo | null>(null);
+  let reading = $state(false);
+
+  async function importPack() {
+    let file: string | undefined;
+    try {
+      [file] = await pickFiles(false);
+    } catch (e) {
+      showError(e, "无法打开文件选择器");
+      return;
+    }
+    if (!file) return;
+    if (!/\.(mrpack|zip)$/i.test(file)) {
+      showError(new Error("请选择 .mrpack 或 .zip 格式的整合包"), "无法导入整合包");
+      return;
+    }
+    reading = true;
+    try {
+      packInfo = await api.readModpackFile(file);
+      packSource = { type: "file", path: file };
+      packOpen = true;
+    } catch (e) {
+      showError(e, "无法读取整合包");
+    } finally {
+      reading = false;
+    }
+  }
+
   async function remove() {
     if (!confirmDelete) return;
     const id = confirmDelete.id;
@@ -42,13 +75,15 @@
     <h1>游戏版本</h1>
     <span class="count">{app.instances.length} 个</span>
     <span class="spacer"></span>
+    <button class="btn sm" disabled={reading} onclick={importPack}><Icon name="box" size={12} /> {reading ? "读取中…" : "导入整合包"}</button>
     <button class="btn sm primary" onclick={() => (app.page = "download")}><Icon name="plus" size={12} /> 安装新版本</button>
   </header>
 
   {#if app.instancesLoaded && !app.instances.length}
     <div class="empty">
       <h3>还没有安装游戏版本</h3>
-      <p>在「下载」中选择一个 Minecraft 版本安装。</p>
+      <p>在「下载」中选择一个 Minecraft 版本安装，或导入已有的整合包（.mrpack / .zip）。</p>
+      <button class="btn" style="margin-top:12px" disabled={reading} onclick={importPack}><Icon name="box" size={12} /> 导入整合包</button>
     </div>
   {:else}
     <div class="grid">
@@ -87,6 +122,8 @@
     </div>
   {/if}
 </div>
+
+<ModpackInstall bind:open={packOpen} source={packSource} title={packInfo?.name ?? ""} info={packInfo} />
 
 <Modal bind:open={deleteOpen} title="删除版本？" width={380}>
   <p>将删除版本「{confirmDelete?.id}」及其中的 Mod、存档等全部文件，此操作无法撤销。</p>

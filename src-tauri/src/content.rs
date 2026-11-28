@@ -607,6 +607,23 @@ pub async fn install_modpack(
 
         // 1. 获取整合包文件
         let (pack_path, downloaded) = match &source {
+            // 手机版的文件选择器把文件复制在缓存目录里，下次选择文件时会被清空；
+            // 安装过程中还要再读整合包（解压 overrides），所以先复制一份，装完删除
+            PackSource::File { path } if cfg!(mobile) => {
+                reporter.stage("读取整合包");
+                let name = path.file_name().map(|n| n.to_owned()).unwrap_or_else(|| "modpack.zip".into());
+                let copy = tmp.join(format!("import-{}-{}", uuid::Uuid::new_v4().simple(), name.to_string_lossy()));
+                let (from, to) = (path.clone(), copy.clone());
+                tauri::async_runtime::spawn_blocking(move || -> AppResult<()> {
+                    use launcher_core::error::IoContext;
+                    std::fs::create_dir_all(to.parent().unwrap_or(&to)).at(&to)?;
+                    std::fs::copy(&from, &to).at(&from)?;
+                    Ok(())
+                })
+                .await
+                .map_err(|e| AppError::msg(e.to_string(), ""))??;
+                (copy, true)
+            }
             PackSource::File { path } => (path.clone(), false),
             PackSource::Online { platform, project_id, version_id } => {
                 reporter.stage("获取整合包信息");
