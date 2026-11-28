@@ -842,11 +842,11 @@ impl Downloader {
                 }
                 let mut active = st.pieces.iter().filter(|p| p.active).count();
                 for i in 0..st.pieces.len() {
-                    let (pos, end, active, prev) = {
+                    let (pos, end, running, prev) = {
                         let p = &st.pieces[i];
                         (p.pos, p.end, p.active, p.source)
                     };
-                    if active || pos >= end {
+                    if running || pos >= end {
                         continue;
                     }
                     let from = if pos == 0 && i == 0 && st.sources[prev].fails == 0 && !st.started {
