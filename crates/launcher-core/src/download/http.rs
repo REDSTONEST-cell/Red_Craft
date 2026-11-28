@@ -134,6 +134,18 @@ impl HttpClient {
         list
     }
 
+    /// 仅对可校验的依赖文件扩展候选仓库，按当前下载偏好排列镜像与官方源。
+    pub(super) fn file_candidates(&self, url: &str, sha1: Option<&str>) -> Vec<String> {
+        let mut list = self.candidates(url);
+        if sha1.is_some_and(|s| s.len() == 40 && s.bytes().all(|b| b.is_ascii_hexdigit())) {
+            if let Some(alternate) = super::source::alternate_library_mirror(url) {
+                let pos = if list[0] == url { list.len() } else { 1 };
+                list.insert(pos, alternate);
+            }
+        }
+        list
+    }
+
     /// 发送 GET 请求，按下载源依次尝试，返回第一个成功的响应。
     pub async fn get(&self, url: &str) -> Result<reqwest::Response> {
         let mut last = None;
@@ -245,6 +257,35 @@ mod tests {
             e >= Duration::from_millis(400) && e < Duration::from_millis(1500),
             "{e:?}"
         );
+    }
+
+    #[test]
+    fn checked_loader_libraries_can_fall_back_to_central() {
+        let path = "net/minecrell/terminalconsoleappender/1.3.0/terminalconsoleappender-1.3.0.jar";
+        let original = format!("https://maven.neoforged.net/releases/{path}");
+        let bmcl = format!("https://bmclapi2.bangbang93.com/maven/{path}");
+        let central = format!("https://maven.aliyun.com/repository/central/{path}");
+        let sha = Some("0123456789abcdef0123456789abcdef01234567");
+        let http = HttpClient::new(DownloadSource::Auto).unwrap();
+        assert_eq!(http.file_candidates(&original, sha), [&original, &bmcl, &central].map(String::as_str));
+        http.mark_official_slow();
+        assert_eq!(http.file_candidates(&original, sha), [&bmcl, &central, &original].map(String::as_str));
+        for source in [DownloadSource::Official, DownloadSource::Bmclapi] {
+            let explicit = http.with_source(source);
+            assert_eq!(explicit.file_candidates(&original, sha)[0], explicit.candidates(&original)[0]);
+        }
+        for no_hash in [None, Some("bad")] {
+            assert_eq!(http.file_candidates(&original, no_hash), http.candidates(&original));
+        }
+        for other in [
+            "https://maven.neoforged.net/releases/net/neoforged/neoforge/x.jar",
+            "https://maven.neoforged.net/releases/maven-metadata.xml",
+            "https://example.com/mods/x.jar",
+        ] {
+            assert_eq!(http.file_candidates(other, sha), http.candidates(other));
+        }
+        let mojang = format!("https://libraries.minecraft.net/{path}");
+        assert!(http.file_candidates(&mojang, sha).contains(&format!("https://bmclapi2.bangbang93.com/libraries/{path}")));
     }
 
     #[test]

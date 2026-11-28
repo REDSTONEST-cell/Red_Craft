@@ -50,6 +50,23 @@ pub fn mirror_of(url: &str) -> Option<String> {
     })
 }
 
+/// Mojang 库可尝试 PCL 使用的 /libraries 路径；加载器仓库代理的第三方 JAR 也可能来自 Maven Central。
+/// 仅供有清单哈希的文件使用，返回内容必须通过原清单校验。
+pub(super) fn alternate_library_mirror(url: &str) -> Option<String> {
+    if !url.ends_with(".jar") || url.contains(['?', '#']) {
+        return None;
+    }
+    if let Some(path) = url.strip_prefix("https://libraries.minecraft.net/") {
+        return Some(format!("{BMCLAPI}/libraries/{path}"));
+    }
+    let path = url.strip_prefix("https://maven.neoforged.net/releases/")
+        .or_else(|| url.strip_prefix("https://maven.minecraftforge.net/"))?;
+    if path.starts_with("net/neoforged/") || path.starts_with("net/minecraftforge/") {
+        return None;
+    }
+    Some(format!("https://maven.aliyun.com/repository/central/{path}"))
+}
+
 impl DownloadSource {
     /// 按尝试顺序返回候选 URL。
     pub fn candidates(self, url: &str) -> Vec<String> {

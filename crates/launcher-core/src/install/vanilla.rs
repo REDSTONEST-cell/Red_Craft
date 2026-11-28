@@ -160,9 +160,10 @@ impl Installer {
             let path = self.game.asset_index(&ai.id);
             let task = DownloadTask::new(&ai.url, &path)
                 .sha1(Some(ai.sha1.clone()))
-                .size(Some(ai.size));
+                .size(Some(ai.size))
+                .without_splitting();
             self.downloader
-                .download_all(vec![task], Arc::new(|_| {}), cancel)
+                .download_all(vec![task], reporter.progress.clone(), cancel)
                 .await?;
             let parsed = {
                 let path = path.clone();
