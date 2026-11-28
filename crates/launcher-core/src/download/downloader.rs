@@ -247,7 +247,7 @@ pub struct Downloader {
     concurrency: usize,
     retries: u32,
     /// 分块下载额外占用的连接数（所有文件合计，不超过并发数）
-    extra: Arc<AtomicUsize>,
+    extra: Arc<Semaphore>,
     /// 已校验文件的记录（可选）
     verified: Option<Arc<VerifyCache>>,
 }
@@ -258,7 +258,7 @@ impl Downloader {
             http,
             concurrency: concurrency.clamp(1, 256),
             retries: 3,
-            extra: Arc::new(AtomicUsize::new(0)),
+            extra: Arc::new(Semaphore::new(concurrency.clamp(1, 256))),
             verified: None,
         }
     }
@@ -336,35 +336,41 @@ impl Downloader {
 
         // 已经存在的文件先在一个后台线程里集中检查（大小，以及校验记录）：
         // 启动前补全文件时几千个文件绝大多数都在，逐个创建异步任务再切换到阻塞线程池读取文件信息要慢得多
-        let tasks = self.skip_present(tasks, &counters, cancel).await?;
-
-        let semaphore = Arc::new(Semaphore::new(self.concurrency));
+        let mut tasks = match self.skip_present(tasks, &counters, cancel).await {
+            Ok(tasks) => tasks,
+            Err(e) => {
+                reporter.abort();
+                return Err(e);
+            }
+        };
+        // 大文件先占用下载槽位，避免清单尾部的大 Mod 到最后才开始传输。
+        tasks.sort_by_key(|t| std::cmp::Reverse(t.size.unwrap_or(0)));
+        let mut queue = tasks.into_iter();
         let mut set = JoinSet::new();
-        for task in tasks {
-            let sem = semaphore.clone();
-            let this = self.clone();
-            let counters = counters.clone();
-            let cancel = cancel.clone();
-            set.spawn(async move {
-                let _permit = sem.acquire_owned().await.expect("semaphore closed");
-                cancel.check()?;
-                let r = this.download_one(&task, &counters, &cancel).await;
-                if r.is_ok() {
-                    if let (Some(cache), Some(sha1)) = (&this.verified, task.sha1.as_deref()) {
-                        cache.record(&task.path, sha1);
-                    }
-                }
-                match &r {
-                    Ok(()) => counters.done_files.fetch_add(1, Ordering::Relaxed),
-                    Err(_) => counters.failed_files.fetch_add(1, Ordering::Relaxed),
-                };
-                r
-            });
-        }
-
         let mut first_err: Option<CoreError> = None;
         let mut failed = 0;
-        while let Some(joined) = set.join_next().await {
+        loop {
+            while set.len() < self.concurrency {
+                let Some(task) = queue.next() else { break };
+                let this = self.clone();
+                let counters = counters.clone();
+                let cancel = cancel.clone();
+                set.spawn(async move {
+                    cancel.check()?;
+                    let r = this.download_one(&task, &counters, &cancel).await;
+                    if r.is_ok() {
+                        if let (Some(cache), Some(sha1)) = (&this.verified, task.sha1.as_deref()) {
+                            cache.record(&task.path, sha1);
+                        }
+                    }
+                    match &r {
+                        Ok(()) => counters.done_files.fetch_add(1, Ordering::Relaxed),
+                        Err(_) => counters.failed_files.fetch_add(1, Ordering::Relaxed),
+                    };
+                    r
+                });
+            }
+            let Some(joined) = set.join_next().await else { break };
             let r = joined.unwrap_or_else(|e| Err(CoreError::InvalidData(format!("下载任务异常退出：{e}"))));
             if let Err(e) = r {
                 if matches!(e, CoreError::Cancelled) {
@@ -700,8 +706,20 @@ fn splittable(url: &str) -> bool {
     !["bmclapi", "github.com", "optifine.net"].iter().any(|k| url.contains(k))
 }
 
+fn valid_piece_range(header: Option<&str>, pos: u64, end: u64, size: u64) -> bool {
+    let Some((unit, value)) = header.and_then(|v| v.trim().split_once(' ')) else { return false };
+    if !unit.eq_ignore_ascii_case("bytes") { return false; }
+    let Some((interval, total)) = value.split_once('/') else {
+        return false;
+    };
+    let Some((first, last)) = interval.split_once('-') else { return false };
+    first.parse() == Ok(pos) && last.parse::<u64>().is_ok_and(|n| pos <= n && n < end)
+        && (total == "*" || total.parse() == Ok(size))
+}
+
 struct SplitSource {
     url: String,
+    whole_only: bool,
     fails: u32,
     disabled: bool,
 }
@@ -713,13 +731,25 @@ struct Piece {
     end: u64,
     active: bool,
     source: usize,
+    /// 正写入磁盘的右边界；拆分不能把这段字节交给另一连接。
+    writing_until: u64,
+    /// 记录因持续低速放弃过的源。全部试过后允许慢速完成。
+    slow_sources: Vec<usize>,
+}
+
+impl Piece {
+    fn new(pos: u64, end: u64, source: usize) -> Self {
+        Self { pos, end, active: false, source, writing_until: pos, slow_sources: Vec::new() }
+    }
+
+    fn available(&self) -> u64 {
+        self.end.saturating_sub(self.pos.max(self.writing_until))
+    }
 }
 
 struct SplitState {
     sources: Vec<SplitSource>,
     pieces: Vec<Piece>,
-    /// 服务器不支持分块请求（返回了整个文件）
-    no_ranges: bool,
     /// 已经有连接收到过数据
     started: bool,
     next_source: usize,
@@ -727,12 +757,30 @@ struct SplitState {
 }
 
 impl SplitState {
-    /// 从 `from` 开始的第一个可用源；`split_only` 时只选允许多线程的源。
-    fn pick(&mut self, from: usize, split_only: bool) -> Option<usize> {
+    fn rotate_slow_piece(&mut self, index: usize) -> bool {
+        let piece = &mut self.pieces[index];
+        if piece.slow_sources.contains(&piece.source) {
+            return false;
+        }
+        let alternate = self.sources.iter().enumerate().any(|(i, s)| {
+            i != piece.source && !s.disabled && !s.whole_only && !piece.slow_sources.contains(&i)
+        });
+        if alternate {
+            piece.slow_sources.push(piece.source);
+        }
+        alternate
+    }
+
+    /// 优先选择还没因低速换掉的源，续传和额外连接分别检查 Range 与多线程限制。
+    fn pick(&self, from: usize, need_range: bool, extra: bool, avoid: &[usize]) -> Option<usize> {
         let n = self.sources.len();
         (0..n)
             .map(|i| (from + i) % n)
-            .find(|&i| !self.sources[i].disabled && (!split_only || splittable(&self.sources[i].url)))
+            .filter(|&i| {
+                let s = &self.sources[i];
+                !s.disabled && (!need_range || !s.whole_only) && (!extra || splittable(&s.url))
+            })
+            .min_by_key(|i| avoid.contains(i))
     }
 }
 
@@ -763,21 +811,25 @@ impl Downloader {
             f.set_len(size).await.at(&part)?;
         }
         let state = Arc::new(std::sync::Mutex::new(SplitState {
-            sources: candidates.iter().map(|u| SplitSource { url: u.clone(), fails: 0, disabled: false }).collect(),
-            pieces: vec![Piece { pos: 0, end: size, active: false, source: 0 }],
-            no_ranges: false,
+            sources: candidates.iter().map(|u| SplitSource { url: u.clone(), fails: 0, disabled: false, whole_only: false }).collect(),
+            pieces: vec![Piece::new(0, size, 0)],
             started: false,
-            next_source: 0,
+            next_source: 1,
             last_error: None,
         }));
         let done_total = Arc::new(AtomicU64::new(0));
         let mut workers: JoinSet<()> = JoinSet::new();
-        let mut extra_held = 0usize;
+        let received = Arc::new(AtomicU64::new(0));
         let mut last_split = Instant::now();
         // 实际传输速度：从收到第一批数据开始测量，(开始时间, 当时已下载字节)
         let mut sample: Option<(Instant, u64)> = None;
         let mut speed = f64::MAX;
-        let result = loop {
+        let result = 'download: loop {
+            while let Some(joined) = workers.try_join_next() {
+                if let Err(e) = joined {
+                    break 'download Err(CoreError::InvalidData(format!("分块任务异常退出：{e}")));
+                }
+            }
             if cancel.is_cancelled() {
                 break Err(CoreError::Cancelled);
             }
@@ -785,10 +837,10 @@ impl Downloader {
             let mut launch = Vec::new();
             {
                 let mut st = state.lock().expect("split state");
-                if st.pieces.iter().all(|p| p.pos >= p.end) {
+                if st.pieces.iter().all(|p| p.pos >= p.end && !p.active) {
                     break Ok(());
                 }
-                let no_ranges = st.no_ranges;
+                let mut active = st.pieces.iter().filter(|p| p.active).count();
                 for i in 0..st.pieces.len() {
                     let (pos, end, active, prev) = {
                         let p = &st.pieces[i];
@@ -797,26 +849,28 @@ impl Downloader {
                     if active || pos >= end {
                         continue;
                     }
-                    // 不支持分块的服务器只能从头整个下载
-                    if no_ranges && (i != 0 || pos != 0) {
-                        continue;
-                    }
                     let from = if pos == 0 && i == 0 && st.sources[prev].fails == 0 && !st.started {
                         prev
                     } else {
                         prev + 1
                     };
-                    let Some(src) = st.pick(from, false) else { continue };
+                    let Some(src) = st.pick(from, pos > 0, active > 0, &st.pieces[i].slow_sources) else { continue };
+                    let permit = if active == 0 {
+                        None
+                    } else {
+                        let Ok(permit) = self.extra.clone().try_acquire_owned() else { break };
+                        Some(permit)
+                    };
                     st.pieces[i].active = true;
                     st.pieces[i].source = src;
-                    launch.push((i, st.sources[src].url.clone()));
+                    active += 1;
+                    launch.push((i, st.sources[src].url.clone(), permit));
                 }
-                let active = st.pieces.iter().filter(|p| p.active).count();
-                if active == 0 && launch.is_empty() {
+                if active == 0 {
                     break Err(st.last_error.take().unwrap_or_else(|| CoreError::InvalidData("所有下载源都不可用".into())));
                 }
                 // 每测满 1 秒更新一次速度
-                let now = done_total.load(Ordering::Relaxed);
+                let now = received.load(Ordering::Relaxed);
                 match sample {
                     None if now > 0 => sample = Some((Instant::now(), now)),
                     Some((at, from)) if at.elapsed() >= SPLIT_AFTER => {
@@ -829,43 +883,52 @@ impl Downloader {
                 // 拆分：把剩余最大的块从 60% 处切开，交给下一个可以多线程下载的源
                 if st.started
                     && per_conn < SPLIT_BELOW_PER_CONN
-                    && !st.no_ranges
-                    && st.pieces.len() < MAX_PIECES
+                    && st.pieces.iter().filter(|p| p.pos < p.end).count() < MAX_PIECES
+                    && self.http.limiter().rate() == 0
                     && last_split.elapsed() >= Duration::from_millis(300)
-                    && self.extra.load(Ordering::Relaxed) < self.concurrency
+                    && self.extra.available_permits() > 0
                 {
                     let largest = st
                         .pieces
                         .iter()
                         .enumerate()
                         .filter(|(_, p)| p.active)
-                        .max_by_key(|(_, p)| p.end.saturating_sub(p.pos))
-                        .map(|(i, p)| (i, p.end.saturating_sub(p.pos)));
+                        .max_by_key(|(_, p)| p.available())
+                        .map(|(i, p)| (i, p.available()));
                     if let Some((i, remaining)) = largest.filter(|(_, r)| *r >= PIECE_MIN * 2) {
                         let next = st.next_source;
-                        if let Some(src) = st.pick(next, true) {
+                        if let (Some(src), Ok(permit)) = (st.pick(next, true, true, &st.pieces[i].slow_sources), self.extra.clone().try_acquire_owned()) {
                             st.next_source = src + 1;
                             let end = st.pieces[i].end;
                             let start = end - remaining * 2 / 5;
                             st.pieces[i].end = start;
-                            st.pieces.push(Piece { pos: start, end, active: true, source: src });
-                            launch.push((st.pieces.len() - 1, st.sources[src].url.clone()));
-                            self.extra.fetch_add(1, Ordering::Relaxed);
-                            extra_held += 1;
+                            let mut piece = Piece::new(start, end, src);
+                            piece.active = true;
+                            piece.slow_sources = st.pieces[i].slow_sources.clone();
+                            let index = if let Some(slot) = st.pieces.iter().position(|p| !p.active && p.pos >= p.end) {
+                                st.pieces[slot] = piece;
+                                slot
+                            } else {
+                                st.pieces.push(piece);
+                                st.pieces.len() - 1
+                            };
+                            launch.push((index, st.sources[src].url.clone(), Some(permit)));
                             last_split = Instant::now();
                         }
                     }
                 }
             }
-            for (index, url) in launch {
+            for (index, url, permit) in launch {
                 let this = self.clone();
                 let state = state.clone();
                 let part = part.clone();
                 let cancel = cancel.clone();
                 let done_total = done_total.clone();
                 let counters = counters.clone();
+                let received = received.clone();
                 workers.spawn(async move {
-                    let r = this.fetch_piece(&url, &state, index, &part, size, &counters, &done_total, &cancel).await;
+                    let _permit = permit;
+                    let r = this.fetch_piece(&url, &state, index, &part, size, &counters, &done_total, &received, &cancel).await;
                     let mut st = state.lock().expect("split state");
                     st.pieces[index].active = false;
                     if let Err(e) = r {
@@ -888,7 +951,6 @@ impl Downloader {
         // 结束所有连接
         workers.abort_all();
         while workers.join_next().await.is_some() {}
-        self.extra.fetch_sub(extra_held, Ordering::Relaxed);
         *written = done_total.load(Ordering::Relaxed);
         if let Err(e) = result {
             let _ = tokio::fs::remove_file(&part).await;
@@ -919,6 +981,7 @@ impl Downloader {
         size: u64,
         counters: &Counters,
         done_total: &AtomicU64,
+        received: &AtomicU64,
         cancel: &CancelToken,
     ) -> Result<()> {
         use tokio::io::AsyncSeekExt;
@@ -926,7 +989,7 @@ impl Downloader {
             let st = state.lock().expect("split state");
             (st.pieces[index].pos, st.pieces[index].end)
         };
-        let req = self.http.raw().get(url);
+        let req = self.http.raw().get(url).header(reqwest::header::ACCEPT_ENCODING, "identity");
         let req = if pos == 0 && end == size { req.header("Range", "bytes=0-") } else { req.header("Range", format!("bytes={pos}-{}", end - 1)) };
         let resp = tokio::time::timeout(PIECE_STALL * 2, req.send())
             .await
@@ -936,18 +999,30 @@ impl Downloader {
         if !(200..300).contains(&status) {
             return Err(CoreError::HttpStatus { url: url.to_string(), status });
         }
-        if status != 206 {
-            // 服务器不支持分块：只有从头开始的块可以继续（整个文件单线程）
-            if pos != 0 {
-                return Err(CoreError::HttpStatus { url: url.to_string(), status: 416 });
+        if status == 206 {
+            // 换 CDN 续传前核对响应偏移；只有实际返回所请求的字节才能写入该位置。
+            let range = resp.headers().get(reqwest::header::CONTENT_RANGE).and_then(|v| v.to_str().ok());
+            if !valid_piece_range(range, pos, end, size) {
+                let mut st = state.lock().expect("split state");
+                let src = st.pieces[index].source;
+                st.sources[src].disabled = true;
+                return Err(CoreError::InvalidData(format!("{url} 返回的 Content-Range 与请求不符")));
             }
-            state.lock().expect("split state").no_ranges = true;
+        } else {
+            let mut st = state.lock().expect("split state");
+            let src = st.pieces[index].source;
+            st.sources[src].whole_only = true;
+            if pos != 0 || status != 200 {
+                return Err(CoreError::InvalidData(format!("{url} 未返回所请求的数据段")));
+            }
         }
         let mut file = tokio::fs::OpenOptions::new().write(true).open(part).await.at(part)?;
         file.seek(std::io::SeekFrom::Start(pos)).await.at(part)?;
         let mut stream = resp.bytes_stream();
         let mut buf: Vec<u8> = Vec::with_capacity(PIECE_FLUSH);
         let mut at = pos;
+        let mut sample_at = Instant::now();
+        let mut sample_pos = pos;
         loop {
             if cancel.is_cancelled() {
                 return Err(CoreError::Cancelled);
@@ -973,7 +1048,9 @@ impl Downloader {
             // 只写到当前的结束位置（块可能已被拆分）
             let limit = state.lock().expect("split state").pieces[index].end;
             let room = limit.saturating_sub(at + buf.len() as u64) as usize;
-            buf.extend_from_slice(&chunk[..chunk.len().min(room)]);
+            let accepted = chunk.len().min(room);
+            buf.extend_from_slice(&chunk[..accepted]);
+            received.fetch_add(accepted as u64, Ordering::Relaxed);
             {
                 let mut st = state.lock().expect("split state");
                 st.started = true;
@@ -981,8 +1058,32 @@ impl Downloader {
             if buf.len() >= PIECE_FLUSH || chunk.len() > room {
                 flush_piece(&mut file, &mut buf, state, index, &mut at, part, counters, done_total).await?;
             }
-            if at >= limit {
+            let position = at + buf.len() as u64;
+            if position >= limit {
+                flush_piece(&mut file, &mut buf, state, index, &mut at, part, counters, done_total).await?;
                 return Ok(());
+            }
+            // 按最近一个时间窗测速，早先的高速突发不会掩盖收尾时的慢连接。
+            let elapsed = sample_at.elapsed();
+            if elapsed >= SLOW_RESPONSE {
+                let advanced = position - sample_pos;
+                let remaining = limit - position;
+                sample_at = Instant::now();
+                sample_pos = position;
+                let speed = advanced as f64 / elapsed.as_secs_f64();
+                let threshold = if counters.remaining_files() <= self.concurrency {
+                    256.0 * 1024.0
+                } else {
+                    SLOW_SPEED
+                };
+                if self.http.limiter().rate() == 0 && speed < threshold
+                    && remaining as f64 > speed * (2 * SLOW_RESPONSE).as_secs_f64()
+                    && state.lock().expect("split state").rotate_slow_piece(index)
+                {
+                    flush_piece(&mut file, &mut buf, state, index, &mut at, part, counters, done_total).await?;
+                    log::debug!("分块下载持续低速，换源续传 {url}，偏移 {at}");
+                    return Ok(());
+                }
             }
         }
         flush_piece(&mut file, &mut buf, state, index, &mut at, part, counters, done_total).await?;
@@ -1007,12 +1108,17 @@ async fn flush_piece(
     done_total: &AtomicU64,
 ) -> Result<()> {
     // 缓冲期间这个块可能被拆分（结束位置提前）：超出的部分属于新的块，不写入也不计入进度
-    let end = state.lock().expect("split state").pieces[index].end;
-    buf.truncate(end.saturating_sub(*at).min(buf.len() as u64) as usize);
+    {
+        let mut st = state.lock().expect("split state");
+        let piece = &mut st.pieces[index];
+        buf.truncate(piece.end.saturating_sub(*at).min(buf.len() as u64) as usize);
+        piece.writing_until = *at + buf.len() as u64;
+    }
     if buf.is_empty() {
         return Ok(());
     }
     file.write_all(buf).await.at(part)?;
+    file.flush().await.at(part)?;
     let n = buf.len() as u64;
     *at += n;
     buf.clear();
@@ -1157,15 +1263,25 @@ mod tests {
 
     /// 本地 HTTP 服务：支持 Range，每个连接限速（模拟单连接很慢的网络）；路径为 /bad 时返回 404。
     async fn serve(data: Arc<Vec<u8>>, per_conn_bps: usize) -> (String, Arc<AtomicUsize>) {
+        let (url, hits, _) = serve_ranges(data, per_conn_bps).await;
+        (url, hits)
+    }
+
+    type Requests = Arc<std::sync::Mutex<Vec<(String, usize)>>>;
+
+    async fn serve_ranges(data: Arc<Vec<u8>>, per_conn_bps: usize) -> (String, Arc<AtomicUsize>, Requests) {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
+        let requests = Requests::default();
+        let log = requests.clone();
         let conns = Arc::new(AtomicUsize::new(0));
         let c = conns.clone();
         tokio::spawn(async move {
             loop {
                 let (mut sock, _) = listener.accept().await.unwrap();
                 let data = data.clone();
+                let log = log.clone();
                 c.fetch_add(1, Ordering::Relaxed);
                 tokio::spawn(async move {
                     let mut req = Vec::new();
@@ -1183,7 +1299,9 @@ mod tests {
                         return;
                     }
                     let range = text.lines().find_map(|l| l.to_ascii_lowercase().strip_prefix("range: bytes=").map(str::to_string));
-                    let (start, end) = match range {
+                    let path = text.split_whitespace().nth(1).unwrap().to_string();
+                    let whole = path == "/whole";
+                    let (start, end) = match range.filter(|_| !whole) {
                         Some(r) => {
                             let (a, b) = r.trim().split_once('-').unwrap();
                             let a: usize = a.parse().unwrap();
@@ -1192,11 +1310,13 @@ mod tests {
                         }
                         None => (0, data.len() - 1),
                     };
-                    let head = format!(
-                        "HTTP/1.1 206 Partial Content\r\nContent-Length: {}\r\nContent-Range: bytes {start}-{end}/{}\r\n\r\n",
-                        end - start + 1,
-                        data.len()
-                    );
+                    log.lock().unwrap().push((path, start));
+                    let head = if whole {
+                        format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", data.len())
+                    } else {
+                        format!("HTTP/1.1 206 Partial Content\r\nContent-Length: {}\r\nContent-Range: bytes {start}-{end}/{}\r\n\r\n",
+                                end - start + 1, data.len())
+                    };
                     if sock.write_all(head.as_bytes()).await.is_err() {
                         return;
                     }
@@ -1209,7 +1329,7 @@ mod tests {
                 });
             }
         });
-        (format!("http://{addr}"), conns)
+        (format!("http://{addr}"), conns, requests)
     }
 
     #[tokio::test]
@@ -1266,7 +1386,70 @@ mod tests {
         assert_eq!(std::fs::read(&path).unwrap(), *data);
         assert!(conns.load(Ordering::Relaxed) > 2, "应当使用多个连接");
         assert!(took < Duration::from_millis(3000), "分块下载应快于单线程：{took:?}");
-        assert_eq!(d.extra.load(Ordering::Relaxed), 0);
+        assert_eq!(d.extra.available_permits(), d.concurrency);
+    }
+
+    #[tokio::test]
+    async fn slow_whole_file_resumes_on_a_range_cdn() {
+        // 首选 CDN 忽略 Range，每秒仍传 16 KiB，不会发生空闲超时。
+        // 占满额外连接槽位，确保备用 CDN 接到的是续传请求，而非后台拆出的新区间。
+        let data: Arc<Vec<u8>> = Arc::new((0..2 * 1024 * 1024).map(|n| (n % 251) as u8).collect());
+        let (slow, hits) = serve(data.clone(), 16 * 1024).await;
+        let (fast, _, requests) = serve_ranges(data.clone(), 16 * 1024 * 1024).await;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mod.jar");
+        let d = Downloader::new(HttpClient::new(crate::download::DownloadSource::Auto).unwrap(), 1);
+        let _busy = d.extra.clone().acquire_owned().await.unwrap();
+        let task = DownloadTask::new(format!("{slow}/whole"), &path)
+            .with_fallbacks(&[format!("{fast}/file")]).sha1(Some(sha1_bytes(&data))).size(Some(data.len() as u64));
+        let counters = Arc::new(Counters::default());
+        let start = Instant::now();
+        tokio::time::timeout(Duration::from_secs(20), d.download_one(&task, &counters, &CancelToken::new()))
+            .await.expect("持续低速时应续传").unwrap();
+        let offsets = requests.lock().unwrap();
+        assert_eq!(hits.load(Ordering::Relaxed), 1);
+        assert_eq!(offsets.len(), 1);
+        assert!(offsets[0].1 > 0 && offsets[0].1 < PIECE_FLUSH, "首段的缓冲应在换源前落盘");
+        assert_eq!(std::fs::read(path).unwrap(), *data);
+        assert_eq!(counters.done_bytes.load(Ordering::Relaxed), data.len() as u64);
+        println!("2 MiB，首源 16 KiB/s，续传偏移 {}，总耗时 {:?}", offsets[0].1, start.elapsed());
+    }
+
+    #[tokio::test]
+    async fn finished_range_releases_extra_slot_before_file_completes() {
+        let data = Arc::new(vec![42; 4 * 1024 * 1024]);
+        let (slow, _) = serve(data.clone(), 128 * 1024).await;
+        let (fast, hits) = serve(data.clone(), 16 * 1024 * 1024).await;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mod.jar");
+        let d = Downloader::new(HttpClient::new(crate::download::DownloadSource::Auto).unwrap(), 1);
+        let task = DownloadTask::new(format!("{slow}/file"), &path)
+            .with_fallbacks(&[format!("{fast}/file")]).size(Some(data.len() as u64));
+        let cancel = CancelToken::new();
+        let run = {
+            let d = d.clone();
+            let token = cancel.clone();
+            tokio::spawn(async move { d.download_one(&task, &Arc::new(Counters::default()), &token).await })
+        };
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while hits.load(Ordering::Relaxed) == 0 {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            let _freed = d.extra.acquire().await.unwrap();
+            assert!(!path.exists(), "第一个快分块结束时，文件应仍在下载");
+            cancel.cancel();
+        }).await.unwrap();
+        assert!(matches!(run.await.unwrap(), Err(CoreError::Cancelled)));
+        assert_eq!(d.extra.available_permits(), 1);
+        assert!(!part_path(&path).exists());
+    }
+
+    #[test]
+    fn resumed_ranges_must_match_requested_offset() {
+        assert!(valid_piece_range(Some("bytes 41-63/100"), 41, 64, 100));
+        assert!(!valid_piece_range(Some("bytes 0-63/100"), 41, 64, 100));
+        assert!(!valid_piece_range(Some("bytes 41-63/99"), 41, 64, 100));
+        assert!(!valid_piece_range(None, 41, 64, 100));
     }
 
     #[tokio::test]
