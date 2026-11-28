@@ -111,7 +111,9 @@ jobs:
 
   release:
     name: 发布 Release
-    if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != '' ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.head_commit.message == 'release: v1.1.22')
     needs: bundle
     runs-on: ubuntu-22.04
     permissions:
@@ -125,7 +127,7 @@ jobs:
       - name: 创建 Release 并上传安装包
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ inputs.release_tag || github.ref_name }}
+          TAG: ${{ inputs.release_tag || (github.ref == 'refs/heads/main' && 'v1.1.22') || github.ref_name }}
         run: |
           # 产物按 bundle/<类型>/ 分目录保存，这里收集所有文件
           mapfile -t files < <(find dist-release -type f)
